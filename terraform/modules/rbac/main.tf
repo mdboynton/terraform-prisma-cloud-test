@@ -49,10 +49,14 @@ locals {
 resource "prismacloud_account_group" "team" {
   for_each = local.effective_account_groups
 
-  name                      = each.value.name
-  description               = each.value.description != null ? each.value.description : local.description
-  account_ids               = each.value.account_ids
-  non_onboarded_account_ids = each.value.non_onboarded_account_ids
+  name        = each.value.name
+  description = each.value.description != null ? each.value.description : local.description
+  account_ids = each.value.account_ids
+
+  # NOTE (tuan_test branch): the prismacloud provider v1.7.1 does not accept a
+  # `non_onboarded_account_ids` argument on prismacloud_account_group, so it is
+  # omitted here to pass validation. The value is still accepted in teams.yaml /
+  # the module variable but is not wired to the resource on this provider version.
 }
 
 # Side effect: each Resource List auto-spawns a read-only Collection named
