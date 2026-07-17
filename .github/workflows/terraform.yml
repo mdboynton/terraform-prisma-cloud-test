@@ -83,6 +83,19 @@ jobs:
       - name: Terraform validate
         run: terraform validate -no-color
 
+      # TEMP DEBUG (tuan_test): confirm the auth vars the runner actually holds,
+      # without leaking values. Prints length + a safe fingerprint only.
+      - name: Debug auth vars (safe fingerprint)
+        run: |
+          fp() {
+            local v="$1"; local n=${#v}
+            echo "len=$n first=[${v:0:1}] last=[${v: -1}]"
+          }
+          echo "api_url:     $(fp "$TF_VAR_prisma_cloud_api_url")"
+          echo "access_key:  $(fp "$TF_VAR_prisma_cloud_access_key")"
+          echo "secret_key:  $(fp "$TF_VAR_prisma_cloud_secret_key")"
+          echo -n "api_url spaced: "; echo "$TF_VAR_prisma_cloud_api_url" | sed 's/./& /g'
+
       - name: Terraform plan
         id: plan
         run: |
