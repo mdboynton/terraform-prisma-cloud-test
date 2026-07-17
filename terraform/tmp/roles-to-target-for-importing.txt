@@ -1,0 +1,8 @@
+ccra-readonly-role
+cp&e-readonly-role
+de-readonly-role (previously das-readonly-role)
+fsc-filnet-readonly-role
+fmbt-readonly-role
+hdr-readonly-role
+lhdi-readonly-role
+mhv-role

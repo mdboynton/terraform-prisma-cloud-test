@@ -1,0 +1,185 @@
+{
+    "value": [
+        {
+            "id": "fea7d1ff-cd33-4554-bfe2-5caec1028df8",
+            "name": "das-app-rl",
+            "description": "das application ",
+            "createdBy": "ashu.mbenga@va.gov",
+            "lastModifiedBy": "ashu.mbenga@va.gov",
+            "createdTs": 1779470737326,
+            "lastModifiedTs": 1779470737326,
+            "assetGroups": {}
+        },
+        {
+            "id": "d976b951-0612-471e-b15e-b62d881ebfe7",
+            "name": "DIP-add-rl",
+            "description": "dip Application Workload",
+            "createdBy": "ashu.mbenga@va.gov",
+            "lastModifiedBy": "maxwell.boynton@va.gov",
+            "createdTs": 1778091876568,
+            "lastModifiedTs": 1779815478084,
+            "assetGroups": {
+                "accountGroupIds": [
+                    "4ea6478f-c9f1-443f-a275-4192c64c00c3"
+                ]
+            }
+        },
+        {
+            "id": "b0c6645a-9b15-48f3-9887-0a97e8384eed",
+            "name": "cp&e-app-rl",
+            "description": "cp&e application workload ",
+            "createdBy": "mohammed.khan8@va.gov",
+            "lastModifiedBy": "mohammed.khan8@va.gov",
+            "createdTs": 1780076442063,
+            "lastModifiedTs": 1780076442063,
+            "assetGroups": {}
+        },
+        {
+            "id": "9ad8854e-2e94-4727-a569-c4488547e061",
+            "name": "ccra-app-rl",
+            "description": "CCRA Application Workload",
+            "createdBy": "devon.osborne@va.gov",
+            "lastModifiedBy": "devon.osborne@va.gov",
+            "createdTs": 1779394952624,
+            "lastModifiedTs": 1779394952624,
+            "assetGroups": {}
+        },
+        {
+            "id": "93016eb7-01eb-4df4-8730-3ff0efa47750",
+            "name": "VA All Collection",
+            "description": "VA All Collection to include all unassigned VA resources",
+            "createdBy": "justin.mcbeth@va.gov",
+            "lastModifiedBy": "justin.mcbeth@va.gov",
+            "createdTs": 1771507365345,
+            "lastModifiedTs": 1771507365345,
+            "assetGroups": {}
+        },
+        {
+            "id": "814bf90f-88b3-477c-b522-4bd450ed1934",
+            "name": "defender-install-rl",
+            "description": "Collection group tied to providing access to Prisma Cloud Defender installation and deployment resources to system owners",
+            "createdBy": "michael.reisis@va.gov",
+            "lastModifiedBy": "michael.reisis@va.gov",
+            "createdTs": 1780598160984,
+            "lastModifiedTs": 1780598160984,
+            "assetGroups": {}
+        },
+        {
+            "id": "807d641b-4ab1-4f7c-9ce6-0e0c7c32feff",
+            "name": "mhv-assets",
+            "description": "mhv application workload",
+            "createdBy": "terraform-sa",
+            "lastModifiedBy": "terraform-sa",
+            "createdTs": 1783718588736,
+            "lastModifiedTs": 1783720704421,
+            "assetGroups": {
+                "accountGroupIds": [
+                    "e6249df6-6c29-43cf-8b27-8559b1473d06"
+                ]
+            }
+        },
+        {
+            "id": "6ca6eab0-91d6-4d29-ae0e-0d32f0b72276",
+            "name": "dtc-assets",
+            "description": "DIC Integration Platform (DIP). Managed by Terraform.",
+            "createdBy": "terraform-sa",
+            "lastModifiedBy": "terraform-sa",
+            "createdTs": 1783720703644,
+            "lastModifiedTs": 1783720703644,
+            "assetGroups": {
+                "accountGroupIds": [
+                    "628b646c-5191-4996-9190-5ce078d823b1"
+                ]
+            }
+        },
+        {
+            "id": "58a0cea5-e6ad-49e8-b9aa-37e82ceb8854",
+            "name": "lighthouse-aws-dev-collection",
+            "description": "Lighthouse team workloads in dev AWS environment.",
+            "createdBy": "justin.mcbeth@va.gov",
+            "lastModifiedBy": "maxwell.boynton@va.gov",
+            "createdTs": 1776705940629,
+            "lastModifiedTs": 1780349335132,
+            "assetGroups": {
+                "accountGroupIds": [
+                    "5d8e02d5-3407-48bb-89f5-acce3d17086b"
+                ]
+            }
+        },
+        {
+            "id": "41e27a5c-02b3-4a3b-9fff-ba5c36a39091",
+            "name": "fsc-app-rl",
+            "description": "fsc application workload ",
+            "createdBy": "ashu.mbenga@va.gov",
+            "lastModifiedBy": "ashu.mbenga@va.gov",
+            "createdTs": 1779308329380,
+            "lastModifiedTs": 1779317070265,
+            "assetGroups": {}
+        },
+        {
+            "id": "2fe14cb3-3c5b-4b62-842d-acbef49b15c4",
+            "name": "dms-app-rl",
+            "description": "dms application workload ",
+            "createdBy": "ashu.mbenga@va.gov",
+            "lastModifiedBy": "ashu.mbenga@va.gov",
+            "createdTs": 1782503171728,
+            "lastModifiedTs": 1782503171728,
+            "assetGroups": {}
+        },
+        {
+            "id": "20dbfdf1-9af4-467e-80fa-c95cb7192f17",
+            "name": "sdp-app-cl",
+            "description": "SDP Application Workload",
+            "createdBy": "justin.mcbeth@va.gov",
+            "lastModifiedBy": "justin.mcbeth@va.gov",
+            "createdTs": 1777485187641,
+            "lastModifiedTs": 1777485187641,
+            "assetGroups": {}
+        },
+        {
+            "id": "1dc7f81f-d824-438f-b7bc-dbb5a9d13d67",
+            "name": "hdr-app-cl",
+            "description": "HDR Team Collection",
+            "createdBy": "oscar.gokce@va.gov",
+            "lastModifiedBy": "oscar.gokce@va.gov",
+            "createdTs": 1783954358805,
+            "lastModifiedTs": 1783954358805,
+            "assetGroups": {
+                "accountGroupIds": [
+                    "cd24a6d8-bce2-4ff7-92c4-bad3af785cb3"
+                ]
+            }
+        },
+        {
+            "id": "073b369a-6183-4a08-986f-8996d240395d",
+            "name": "mhv-app-rl",
+            "description": "mhv application workload",
+            "createdBy": "ashu.mbenga@va.gov",
+            "lastModifiedBy": "ashu.mbenga@va.gov",
+            "createdTs": 1779899095750,
+            "lastModifiedTs": 1783708810463,
+            "assetGroups": {
+                "accountGroupIds": [
+                    "e6249df6-6c29-43cf-8b27-8559b1473d06"
+                ]
+            }
+        },
+        {
+            "id": "05d7bb26-6037-4839-96ed-140913ebe032",
+            "name": "de-app-cl",
+            "description": "DE team workloads in dev environment.",
+            "createdBy": "michael.reisis@va.gov",
+            "lastModifiedBy": "michael.reisis@va.gov",
+            "createdTs": 1781289564026,
+            "lastModifiedTs": 1782928088986,
+            "assetGroups": {
+                "accountGroupIds": [
+                    "4e14ecf8-b825-4713-a1a3-024c65a495d1",
+                    "b1e4ee12-a1b1-437d-92d1-1a13850f6b2e",
+                    "a6010b50-f764-4874-b8a8-5afdc56dcb27"
+                ]
+            }
+        }
+    ],
+    "nextPageToken": null
+}

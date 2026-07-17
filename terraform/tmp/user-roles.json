@@ -1,0 +1,1171 @@
+[
+    {
+        "id": "0e67597d-4178-4b14-b5fb-84face3e46c3",
+        "name": "hdr-readonly-role",
+        "description": "hdr read only role",
+        "lastModifiedBy": "oscar.gokce@va.gov",
+        "lastModifiedTs": 1783954906977,
+        "accountGroupIds": [
+            "cd24a6d8-bce2-4ff7-92c4-bad3af785cb3"
+        ],
+        "resourceListIds": [
+            "a23f63bf-e5b3-431e-b363-240107de4fa8"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ajay.kumar@va.gov",
+            "amberly.ferry@va.gov",
+            "ashit.shah@va.gov",
+            "ashu.mbenga@va.gov",
+            "brian.carr9@va.gov",
+            "craig.wood3@va.gov",
+            "doyle.burlison@va.gov",
+            "james.mcnamara@va.gov",
+            "keith.moerbe@va.gov",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oyinlola.white@va.gov",
+            "pawanjit.dhaliwal@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "cd24a6d8-bce2-4ff7-92c4-bad3af785cb3",
+                "name": "hdr-dev-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "a23f63bf-e5b3-431e-b363-240107de4fa8",
+                "name": "hdr-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "cc2c24e1-74d8-4e57-95f7-f0156457f093",
+        "name": "mhv-role",
+        "description": "mhv application workload",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1783718053940,
+        "accountGroupIds": [
+            "e6249df6-6c29-43cf-8b27-8559b1473d06"
+        ],
+        "resourceListIds": [
+            "067ec42e-320e-4797-8a03-fa621bd2b733"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "christopher.aryeh@va.gov",
+            "craig.ledbetter@va.gov",
+            "james.whetsell@va.gov",
+            "jeremy.farmer@va.gov",
+            "jonathan.whetsell@va.gov",
+            "kyle.macmillan@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "patrick.bateman@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "e6249df6-6c29-43cf-8b27-8559b1473d06",
+                "name": "mhv-dev-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "067ec42e-320e-4797-8a03-fa621bd2b733",
+                "name": "mhv-dev-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "73df85bd-c44a-476f-938e-d7563fae4e35",
+        "name": "de-readonly-role",
+        "description": "Data Estate (DE) readonly role",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1782928433345,
+        "accountGroupIds": [
+            "4e14ecf8-b825-4713-a1a3-024c65a495d1",
+            "a6010b50-f764-4874-b8a8-5afdc56dcb27",
+            "b1e4ee12-a1b1-437d-92d1-1a13850f6b2e"
+        ],
+        "resourceListIds": [
+            "cf0ffc0c-49db-4813-ab5a-bdc7d7f9ab07"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "christopher.aryeh@va.gov",
+            "devon.osborne@va.gov",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "nicholas.seiler2@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov",
+            "sean.mccoy3@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "4e14ecf8-b825-4713-a1a3-024c65a495d1",
+                "name": "de-prod-ag"
+            },
+            {
+                "id": "a6010b50-f764-4874-b8a8-5afdc56dcb27",
+                "name": "de-dev-ag"
+            },
+            {
+                "id": "b1e4ee12-a1b1-437d-92d1-1a13850f6b2e",
+                "name": "de-preprod-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "cf0ffc0c-49db-4813-ab5a-bdc7d7f9ab07",
+                "name": "de-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "43b3b0cf-a329-4848-8839-03b13602edba",
+        "name": "dms-readonly-role",
+        "description": "dms application",
+        "lastModifiedBy": "ashu.mbenga@va.gov",
+        "lastModifiedTs": 1782502988541,
+        "accountGroupIds": [],
+        "resourceListIds": [
+            "17ae8bed-d203-4388-befb-a6cedbb5fa20"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "devon.osborne@va.gov",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [
+            {
+                "id": "17ae8bed-d203-4388-befb-a6cedbb5fa20",
+                "name": "dms-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "0cc0932a-9d71-44c0-9e44-bd62471f3e5c",
+        "name": "dtc-role",
+        "description": "DIC Integration Platform (DIP). Managed by Terraform.",
+        "lastModifiedBy": "terraform-sa",
+        "lastModifiedTs": 1782319687709,
+        "accountGroupIds": [
+            "628b646c-5191-4996-9190-5ce078d823b1"
+        ],
+        "resourceListIds": [
+            "f806505d-188f-4b2d-a031-ecf9ac7b3673"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "628b646c-5191-4996-9190-5ce078d823b1",
+                "name": "dtc-dev-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "f806505d-188f-4b2d-a031-ecf9ac7b3673",
+                "name": "dtc-dev-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "c140554f-b398-4665-bd51-66432a311e8b",
+        "name": "xyz-readonly-role",
+        "description": "xyz test role. SSO etc.",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1782319051211,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "christopher.aryeh@va.gov"
+        ],
+        "restrictDismissalAccess": true,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": false,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "Appsec Admin"
+    },
+    {
+        "id": "cb3129a4-b1fd-49fc-99bf-a3d978bec205",
+        "name": "prismacloud-testing-role1",
+        "description": "prismacloud-testing-environment",
+        "lastModifiedBy": "mohammed.khan8@va.gov",
+        "lastModifiedTs": 1781641317939,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "e4cd4bae-f197-4be5-ac6b-ac74028c7350",
+        "name": "fsc-filnet-readonly-role",
+        "description": "OM FSC LAN Filenet subgroup read only role",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1781539211416,
+        "accountGroupIds": [
+            "59852669-e40a-454a-b726-3bafdf3965e2"
+        ],
+        "resourceListIds": [
+            "845defb2-f522-453e-9c76-e651bb42a954"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "59852669-e40a-454a-b726-3bafdf3965e2",
+                "name": "om-fsc-dev-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "845defb2-f522-453e-9c76-e651bb42a954",
+                "name": "fsc-filenet-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "d42fc185-50f2-4824-affc-87ed9c3440d5",
+        "name": "lhdi-catosupport",
+        "description": "Higher-privileged version of existing VA app team singleton permission group. Designed for temporary access to additional platform capabilities for assessment against existing CWP solutions at VA.",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1781204065892,
+        "accountGroupIds": [
+            "5d8e02d5-3407-48bb-89f5-acce3d17086b",
+            "918440fb-8fa9-4e4c-b935-39ab60681dd4"
+        ],
+        "resourceListIds": [
+            "71ab174a-44eb-4a5a-ad38-2d40cdfee947",
+            "a153fa37-da2b-4938-906d-be97a2d4b775"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "derek.dombek@va.gov",
+            "john.zubiri@va.gov",
+            "mboynton@paloaltonetworks.com"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "5d8e02d5-3407-48bb-89f5-acce3d17086b",
+                "name": "lhdi-aws-dev-ag"
+            },
+            {
+                "id": "918440fb-8fa9-4e4c-b935-39ab60681dd4",
+                "name": "lhdi-aws-nonprod-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "71ab174a-44eb-4a5a-ad38-2d40cdfee947",
+                "name": "lhdi-aws-dev-rl"
+            },
+            {
+                "id": "a153fa37-da2b-4938-906d-be97a2d4b775",
+                "name": "lhdi-aws-nonprod-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-policy-readwrite-prmgrp"
+    },
+    {
+        "id": "27fd9115-4a24-4b65-9f20-b5a2ab9eaaf9",
+        "name": "lhdi-readonly-role",
+        "description": "Lighthouse SRE",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1781204037375,
+        "accountGroupIds": [
+            "5d8e02d5-3407-48bb-89f5-acce3d17086b",
+            "918440fb-8fa9-4e4c-b935-39ab60681dd4"
+        ],
+        "resourceListIds": [
+            "71ab174a-44eb-4a5a-ad38-2d40cdfee947",
+            "a153fa37-da2b-4938-906d-be97a2d4b775"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "branden.vanderbur@va.gov",
+            "christopher.aryeh@va.gov",
+            "coty.allen@va.gov",
+            "daniel.trueblood@va.gov",
+            "derek.dombek@va.gov",
+            "devon.osborne@va.gov",
+            "dylan.doub@va.gov",
+            "eric.williams318@va.gov",
+            "john.zubiri@va.gov",
+            "luke.strebel@va.gov",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov",
+            "paul.coluccio@va.gov",
+            "phillip.sheridan@va.gov",
+            "scott.carlson4@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "5d8e02d5-3407-48bb-89f5-acce3d17086b",
+                "name": "lhdi-aws-dev-ag"
+            },
+            {
+                "id": "918440fb-8fa9-4e4c-b935-39ab60681dd4",
+                "name": "lhdi-aws-nonprod-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "71ab174a-44eb-4a5a-ad38-2d40cdfee947",
+                "name": "lhdi-aws-dev-rl"
+            },
+            {
+                "id": "a153fa37-da2b-4938-906d-be97a2d4b775",
+                "name": "lhdi-aws-nonprod-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "dfc01c5d-4cfa-4f11-a0c8-1777b983f62b",
+        "name": "fmbt-readonly-role",
+        "description": "fmbt application",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1781019907443,
+        "accountGroupIds": [],
+        "resourceListIds": [
+            "7f673479-4598-4ddd-85ca-4deb5541988a"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "andrew.smithwick-kiebach@va.gov",
+            "christopher.aryeh@va.gov",
+            "daniel.chin@va.gov",
+            "jaime.silva@va.gov",
+            "joneric.steen@va.gov",
+            "jose.mathew1@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.staves@va.gov",
+            "nicholas.seiler2@va.gov",
+            "robert.ivy@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [
+            {
+                "id": "7f673479-4598-4ddd-85ca-4deb5541988a",
+                "name": "fmbt-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "093d8c57-e98a-4b72-a7a3-6b08aa9ed146",
+        "name": "cortex-xsiam-integration-role",
+        "description": "Integration for VA Cortex XSIAM tenant",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780693184915,
+        "accountGroupIds": [
+            "0a5c8a8b-50e0-4450-a135-83776664bb40"
+        ],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "cortex-xsiam-integration-sa-test",
+            "mboynton@paloaltonetworks.com"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "0a5c8a8b-50e0-4450-a135-83776664bb40",
+                "name": "VA All Account Group"
+            }
+        ],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "cortex-xsiam-integration-prmgrp"
+    },
+    {
+        "id": "eb446b46-d9aa-45b2-946a-6a63b65e965f",
+        "name": "sdp-readonly-role",
+        "description": "SDP Application",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780601751810,
+        "accountGroupIds": [
+            "da104b85-aa78-4958-863b-d54d4d8f8d3d"
+        ],
+        "resourceListIds": [
+            "45b88102-469a-4816-b901-a346539abea4"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "andrew.seelig@va.gov",
+            "ashu.mbenga@va.gov",
+            "chad.corgiat@va.gov",
+            "christopher.aryeh@va.gov",
+            "devon.osborne@va.gov",
+            "elijah.george1@va.gov",
+            "gary.phillips5@va.gov",
+            "greg.fuqua@va.gov",
+            "javan.crosdale@va.gov",
+            "joon.pak@va.gov",
+            "manvendra.jhala@va.gov",
+            "marc.sylvestre@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mitchell.michalak@va.gov",
+            "mohammed.khan8@va.gov",
+            "mohammedsohail.khan@va.gov",
+            "nagaraju.somisetty@va.gov",
+            "oitnynrahmar0@va.gov",
+            "oscar.gokce@va.gov",
+            "owen.eghaghe@va.gov",
+            "oyinlola.white@va.gov",
+            "philip.omaoeng@va.gov",
+            "rajesh.jain@va.gov",
+            "rejwanur.rahman@va.gov",
+            "salman.jaleel@va.gov",
+            "sattar.abdul@va.gov",
+            "scott.crosby@va.gov",
+            "seper.karam@va.gov",
+            "vasu.kamireddi@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": false,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "da104b85-aa78-4958-863b-d54d4d8f8d3d",
+                "name": "sdp-devtest-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "45b88102-469a-4816-b901-a346539abea4",
+                "name": "sdp-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "dcb32f76-40ec-4ab6-a6a3-de70b30da7b5",
+        "name": "defender-install-role",
+        "description": "Provides access to Prisma Cloud Defender installation and deployment resources to system owners",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1780598521272,
+        "accountGroupIds": [],
+        "resourceListIds": [
+            "d1bbdd2f-2ba4-4826-b4ff-9fc1e2ef2266"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "devon.osborne@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [
+            {
+                "id": "d1bbdd2f-2ba4-4826-b4ff-9fc1e2ef2266",
+                "name": "defender-install-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "defender-install-prmgrp"
+    },
+    {
+        "id": "9d709f1a-9d18-4e15-86f1-b46eb1d62bbe",
+        "name": "dtc-readonly-role",
+        "description": "dtc application",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1780596633650,
+        "accountGroupIds": [
+            "4ea6478f-c9f1-443f-a275-4192c64c00c3"
+        ],
+        "resourceListIds": [
+            "3b6adc84-b829-4c6f-81b5-355ca24130b1"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "adam.gerard@va.gov",
+            "ashu.mbenga@va.gov",
+            "brandon.cavness@va.gov",
+            "christopher.aryeh@va.gov",
+            "daniel.kapapa@va.gov",
+            "devon.osborne@va.gov",
+            "jalen.verrett@va.gov",
+            "james.garnhart@va.gov",
+            "matthew.towle@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "4ea6478f-c9f1-443f-a275-4192c64c00c3",
+                "name": "va-dip-ac"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "3b6adc84-b829-4c6f-81b5-355ca24130b1",
+                "name": "dtc-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "c4fa5802-6ddd-42d3-9b1a-f72e26291c48",
+        "name": "fsc-readonly-role",
+        "description": "fsc Application",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780511716569,
+        "accountGroupIds": [
+            "59852669-e40a-454a-b726-3bafdf3965e2"
+        ],
+        "resourceListIds": [
+            "98855110-2e94-4e4f-8411-e7c74bd5a938",
+            "fca02df3-ac4f-4c45-bd08-9280fb434325"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "chaitanya.akula@va.gov",
+            "chao.li2@va.gov",
+            "christopher.aryeh@va.gov",
+            "christopher.caruso1@va.gov",
+            "clifford.wynne@va.gov",
+            "craig.thibodeaux@va.gov",
+            "david.pollard@va.gov",
+            "devon.osborne@va.gov",
+            "james.furry@va.gov",
+            "james.wollschlager@va.gov",
+            "joseph.johnson10@va.gov",
+            "keith.burlock@va.gov",
+            "manuel.madsen@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "osarumwense.idemudia@va.gov",
+            "oscar.gokce@va.gov",
+            "oscar.saunders@va.gov",
+            "oyinlola.white@va.gov",
+            "raghavendra.kidambi@va.gov",
+            "relindis.gaba@va.gov",
+            "tiffany.weitoish@va.gov",
+            "todd.crank@va.gov",
+            "tommy.wall@va.gov",
+            "vafscmadsem0@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": false,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "59852669-e40a-454a-b726-3bafdf3965e2",
+                "name": "om-fsc-dev-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "98855110-2e94-4e4f-8411-e7c74bd5a938",
+                "name": "om-fsc-dev-rl"
+            },
+            {
+                "id": "fca02df3-ac4f-4c45-bd08-9280fb434325",
+                "name": "fsc-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "8d0d6971-0a3f-4e5c-9104-bbcbfb3fa840",
+        "name": "fsc-role",
+        "description": "OM FSC LAN team workloads. Managed by Terraform.",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780511709917,
+        "accountGroupIds": [
+            "59852669-e40a-454a-b726-3bafdf3965e2"
+        ],
+        "resourceListIds": [
+            "98855110-2e94-4e4f-8411-e7c74bd5a938"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "59852669-e40a-454a-b726-3bafdf3965e2",
+                "name": "om-fsc-dev-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "98855110-2e94-4e4f-8411-e7c74bd5a938",
+                "name": "om-fsc-dev-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "d7bcae9a-86a8-47e9-8251-da87965fe6cc",
+        "name": "sdp-role",
+        "description": "Summit Data Platform (SDP) team workloads. Managed by Terraform.",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780504246223,
+        "accountGroupIds": [
+            "da104b85-aa78-4958-863b-d54d4d8f8d3d"
+        ],
+        "resourceListIds": [
+            "411d21e0-5b53-453f-bc54-6d7456776536"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "da104b85-aa78-4958-863b-d54d4d8f8d3d",
+                "name": "sdp-devtest-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "411d21e0-5b53-453f-bc54-6d7456776536",
+                "name": "sdp-devtest-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readwrite-prmgrp"
+    },
+    {
+        "id": "52af0b25-d267-42ef-a7a9-01f26e6cbaa6",
+        "name": "ci-defender-deployment-role",
+        "description": "",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780346186355,
+        "accountGroupIds": [
+            "5d8e02d5-3407-48bb-89f5-acce3d17086b"
+        ],
+        "resourceListIds": [
+            "71ab174a-44eb-4a5a-ad38-2d40cdfee947"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ci-defender-deployer-sa",
+            "defender-deployment-sa",
+            "dtc-defender-deploy-sa",
+            "fsc-linux-sa",
+            "mboynton@paloaltonetworks.com",
+            "mhv-defender-deploy-sa",
+            "om-fsc-defender-deploy-sa",
+            "sdp-defender-deploy-sa",
+            "svc-defender-deploy-sa"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": false,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [
+            {
+                "id": "5d8e02d5-3407-48bb-89f5-acce3d17086b",
+                "name": "lhdi-aws-dev-ag"
+            }
+        ],
+        "resourceLists": [
+            {
+                "id": "71ab174a-44eb-4a5a-ad38-2d40cdfee947",
+                "name": "lhdi-aws-dev-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "ci-defender-deployment-permgrp"
+    },
+    {
+        "id": "cd536d30-2a5d-4936-a67f-b70679e17ed5",
+        "name": "cp&e-readonly-role",
+        "description": "cp&e read only role",
+        "lastModifiedBy": "mohammed.khan8@va.gov",
+        "lastModifiedTs": 1780077081226,
+        "accountGroupIds": [],
+        "resourceListIds": [
+            "28bf4927-dcbd-43b5-a828-132fff22e3e7"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "devon.osborne@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [
+            {
+                "id": "28bf4927-dcbd-43b5-a828-132fff22e3e7",
+                "name": "cp&e-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "ae21a0c6-ab15-439b-a41e-04bb00e927b2",
+        "name": "das-readonly-role",
+        "description": "das application workload",
+        "lastModifiedBy": "ashu.mbenga@va.gov",
+        "lastModifiedTs": 1779470685729,
+        "accountGroupIds": [],
+        "resourceListIds": [
+            "e8e588e2-5e4c-40d2-916c-0c91d34bcbab"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "christopher.aryeh@va.gov",
+            "devon.osborne@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": false,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [
+            {
+                "id": "e8e588e2-5e4c-40d2-916c-0c91d34bcbab",
+                "name": "das-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "e73bb382-3b28-46a0-9c8f-206500c8a5e2",
+        "name": "ccra-readonly-role",
+        "description": "CCR Application team role",
+        "lastModifiedBy": "devon.osborne@va.gov",
+        "lastModifiedTs": 1779395383286,
+        "accountGroupIds": [],
+        "resourceListIds": [
+            "e41cae55-9ee8-4632-8766-35e3a425fb30"
+        ],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "bismark.bonsu-baiden@va.gov",
+            "chad.cassens@va.gov",
+            "christopher.aryeh@va.gov",
+            "dana.bradicich@va.gov",
+            "devon.osborne@va.gov",
+            "dmitry.khavich@va.gov",
+            "gregory.mcguffey@va.gov",
+            "james.hipp@va.gov",
+            "jennifer.gould@va.gov",
+            "john.berry4@va.gov",
+            "kyle.weaver@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "nana.ayirebiakomeah@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov",
+            "sean.oconnor@va.gov",
+            "stephen.walasavage@va.gov",
+            "william.broxson@va.gov",
+            "william.mccormick@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [
+            {
+                "id": "e41cae55-9ee8-4632-8766-35e3a425fb30",
+                "name": "ccra-app-rl"
+            }
+        ],
+        "codeRepositories": [],
+        "roleType": "appowner-readonly-prmgrp"
+    },
+    {
+        "id": "d4d78752-ef65-4bcc-b04a-404abab8de4e",
+        "name": "pcadmin-fulladmin-role",
+        "description": "VA Prisma Cloud Full Administrator Role.",
+        "lastModifiedBy": "justin.mcbeth@va.gov",
+        "lastModifiedTs": 1773146424440,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "christopher.aryeh@va.gov",
+            "devon.osborne@va.gov",
+            "francis.waldron@va.gov",
+            "github-pages-sa",
+            "maxwell.boynton@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "System Admin"
+    },
+    {
+        "id": "fcd11c37-0885-410b-8611-c6cfb40f2332",
+        "name": "pcadmin-readonly-role",
+        "description": "VA Prisma Cloud Read Only Administrator Role.",
+        "lastModifiedBy": "justin.mcbeth@va.gov",
+        "lastModifiedTs": 1769710858213,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "brian.baker4@va.gov",
+            "christopher.aryeh@va.gov",
+            "devon.osborne@va.gov",
+            "howard.harvey@va.gov",
+            "jason.kendall@va.gov",
+            "jeremy.lynch@va.gov",
+            "jessica.gibbs3@va.gov",
+            "kskeeles@paloaltonetworks.com",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov",
+            "peter.schmidt@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "pcadmin-readonly-prmgrp"
+    },
+    {
+        "id": "f75509d7-b40f-4888-9f6d-ddd3bc77f020",
+        "name": "csoc-policyauthor-role",
+        "description": "VA CSOC Policy Author role for the creation and tuning of policies/rules.",
+        "lastModifiedBy": "justin.mcbeth@va.gov",
+        "lastModifiedTs": 1769710474243,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "mboynton@paloaltonetworks.com"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "csoc-policyauthor-prmgrp"
+    },
+    {
+        "id": "8dc3fc5c-32a9-4abf-a9b6-dbaf8e17f56a",
+        "name": "csoc-auditor-role",
+        "description": "VA CSOC Auditor role for assessment of system compliance.",
+        "lastModifiedBy": "justin.mcbeth@va.gov",
+        "lastModifiedTs": 1769710113877,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ashu.mbenga@va.gov",
+            "christopher.aryeh@va.gov",
+            "devon.osborne@va.gov",
+            "john.yi1@va.gov",
+            "mboynton@paloaltonetworks.com",
+            "michael.reisis@va.gov",
+            "mohammed.khan8@va.gov",
+            "oscar.gokce@va.gov",
+            "oyinlola.white@va.gov"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "csoc-auditor-prmgrp"
+    },
+    {
+        "id": "2869282a-fd07-4de0-96f5-0713d5ee0571",
+        "name": "csoc-remediation-role",
+        "description": "VA CSOC Remediation Engineer role for the creation and tuning of policies/rules.",
+        "lastModifiedBy": "justin.mcbeth@va.gov",
+        "lastModifiedTs": 1769709823636,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "mboynton@paloaltonetworks.com"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "csoc-remediation-prmgrp"
+    },
+    {
+        "id": "69dc5172-0b11-4c7f-9a66-2a8800fe92a0",
+        "name": "System Admin",
+        "description": "This role has full access to the admin console",
+        "lastModifiedBy": "template@redlock.io",
+        "lastModifiedTs": 1754700786256,
+        "accountGroupIds": [],
+        "resourceListIds": [],
+        "codeRepositoryIds": [],
+        "associatedUsers": [
+            "ci-defender-deployer-key-sa",
+            "cortex-xsiam-integration",
+            "cortex-xsiam-integration-sa",
+            "mboynton@paloaltonetworks.com",
+            "terraform-sa"
+        ],
+        "restrictDismissalAccess": false,
+        "permissionGroup": null,
+        "additionalAttributes": {
+            "onlyAllowCIAccess": false,
+            "onlyAllowComputeAccess": false,
+            "hasDefenderPermissions": true,
+            "onlyAllowReadAccess": false
+        },
+        "accountGroups": [],
+        "resourceLists": [],
+        "codeRepositories": [],
+        "roleType": "System Admin"
+    }
+]

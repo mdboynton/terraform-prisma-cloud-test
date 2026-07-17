@@ -1,0 +1,119 @@
+#output "app_owner_readonly_singleton_permission_group_id" {
+#  description = "The ID of the shared read-only Permission Group. Supply this value as the permission_group_id input when calling the rbac module for each team."
+#  value       = prismacloud_permission_group.app_owner_readonly_singleton.id
+#}
+#
+## ----------------------------------------------------------------
+## Per-team RBAC outputs — maps keyed by team name (module instance key).
+## ----------------------------------------------------------------
+#output "team_role_ids" {
+#  description = "Map of team name => Prisma Cloud Role ID. Hand off to the IdP for SAML group mapping (see module README §idp-handoff-contract)."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.team_role_id }
+#}
+#
+#output "team_account_group_ids" {
+#  description = "Map of team name => { Account Group name => Account Group ID }."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.account_group_ids }
+#}
+#
+#output "team_resource_list_ids" {
+#  description = "Map of team name => { Resource List name => Resource List ID }."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.resource_list_ids }
+#}
+#
+#output "team_auto_collection_expected_names" {
+#  description = "Map of team name => { Resource List name => expected auto-spawned Collection name }. Verify in UI under Inventory → Collections."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.auto_collection_expected_names }
+#}
+#
+#output "team_resource_list_collection_ids" {
+#  description = "Map of team name => { Resource List name => resolved auto-spawned Collection ID } (looked up by name from the live tenant; null when absent)."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.resource_list_collection_ids }
+#}
+#
+#output "team_dashboard_collection_ids" {
+#  description = "Map of team name => dedicated dashboard Collection ID (Terraform-managed; distinct from the per-Resource-List auto-spawned Collections)."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.dashboard_collection_id }
+#}
+#
+#output "team_alert_rule_ids" {
+#  description = "Map of team name => CSPM Alert Rule ID (policy scan config ID)."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.alert_rule_id }
+#}
+#
+## ----------------------------------------------------------------
+## Inventory (read-only) — single source of truth for reconcile/cleanup.
+## Raw listings expose EVERYTHING in the tenant (including resources created
+## outside Terraform and the auto-spawned collections). The filtered_* variants
+## heuristically narrow to artifacts matching the module's DEFAULT naming.
+## ----------------------------------------------------------------
+#output "inventory_account_groups" {
+#  description = "All Account Groups in the tenant: list of { group_id, name }."
+#  value       = [for ag in data.prismacloud_account_groups.all.listing : { group_id = ag.group_id, name = ag.name }]
+#}
+#
+#output "inventory_resource_lists" {
+#  description = "All Resource Lists in the tenant: list of { id, name }."
+#  value       = [for rl in data.prismacloud_resource_lists.all.listing : { id = rl.id, name = rl.name }]
+#}
+#
+#output "inventory_collections" {
+#  description = "All Collections in the tenant (includes the per-Resource-List auto-spawned ones): list of { id, name }."
+#  value       = [for c in data.prismacloud_collections.all.listing : { id = c.id, name = c.name }]
+#}
+#
+#output "inventory_user_roles" {
+#  description = "All User Roles in the tenant: list of { role_id, name }."
+#  value       = [for r in data.prismacloud_user_roles.all.listing : { role_id = r.role_id, name = r.name }]
+#}
+#
+#output "inventory_user_profiles" {
+#  description = "All User Profiles in the tenant: list of { profile_id, username }."
+#  value       = [for p in data.prismacloud_user_profiles.all.listing : { profile_id = p.profile_id, username = p.username }]
+#}
+#
+#output "inventory_permission_groups" {
+#  description = "All Permission Groups in the tenant: list of { name, type }."
+#  value       = [for pg in data.prismacloud_permission_groups.all.listing : { name = pg.name, type = pg.permission_group_type }]
+#}
+#
+## Heuristic filters matching the module's DEFAULT naming conventions. Teams using
+## custom *_name_suffix overrides will not appear here — use the raw lists above.
+#output "inventory_module_like_collections" {
+#  description = "Collections whose names look module-managed: the dedicated dashboard Collections (suffix '-collection') and the per-Resource-List auto-spawned ones (' - Access Group (RBAC)')."
+#  value = [
+#    for c in data.prismacloud_collections.all.listing : { id = c.id, name = c.name }
+#    if endswith(c.name, local._collection_suffix) || strcontains(c.name, local._auto_coll_marker)
+#  ]
+#}
+#
+#output "inventory_module_like_account_groups" {
+#  description = "Account Groups whose names end in the default '-account-group' suffix."
+#  value       = [for ag in data.prismacloud_account_groups.all.listing : ag.name if endswith(ag.name, local._ag_suffix)]
+#}
+#
+#output "inventory_module_like_resource_lists" {
+#  description = "Resource Lists whose names end in the default '-resource-list' suffix."
+#  value       = [for rl in data.prismacloud_resource_lists.all.listing : rl.name if endswith(rl.name, local._rl_suffix)]
+#}
+#
+#output "inventory_module_like_user_roles" {
+#  description = "User Roles whose names end in the default '-role' suffix."
+#  value       = [for r in data.prismacloud_user_roles.all.listing : r.name if endswith(r.name, local._role_suffix)]
+#}
+#
+## ----------------------------------------------------------------
+## Per-team service account credentials. SENSITIVE — the secret key is returned
+## by Prisma Cloud only once, at creation, and is persisted in Terraform state.
+## Treat the state file as a secret.
+## ----------------------------------------------------------------
+#output "team_service_account_access_key_ids" {
+#  description = "Map of team name => service account Access Key ID (null for teams without a service account)."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.service_account_access_key_id }
+#}
+#
+#output "team_service_account_secret_keys" {
+#  description = "Map of team name => service account Secret Key (null for teams without a service account). SENSITIVE."
+#  value       = { for name, m in module.prisma_cloud_rbac : name => m.service_account_secret_key }
+#  sensitive   = true
+#}

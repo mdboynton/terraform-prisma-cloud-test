@@ -1,0 +1,264 @@
+---
+# Team RBAC config - EXAMPLE / TEMPLATE
+#
+# Terraform never loads this file. It's a reference for authoring entries in
+# teams.yaml, which local.teams reads via yamldecode (see ../main.tf).
+#
+# To onboard a team:
+#   1. Copy a block below into teams.yaml and replace the placeholders with
+#      real account IDs, namespaces, etc. Do NOT ship wildcard ("*") scopes on a
+#      real team - that defeats per-team isolation.
+#   2. terraform plan  (against the tenant in ../.env) to preview.
+#   3. terraform apply to provision.
+#   4. Export the role mapping for the IdP team:
+#        terraform output -json team_role_ids > role_mapping_for_idp.json
+#      Submit per the IdP/SAML handoff contract in your deployment's runbook.
+#
+# ------------------------------------------------------------
+# Minimal example (a complete, valid teams.yaml)
+# ------------------------------------------------------------
+# team-alpha:
+#   description: "Team Alpha - dev workloads."
+#   account_groups:
+#     - name: "team-alpha-account-group"
+#       account_ids:
+#         - "461921442292"
+#   resource_lists:
+#     - name: "team-alpha-resource-list"
+#       compute_access_group:
+#         namespaces:
+#           - "team-alpha-*"
+#         clusters:
+#           - "dev-cluster-*"
+#   members:
+#     - "alpha.lead@example.com"
+#
+# ------------------------------------------------------------
+# Field reference (all keys optional unless noted)
+# ------------------------------------------------------------
+# Map key (e.g. team-alpha) = team_name. Lowercase alphanumeric plus hyphens, no
+# leading/trailing hyphen. It prefixes every derived resource name.
+#
+#   description             Default description for any resource without a more
+#                           specific override. Falls back to an auto string.
+#   role_description                          Override the Role's description.
+#   alert_rule_description                    Override the Alert Rule's.
+#   dashboard_filter_collection_description   Override the Collection's.
+#                           For these three: null inherits `description`; "" is empty.
+#
+#   account_groups          List of Account Groups for the team.
+#     - name                       Required when >1 entry. Default
+#                                   "<team_name><account_group_name_suffix>".
+#       description                 null inherits `description`; "" is empty.
+#       account_ids                 Onboarded account IDs (default []).
+#       non_onboarded_account_ids   Non-onboarded account IDs (default []).
+#
+#   resource_lists          List of Resource Lists for the team.
+#     - name                       Required when >1 entry. Default
+#                                   "<team_name><resource_list_name_suffix>".
+#       description                 null inherits `description`; "" is empty.
+#       compute_access_group        Workload scope. Each field is a glob-pattern
+#                                   list, default ["*"]: clusters, namespaces,
+#                                   images, containers, hosts, labels, app_id,
+#                                   functions, code_repos.
+#
+#   Naming-suffix overrides (leave unset unless deviating from convention):
+#     account_group_name_suffix                default "-account-group"
+#     resource_list_name_suffix                default "-resource-list"
+#     role_name_suffix                         default "-role"
+#     dashboard_filter_collection_name_suffix  default "-collection"
+#
+#   service_account         Optional per-team SERVICE_ACCOUNT + one access key.
+#       name                         Set to create it; unset = none.
+#       role_id                      Required when name is set (also default_role_id).
+#       time_zone                    Default America/New_York.
+#
+#   members                 Emails of EXISTING tenant users to grant the team Role
+#                           (union with their other roles).
+#
+#   alert_rule              Optional CSPM Alert Rule tuning:
+#       name_suffix                  default "-alert-rule"
+#       severity_filter              default ["high","critical"]; [] disables it.
+#       scan_all                     default true (ignored when `policies` is set).
+#       policies                     Explicit policy IDs (overrides scan_all).
+#       excluded_policies            Policy IDs to exclude.
+#       notification                 Optional target {config_type, recipients,
+#                                    frequency}. The integration must already exist.
+
+# ============================================================
+# FORM 1 - Single Account Group + Resource List
+#
+# A single-entry list may omit its `name`, in which case it defaults to
+# "<team_name><account_group_name_suffix>" / "<team_name><resource_list_name_suffix>".
+# ============================================================
+team-alpha:
+  description: "Team Alpha - dev workloads in AWS account 461921442292."
+  account_groups:
+    - name: "team-alpha-account-group"
+      # AWS / Azure / GCP account IDs this team's Defenders run in.
+      account_ids:
+        - "461921442292"
+
+  resource_lists:
+    - name: "team-alpha-resource-list"
+      compute_access_group:
+        # Glob patterns. Narrow as tightly as practical.
+        clusters:
+          - "dev-cluster-*"
+        namespaces:
+          - "team-alpha-*"
+        images:
+          - "registry.example.com/team-alpha/*"
+        containers:
+          - "team-alpha-*"
+        hosts:
+          - "dev-team-alpha-*"
+        labels:
+          - "team:team-alpha"
+        app_id:
+          - "team-alpha"
+        functions:
+          - "team-alpha-*"
+        code_repos:
+          - "org-team-alpha/*"
+
+  # Optional suffix overrides - omit to keep the defaults.
+  # account_group_name_suffix:               "-ag"
+  # resource_list_name_suffix:               "-rl"
+  # role_name_suffix:                        "-readonly-role"
+  # dashboard_filter_collection_name_suffix: "-assets"
+
+# ============================================================
+# FORM 2 - Multiple Account Groups + Resource Lists
+#
+# Per-entry `description` overrides the top-level one for that resource;
+# "" forces an empty description.
+# ============================================================
+team-bravo:
+  description: "Team Bravo - multi-environment workloads (prod + nonprod)."
+  members:
+    - "bravo.lead@example.com"
+  account_groups:
+    - name: "team-bravo-prod-account-group"
+      description: "Team Bravo production accounts."
+      account_ids:
+        - "111111111111"
+      non_onboarded_account_ids:
+        - "222222222222"
+    - name: "team-bravo-nonprod-account-group"
+      description: "Team Bravo non-production accounts."
+      account_ids:
+        - "333333333333"
+
+  resource_lists:
+    - name: "team-bravo-prod-resource-list"
+      description: "Team Bravo production workloads."
+      compute_access_group:
+        namespaces:
+          - "team-bravo-prod-*"
+        clusters:
+          - "prod-cluster-*"
+    - name: "team-bravo-nonprod-resource-list"
+      description: "Team Bravo non-production workloads."
+      compute_access_group:
+        namespaces:
+          - "team-bravo-nonprod-*"
+        clusters:
+          - "nonprod-cluster-*"
+
+# ============================================================
+# FORM 3 - Per-team service account
+#
+# Setting service_account.name creates a SERVICE_ACCOUNT profile plus one access
+# key. role_id is required. Retrieve credentials after apply:
+#   terraform output -json team_service_account_access_key_ids
+#   terraform output -json team_service_account_secret_keys   # SENSITIVE
+# ============================================================
+team-charlie:
+  description: "Team Charlie - workloads plus CI/CD service account."
+  account_groups:
+    - name: "team-charlie-account-group"
+      account_ids:
+        - "444444444444"
+
+  service_account:
+    name: "team-charlie-service-account"
+    # Role assigned to the account (also default_role_id). Usually the team's own
+    # role - supply its ID after the first apply, or reference another known role.
+    role_id: "00000000-0000-0000-0000-000000000000"
+    # time_zone: "America/Chicago"   # default America/New_York
+
+# ============================================================
+# FORM 4 - Team members
+#
+# `members` are emails of users that ALREADY EXIST in the tenant (via IdP/SSO or
+# the UI). The module grants each the team Role while keeping their other roles.
+#
+#   - Terraform adopts listed users via an import block, then OWNS their full
+#     profile (all roles, time zone, enabled state). Manage membership here after.
+#   - Removing an email drops the user from state only - it does NOT revoke the
+#     role. Revoke via the UI or upstream IdP.
+#   - Assignment runs after all other team resources are created.
+# ============================================================
+team-delta:
+  description: "Team Delta - workloads with named members."
+  account_groups:
+    - name: "team-delta-account-group"
+      account_ids:
+        - "555555555555"
+
+  members:
+    - "delta.lead@example.com"
+    - "delta.engineer@example.com"
+
+# ============================================================
+# FORM 5 - CSPM Alert Rule + dashboard Collection overrides
+#
+# Every team gets these automatically:
+#   - a dashboard Collection ("<team>-collection") for scoping dashboards/widgets,
+#     separate from the per-Resource-List Collections.
+#   - a CSPM Alert Rule ("<team>-alert-rule") scoped to the team's Resource List,
+#     firing on high+critical across all policies, with no notification target
+#     (alerts visible in-console).
+#
+# The alert_rule block below is optional; it documents the available overrides.
+# A referenced notification integration must already exist in the tenant -
+# Terraform references it, it does not create it.
+# ============================================================
+team-echo:
+  description: "Team Echo - custom alert routing + dashboard collection name."
+  account_groups:
+    - name: "team-echo-account-group"
+      account_ids:
+        - "666666666666"
+
+  # dashboard_filter_collection_name_suffix: "-dashboard"
+  # dashboard_filter_collection_description: "Team Echo dashboards."
+  # role_description:       "Team Echo read-only role."
+  # alert_rule_description: "Team Echo CSPM alerts."
+
+  alert_rule:
+    # name_suffix: "-cspm-alerts"   # default "-alert-rule"
+
+    # Default ["high","critical"]. Set [] to disable the filter.
+    severity_filter:
+      - "high"
+      - "critical"
+
+    # Evaluate all policies (subject to severity_filter). Default true.
+    scan_all: true
+
+    # policies:            # explicit policy IDs; overrides scan_all
+    #   - "11111111-1111-1111-1111-111111111111"
+    # excluded_policies: []
+
+    # Optional notification target. Omit for none.
+    # config_type: email | slack | splunk | amazonSqs | microsoftTeams | jira |
+    #   webhook | awsSecurityHub | googleCscc | serviceNow | pagerDuty | demisto |
+    #   azureServiceBusQueue | snowflake | awsS3
+    # frequency: asItHappens | daily | weekly | monthly   (default asItHappens)
+    notification:
+      config_type: "email"
+      recipients:
+        - "echo.secops@example.com"
+      frequency: "asItHappens"

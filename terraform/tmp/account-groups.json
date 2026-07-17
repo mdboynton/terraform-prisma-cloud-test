@@ -1,0 +1,184 @@
+[
+    {
+        "id": "cd24a6d8-bce2-4ff7-92c4-bad3af785cb3",
+        "name": "hdr-dev-ag",
+        "description": "HDR  team dev environment Account Group",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1783968834898,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "330333621974",
+            "ca106dde-3f35-48dc-bd8c-fc626a5d629a"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "e6249df6-6c29-43cf-8b27-8559b1473d06",
+        "name": "mhv-dev-ag",
+        "description": "mhv application workload",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1783715260895,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "137258013298"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "da104b85-aa78-4958-863b-d54d4d8f8d3d",
+        "name": "sdp-devtest-ag",
+        "description": "Summit Data Platform (SDP) team workloads. Managed by Terraform.",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1782996319854,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "8cac1c7e-c036-485d-9d75-3415af124681",
+            "3f66c420-ce7c-40d7-a342-b8228e1d5995",
+            "ab15990d-f953-454b-afb4-8b69498d9fc1",
+            "97107ad7-bc7f-4696-a5c2-fd242faef941",
+            "fffd9466-ea62-4d2a-b733-0db5f3e108d3",
+            "539853382036",
+            "7199e4dc-6201-466a-890c-b1ec05435ae6"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "4e14ecf8-b825-4713-a1a3-024c65a495d1",
+        "name": "de-prod-ag",
+        "description": "DE team prod environment (Formerly FMBT)",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1782928035388,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "1e5b8da5-fbcf-4f83-b932-ed8af1530065"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "b1e4ee12-a1b1-437d-92d1-1a13850f6b2e",
+        "name": "de-preprod-ag",
+        "description": "DE team preprod environment (Formerly FMBT)",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1782398485768,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "435b2cd9-4559-4788-a0d0-5a809fc3c9e9"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "a6010b50-f764-4874-b8a8-5afdc56dcb27",
+        "name": "de-dev-ag",
+        "description": "DE team dev environment (Formerly FMBT)",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1782398461334,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "873f84c1-5e2d-43f8-b430-554798bcc009"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "628b646c-5191-4996-9190-5ce078d823b1",
+        "name": "dtc-dev-ag",
+        "description": "DIC Integration Platform (DIP). Managed by Terraform.",
+        "lastModifiedBy": "terraform-sa",
+        "lastModifiedTs": 1782319685839,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "439631198817"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "59852669-e40a-454a-b726-3bafdf3965e2",
+        "name": "om-fsc-dev-ag",
+        "description": "OM FSC LAN team workloads. Managed by Terraform.",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780512135842,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "Non-onboarded cloud accounts"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "918440fb-8fa9-4e4c-b935-39ab60681dd4",
+        "name": "lhdi-aws-nonprod-ag",
+        "description": "Lighthouse team nonprod AWS accounts",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780350407191,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "461893774470"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "5d8e02d5-3407-48bb-89f5-acce3d17086b",
+        "name": "lhdi-aws-dev-ag",
+        "description": "Lighthouse team dev AWS accounts",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780350383795,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "461921442292"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    },
+    {
+        "id": "0a5c8a8b-50e0-4450-a135-83776664bb40",
+        "name": "VA All Account Group",
+        "description": "VA All account group",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780349877995,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "461921442292",
+            "461893774470",
+            "439631198817"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": [
+            {
+                "alertId": "934f2126-23dd-4108-99ba-01304b115e4d",
+                "alertName": "VA All Cloud Accounts Alert Rule"
+            }
+        ]
+    },
+    {
+        "id": "4ea6478f-c9f1-443f-a275-4192c64c00c3",
+        "name": "va-dip-ac",
+        "description": "DIP application team",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780334928127,
+        "accountIds": [],
+        "nonOnboardedCloudAccountIds": [
+            "439631198817"
+        ],
+        "autoCreated": false,
+        "accounts": [],
+        "alertRules": []
+    }
+]

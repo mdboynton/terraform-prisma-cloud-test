@@ -1,0 +1,382 @@
+---
+# ============================
+# CCRA
+# ============================
+
+ccra:
+  description: "Community Care team role"
+  role_name_suffix: "-readonly-role"
+  role_description: "CCR Application team role"
+  account_groups:
+    - name: "ccra-dev-ag"
+      account_ids: []
+      non_onboarded_account_ids:
+        - "439631198817"
+  resource_lists:
+    - name: "ccra-app-rl"
+      description: "ccra application workload"
+      compute_access_group:
+        clusters:
+          - "ccra*"
+        namespaces:
+          - "ccra*"
+        images:
+          - "ccra*"
+        containers:
+          - "ccra*"
+        hosts:
+          - "ccra*"
+        labels:
+          - "ccra*"
+        app_id:
+          - "ccra*"
+        functions:
+          - "ccra*"
+        code_repos:
+          - "ccra*"
+
+# ============================
+# CP&E
+# ============================
+# NOTE: the live role is named "cp&e-readonly-role" and the live resource list
+# "cp&e-app-rl". The module derives names from team_name, which forbids "&"
+# (validation: lowercase alphanumeric + hyphen). So the role name cannot be
+# reproduced exactly; expect an in-place rename diff on the role.
+
+#cpe:
+cp\u0026e:
+  description: "cp&e read only role"
+  role_name_suffix: "-readonly-role"
+  account_groups:
+    - name: "cpe-dev-ag"
+      description: "CP&E development environment accounts. Managed by Terraform."
+      account_ids: []
+      non_onboarded_account_ids: []
+  resource_lists:
+    - name: "cp&e-app-rl"
+      description: "CP&E development environment resources. Managed by Terraform."
+      compute_access_group:
+        clusters:
+          - "*"
+        namespaces:
+          - "*"
+        images:
+          - "*"
+        containers:
+          - "*"
+        hosts:
+          - "*"
+        labels:
+          - "*"
+        app_id:
+          - "*"
+        functions:
+          - "*"
+        code_repos:
+          - "*"
+
+# ============================
+# DE (Data Estate, formerly DAS/FMBT)
+# ============================
+
+de:
+  description: "Data Estate (DE) readonly role"
+  role_name_suffix: "-readonly-role"
+  account_group_name_suffix: "-dev-ag"
+  resource_list_name_suffix: "-dev-rl"
+  account_groups:
+    - name: "de-dev-ag"
+      description: "DE team dev environment (Formerly FMBT)"
+      account_ids: []
+      non_onboarded_account_ids:
+        - "873f84c1-5e2d-43f8-b430-554798bcc009"
+    - name: "de-preprod-ag"
+      description: "DE team preprod environment (Formerly FMBT)"
+      account_ids: []
+      non_onboarded_account_ids:
+        - "435b2cd9-4559-4788-a0d0-5a809fc3c9e9"
+    - name: "de-prod-ag"
+      description: "DE team prod environment (Formerly FMBT)"
+      account_ids: []
+      non_onboarded_account_ids:
+        - "1e5b8da5-fbcf-4f83-b932-ed8af1530065"
+  resource_lists:
+    - name: "de-app-rl"
+      description: "DE team resource list"
+      compute_access_group:
+        clusters:
+          - "*"
+        namespaces:
+          - "*"
+        images:
+          - "*"
+        containers:
+          - "*"
+        hosts:
+          - "VAC21APPFMB*"
+          - "VAC20APPFMB*"
+        labels:
+          - "*"
+        app_id:
+          - "*"
+        functions:
+          - "*"
+        code_repos:
+          - "*"
+
+# ============================
+# DTC
+# ============================
+
+dtc:
+  description: "DIC Integration Platform (DIP). Managed by Terraform."
+  account_groups:
+    - name: "dtc-dev-ag"
+      account_ids: []
+      non_onboarded_account_ids:
+        - "439631198817"
+  resource_lists:
+    - name: "dtc-dev-rl"
+      compute_access_group: # Collection
+        clusters:
+          - "*"
+        namespaces:
+          - "*"
+        images:
+          - "*"
+        containers:
+          - "*"
+        hosts:
+          - "Jenkles"
+          - "Jefe"
+          - "vac10appdip*"
+        labels:
+          - "*"
+        app_id:
+          - "*"
+        functions:
+          - "*"
+        code_repos:
+          - "*"
+  service_account:
+    name: "dtc-defender-deploy-sa"
+    role_id: "52af0b25-d267-42ef-a7a9-01f26e6cbaa6" # ci-defender-deployment-role
+
+    # Optional:
+    # time_zone: "America/New_York"
+
+# ============================
+# FMBT
+# ============================
+
+#fmbt:
+#  description: "fmbt application"
+#  role_name_suffix: "-readonly-role"
+#  account_groups: []
+#  resource_lists:
+#    - name: "fmbt-app-rl"
+#      compute_access_group:
+#        clusters:
+#          - "*"
+#        namespaces:
+#          - "*"
+#        images:
+#          - "*"
+#        containers:
+#          - "*"
+#        hosts:
+#          - "VAC21APPFMB*"
+#        labels:
+#          - "*"
+#        app_id:
+#          - "*"
+#        functions:
+#          - "*"
+#        code_repos:
+#          - "*"
+
+# ============================
+# FSC Filenet (OM FSC LAN Filenet subgroup)
+# ============================
+
+fsc-filnet:
+  description: "OM FSC LAN Filenet subgroup read only role"
+  role_name_suffix: "-readonly-role"
+  account_groups:
+    - name: "om-fsc-dev-ag"
+      description: "OM FSC LAN Filenet team workloads. Managed by Terraform." 
+      account_ids: []
+      non_onboarded_account_ids:
+        - "Non-onboarded cloud accounts"
+  resource_lists:
+    - name: "fsc-filenet-rl"
+      description: "OM FSC LAN Filenet subgroup resource list"
+      compute_access_group:
+        clusters:
+          - "*"
+        namespaces:
+          - "*"
+        images:
+          - "*"
+        containers:
+          - "*"
+        hosts:
+          - "vafscappecm*"
+          - "vafscsqlecm*"
+          - "vafscappfts*"
+          - "vafscappcmo*"
+          - "vafscsqlcmo*"
+        labels:
+          - "*"
+        app_id:
+          - "*"
+        functions:
+          - "*"
+        code_repos:
+          - "*"
+
+# ============================
+# HDR
+# ============================
+
+hdr:
+  description: "hdr read only role"
+  role_name_suffix: "-readonly-role"
+  account_groups:
+    - name: "hdr-dev-ag"
+      description: "HDR  team dev environment Account Group"
+      account_ids: []
+      non_onboarded_account_ids:
+        - "330333621974"
+        - "ca106dde-3f35-48dc-bd8c-fc626a5d629a"
+  resource_lists:
+    - name: "hdr-app-rl"
+      description: "HDR Resource List"
+      compute_access_group:
+        clusters:
+          - "*"
+        namespaces:
+          - "*"
+        images:
+          - "*"
+        containers:
+          - "*"
+        hosts:
+          - "vac20apphdr*"
+        labels:
+          - "*"
+        app_id:
+          - "*"
+        functions:
+          - "*"
+        code_repos:
+          - "*"
+
+# ============================
+# LHDI (Lighthouse)
+# ============================
+
+#lhdi:
+#  description: "Lighthouse SRE"
+#  role_name_suffix: "-readonly-role"
+#  account_groups:
+#    - name: "lhdi-aws-dev-ag"
+#      account_ids: []
+#      non_onboarded_account_ids:
+#        - "461921442292"
+#    - name: "lhdi-aws-nonprod-ag"
+#      account_ids: []
+#      non_onboarded_account_ids:
+#        - "461893774470"
+#  resource_lists:
+#    - name: "lhdi-aws-dev-rl"
+#      compute_access_group:
+#        clusters:
+#          - "*"
+#        namespaces:
+#          - "*"
+#        images:
+#          - "*"
+#        containers:
+#          - "*"
+#        hosts:
+#          - "*"
+#        labels:
+#          - "*"
+#        app_id:
+#          - "*"
+#        functions:
+#          - "*"
+#        code_repos:
+#          - "*"
+#    - name: "lhdi-aws-nonprod-rl"
+#      compute_access_group:
+#        clusters:
+#          - "*"
+#        namespaces:
+#          - "*"
+#        images:
+#          - "*"
+#        containers:
+#          - "*"
+#        hosts:
+#          - "*"
+#        labels:
+#          - "*"
+#        app_id:
+#          - "*"
+#        functions:
+#          - "*"
+#        code_repos:
+#          - "*"
+
+# ============================
+# MHV - MyHealthyVet
+# ============================
+
+mhv:
+  #description: "MyHealthyVet (MHV). Managed by Terraform."
+  description: "mhv application workload"
+  role_name_suffix: "-readonly-role"
+  account_groups:
+    - name: "mhv-dev-ag"
+      account_ids: []
+      non_onboarded_account_ids:
+        - "137258013298"
+  resource_lists:
+    - name: "mhv-dev-rl"
+      compute_access_group: # Collection
+        clusters:
+          - "*"
+        namespaces:
+          - "*"
+        images:
+          - "*"
+        containers:
+          - "*"
+        hosts:
+          - "vac10webmhv*"
+          - "vac10clbmhv*"
+          - "vac10idxmhv*"
+          - "vac10monmhv*"
+          - "vac10logmhv*"
+          - "vac10stgmhv*"
+          - "vac10msgmhv*"
+          - "vac10ldpmhv*"
+          - "vac10devmhv*"
+          - "vac10opsmhv*"
+          - "vac10dbsmhv*"
+        labels:
+          - "*"
+        app_id:
+          - "*"
+        functions:
+          - "*"
+        code_repos:
+          - "*"
+  service_account:
+    name: "mhv-defender-deploy-sa"
+    role_id: "52af0b25-d267-42ef-a7a9-01f26e6cbaa6" # ci-defender-deployment-role
+
+    # Optional:
+    # time_zone: "America/New_York"

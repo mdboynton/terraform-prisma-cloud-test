@@ -1,0 +1,771 @@
+[
+    {
+        "id": "6de75d23-5321-4a7c-a631-1f61a995e82f",
+        "name": "VA All Resource List",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "VA All Resource List to include all resources",
+        "lastModifiedBy": "justin.mcbeth@va.gov",
+        "lastModifiedTs": 1763385509904,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "e8e588e2-5e4c-40d2-916c-0c91d34bcbab",
+        "name": "das-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "das application workload",
+        "lastModifiedBy": "ashu.mbenga@va.gov",
+        "lastModifiedTs": 1779470650476,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "das*"
+                ],
+                "appIDs": [
+                    "das*"
+                ],
+                "images": [
+                    "das*"
+                ],
+                "labels": [
+                    "das*"
+                ],
+                "clusters": [
+                    "das*"
+                ],
+                "codeRepos": [
+                    "das*"
+                ],
+                "functions": [
+                    "das*"
+                ],
+                "containers": [
+                    "das*"
+                ],
+                "namespaces": [
+                    "das*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "e41cae55-9ee8-4632-8766-35e3a425fb30",
+        "name": "ccra-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "ccra application workload",
+        "lastModifiedBy": "devon.osborne@va.gov",
+        "lastModifiedTs": 1780077867660,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "28bf4927-dcbd-43b5-a828-132fff22e3e7",
+        "name": "cp&e-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "cp&e application read only",
+        "lastModifiedBy": "devon.osborne@va.gov",
+        "lastModifiedTs": 1780077888703,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "cp&e*"
+                ],
+                "appIDs": [
+                    "cp&e*"
+                ],
+                "images": [
+                    "cp&e*"
+                ],
+                "labels": [
+                    "cp&e*"
+                ],
+                "clusters": [
+                    "cp&e*"
+                ],
+                "codeRepos": [
+                    "cp&e*"
+                ],
+                "functions": [
+                    "cp&e*"
+                ],
+                "containers": [
+                    "cp&e*"
+                ],
+                "namespaces": [
+                    "cp&e*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "71ab174a-44eb-4a5a-ad38-2d40cdfee947",
+        "name": "lhdi-aws-dev-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "Lighthouse team dev AWS resources",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780349716771,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "a153fa37-da2b-4938-906d-be97a2d4b775",
+        "name": "lhdi-aws-nonprod-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "Lighthouse team nonprod AWS resources",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1780349753868,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "98855110-2e94-4e4f-8411-e7c74bd5a938",
+        "name": "om-fsc-dev-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "OM FSC LAN team workloads. Managed by Terraform.",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780512155544,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "fca02df3-ac4f-4c45-bd08-9280fb434325",
+        "name": "fsc-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "fsc application workload",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780512185324,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "45b88102-469a-4816-b901-a346539abea4",
+        "name": "sdp-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "SDP Application Workload",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780519590218,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "d1bbdd2f-2ba4-4826-b4ff-9fc1e2ef2266",
+        "name": "defender-install-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "Resource list tied to providing access to Prisma Cloud Defender installation and deployment resources to system owners",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1780598330317,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "411d21e0-5b53-453f-bc54-6d7456776536",
+        "name": "sdp-devtest-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "Summit Data Platform (SDP) team workloads. Managed by Terraform.",
+        "lastModifiedBy": "maxwell.boynton@va.gov",
+        "lastModifiedTs": 1780601562122,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "VAC20MUL*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "7f673479-4598-4ddd-85ca-4deb5541988a",
+        "name": "fmbt-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "fmbt application work load",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1781019854211,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "VAC21APPFMB*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "3b6adc84-b829-4c6f-81b5-355ca24130b1",
+        "name": "dtc-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "dtc application workload",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1781115748030,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "Jenkles",
+                    "Jefe",
+                    "vac10appdip*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "845defb2-f522-453e-9c76-e651bb42a954",
+        "name": "fsc-filenet-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "OM FSC LAN Filenet subgroup resource list",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1781539021855,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "vafscappecm*",
+                    "vafscsqlecm*",
+                    "vafscappfts*",
+                    "vafscappcmo*",
+                    "vafscsqlcmo*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "f806505d-188f-4b2d-a031-ecf9ac7b3673",
+        "name": "dtc-dev-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "DIC Integration Platform (DIP). Managed by Terraform.",
+        "lastModifiedBy": "terraform-sa",
+        "lastModifiedTs": 1782319686205,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "Jenkles",
+                    "Jefe",
+                    "vac10appdip*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "17ae8bed-d203-4388-befb-a6cedbb5fa20",
+        "name": "dms-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "dms application",
+        "lastModifiedBy": "ashu.mbenga@va.gov",
+        "lastModifiedTs": 1782502905261,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "dms*"
+                ],
+                "appIDs": [
+                    "dms*"
+                ],
+                "images": [
+                    "dms*"
+                ],
+                "labels": [
+                    "dms*"
+                ],
+                "clusters": [
+                    "dms*"
+                ],
+                "codeRepos": [
+                    "dms*"
+                ],
+                "functions": [
+                    "dms*"
+                ],
+                "containers": [
+                    "dms*"
+                ],
+                "namespaces": [
+                    "dms*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "cf0ffc0c-49db-4813-ab5a-bdc7d7f9ab07",
+        "name": "de-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "DE team resource list",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1782928374611,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "VAC21APPFMB*",
+                    "VAC20APPFMB*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "067ec42e-320e-4797-8a03-fa621bd2b733",
+        "name": "mhv-dev-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "mhv application workload",
+        "lastModifiedBy": "mboynton@paloaltonetworks.com",
+        "lastModifiedTs": 1783717336272,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "vac10webmhv810"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "a23f63bf-e5b3-431e-b363-240107de4fa8",
+        "name": "hdr-app-rl",
+        "resourceListType": "COMPUTE_ACCESS_GROUP",
+        "description": "HDR Resource List",
+        "lastModifiedBy": "michael.reisis@va.gov",
+        "lastModifiedTs": 1783969267364,
+        "createdByUserRole": null,
+        "members": [
+            {
+                "hosts": [
+                    "vac20apphdr*"
+                ],
+                "appIDs": [
+                    "*"
+                ],
+                "images": [
+                    "*"
+                ],
+                "labels": [
+                    "*"
+                ],
+                "clusters": [
+                    "*"
+                ],
+                "codeRepos": [
+                    "*"
+                ],
+                "functions": [
+                    "*"
+                ],
+                "containers": [
+                    "*"
+                ],
+                "namespaces": [
+                    "*"
+                ]
+            }
+        ]
+    }
+]

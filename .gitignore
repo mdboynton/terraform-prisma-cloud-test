@@ -1,0 +1,44 @@
+# AI/LLM files
+CONTEXT.md
+AGENTS.md
+.roo/
+
+# Miscellaneous files
+.etc/
+
+# Backups
+*.bak
+
+# Live config
+terraform/config/teams.yaml
+
+# macOS
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Python virtualenvs (defensive — shouldn't appear here, but kept just in case)
+.venv/
+__pycache__/
+*.pyc
+
+# Secrets / local config (defensive duplicates of terraform/.gitignore)
+.env
+.env.*
+*.pem
+*.key
+
+# Terraform working directory / state (canonical excludes in terraform/.gitignore)
+**/.terraform/
+**/.terraform.tfstate.lock.info
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfvars
+**/*.tfvars.json
+!**/*.tfvars.example
+crash.log
+crash.*.log
