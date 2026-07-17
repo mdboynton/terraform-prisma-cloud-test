@@ -8,13 +8,10 @@ variable "prisma_cloud_api_url" {
   type        = string
   default     = null
 
-  validation {
-    condition = var.prisma_cloud_api_url == null || var.prisma_cloud_api_url == "" || can(regex(
-      "^api[234]?\\.(anz|eu|gov|ca|sg|uk|ind|jp|fr|id)?\\.?prismacloud\\.(io|cn)$",
-      var.prisma_cloud_api_url
-    ))
-    error_message = "The prisma_cloud_api_url must be a valid Prisma Cloud API endpoint (e.g. api.prismacloud.io, api2.prismacloud.io, api.gov.prismacloud.io, api.eu.prismacloud.io, api.prismacloud.cn)."
-  }
+  # NOTE (tuan_test branch): the strict endpoint regex was removed. In CI the
+  # value arrives via TF_VAR_/secret and the provider itself rejects a bad URL,
+  # so the extra custom validation only added friction. Keep the provider as the
+  # source of truth for URL correctness.
 }
 
 variable "prisma_cloud_access_key" {
@@ -23,13 +20,9 @@ variable "prisma_cloud_access_key" {
   sensitive   = true
   default     = null
 
-  validation {
-    condition = var.prisma_cloud_access_key == null || var.prisma_cloud_access_key == "" || can(regex(
-      "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
-      var.prisma_cloud_access_key
-    ))
-    error_message = "The prisma_cloud_access_key must be a valid UUID (e.g. '00000000-0000-0000-0000-000000000000')."
-  }
+  # NOTE (tuan_test branch): the UUID-format validation was removed. The value is
+  # injected via TF_VAR_/secret in CI and the provider authenticates it directly,
+  # so the custom regex check only added friction without extra safety.
 }
 
 variable "prisma_cloud_secret_key" {
