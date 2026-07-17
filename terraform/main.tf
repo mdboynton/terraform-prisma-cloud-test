@@ -1,8 +1,7 @@
 import {
   for_each = var.existing_permission_group_id != null ? { pg = var.existing_permission_group_id } : {}
   to       = prismacloud_permission_group.app_owner_readonly_singleton
-  #id       = each.value
-  id = "2235d5e3-1879-49f3-ac28-d43d1f418c10"
+  id       = each.value
 }
 
 # Shared Permission Group for all teams. Feature catalog: locals.tf.

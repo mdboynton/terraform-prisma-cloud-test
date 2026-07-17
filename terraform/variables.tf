@@ -165,7 +165,7 @@ variable "permission_group_name" {
 variable "existing_permission_group_id" {
   description = "(Optional) UUID of a pre-existing Permission Group named permission_group_name in the tenant. When set, Terraform imports and adopts the existing PG on the next apply instead of attempting to create a new one (which would fail with a name-collision error). Leave null when no pre-existing PG exists."
   type        = string
-  default     = "2235d5e3-1879-49f3-ac28-d43d1f418c10"
+  default     = null
 }
 
 variable "permission_group_description" {

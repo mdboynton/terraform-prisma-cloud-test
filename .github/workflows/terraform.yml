@@ -1,0 +1,170 @@
+name: Terraform (Prisma Cloud RBAC)
+
+# Reconciles the Prisma Cloud test tenant from terraform/config/teams.yaml.
+#
+# - Pull requests: init + validate + plan (read-only, no tenant writes on apply).
+# - Manual dispatch / push to tuan_test: plan, then a gated apply that requires
+#   approval via the `test-tenant` GitHub Environment.
+#
+# Required repository (or environment) secrets:
+#   PRISMACLOUD_API_URL   e.g. api.prismacloud.io
+#   PRISMACLOUD_USERNAME  access key UUID
+#   PRISMACLOUD_PASSWORD  secret key
+#
+# The PaloAltoNetworks/prismacloud provider reads these three env vars natively;
+# no *.tfvars are needed for auth.
+
+on:
+  pull_request:
+    branches: [main, tuan_test]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [tuan_test, main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Run terraform apply after a successful plan"
+        type: boolean
+        default: false
+
+# Serialize runs so concurrent plans/applies don't fight over the tenant/state.
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.13.3"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  # Provider auth (from secrets) — read natively by the prismacloud provider.
+  PRISMACLOUD_API_URL: ${{ secrets.PRISMACLOUD_API_URL }}
+  PRISMACLOUD_USERNAME: ${{ secrets.PRISMACLOUD_USERNAME }}
+  PRISMACLOUD_PASSWORD: ${{ secrets.PRISMACLOUD_PASSWORD }}
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      exitcode: ${{ steps.plan.outputs.exitcode }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt (check)
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        run: terraform validate -no-color
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color -out=tfplan
+          echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Show plan (human-readable)
+        if: always()
+        run: terraform show -no-color tfplan || true
+
+      - name: Upload plan artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: terraform/tfplan
+          retention-days: 5
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+            let plan = '';
+            try {
+              plan = execSync('terraform show -no-color tfplan', { cwd: 'terraform' }).toString();
+            } catch (e) {
+              plan = 'Plan output unavailable (see job logs).';
+            }
+            const max = 60000;
+            const body = [
+              '#### Terraform Plan `${{ steps.plan.outputs.exitcode }}`',
+              '',
+              '<details><summary>Show Plan</summary>',
+              '',
+              '```terraform',
+              plan.length > max ? plan.slice(0, max) + '\n... (truncated, see artifact/logs)' : plan,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail if plan errored
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1
+
+  apply:
+    name: Apply (gated)
+    needs: plan
+    runs-on: ubuntu-latest
+    # Only apply on manual dispatch with apply=true, or on push to tuan_test/main.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.apply == true) ||
+      (github.event_name == 'push' && (github.ref == 'refs/heads/tuan_test' || github.ref == 'refs/heads/main'))
+    # Requires a protected GitHub Environment named test-tenant with a required
+    # reviewer — this is what gates the apply behind manual approval.
+    environment:
+      name: test-tenant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Download plan artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: terraform
+
+      - name: Terraform apply
+        run: terraform apply -input=false -no-color tfplan
