@@ -272,46 +272,53 @@ resource "prismacloud_user_profile" "service_account" {
 #
 # depends_on ensures all team resources (AGs, RLs, Role, service account) exist
 # before any member assignment runs.
+#
+# DISABLED (tuan_test branch): Terraform only allows `import` blocks in the ROOT
+# module, not inside a child module — so `terraform init` fails outright while
+# this block lives here, regardless of whether team_members is empty. The test
+# config uses no members, so the whole members feature is commented out to unblock
+# the RBAC smoke test. Proper fix: hoist the import into the root module keyed by
+# team+email (module.prisma_cloud_rbac[team].prismacloud_user_profile.member[email]).
 # ----------------------------------------------------------------
-data "prismacloud_user_profile" "member" {
-  for_each = toset(var.team_members)
-
-  profile_id = each.value
-}
-
-import {
-  for_each = toset(var.team_members)
-
-  to = prismacloud_user_profile.member[each.value]
-  id = each.value
-}
-
-resource "prismacloud_user_profile" "member" {
-  for_each = toset(var.team_members)
-
-  # Identity + non-role attributes are fed back from the live profile so the
-  # write does not change anything except adding the team Role.
-  account_type = data.prismacloud_user_profile.member[each.key].account_type
-  username     = data.prismacloud_user_profile.member[each.key].username
-  first_name   = data.prismacloud_user_profile.member[each.key].first_name
-  last_name    = data.prismacloud_user_profile.member[each.key].last_name
-  email        = data.prismacloud_user_profile.member[each.key].email
-  time_zone    = data.prismacloud_user_profile.member[each.key].time_zone
-  enabled      = data.prismacloud_user_profile.member[each.key].enabled
-
-  default_role_id = data.prismacloud_user_profile.member[each.key].default_role_id
-
-  # Union of the user's existing roles + this team's Role. distinct() dedupes
-  # in case the user is already a member.
-  role_ids = distinct(concat(
-    data.prismacloud_user_profile.member[each.key].role_ids,
-    [prismacloud_user_role.team.role_id],
-  ))
-
-  depends_on = [
-    prismacloud_account_group.team,
-    prismacloud_resource_list.team,
-    prismacloud_user_role.team,
-    prismacloud_user_profile.service_account,
-  ]
-}
+# data "prismacloud_user_profile" "member" {
+#   for_each = toset(var.team_members)
+#
+#   profile_id = each.value
+# }
+#
+# import {
+#   for_each = toset(var.team_members)
+#
+#   to = prismacloud_user_profile.member[each.value]
+#   id = each.value
+# }
+#
+# resource "prismacloud_user_profile" "member" {
+#   for_each = toset(var.team_members)
+#
+#   # Identity + non-role attributes are fed back from the live profile so the
+#   # write does not change anything except adding the team Role.
+#   account_type = data.prismacloud_user_profile.member[each.key].account_type
+#   username     = data.prismacloud_user_profile.member[each.key].username
+#   first_name   = data.prismacloud_user_profile.member[each.key].first_name
+#   last_name    = data.prismacloud_user_profile.member[each.key].last_name
+#   email        = data.prismacloud_user_profile.member[each.key].email
+#   time_zone    = data.prismacloud_user_profile.member[each.key].time_zone
+#   enabled      = data.prismacloud_user_profile.member[each.key].enabled
+#
+#   default_role_id = data.prismacloud_user_profile.member[each.key].default_role_id
+#
+#   # Union of the user's existing roles + this team's Role. distinct() dedupes
+#   # in case the user is already a member.
+#   role_ids = distinct(concat(
+#     data.prismacloud_user_profile.member[each.key].role_ids,
+#     [prismacloud_user_role.team.role_id],
+#   ))
+#
+#   depends_on = [
+#     prismacloud_account_group.team,
+#     prismacloud_resource_list.team,
+#     prismacloud_user_role.team,
+#     prismacloud_user_profile.service_account,
+#   ]
+# }
