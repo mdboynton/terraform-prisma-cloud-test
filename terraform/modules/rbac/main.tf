@@ -103,6 +103,11 @@ resource "prismacloud_collection" "team_dashboard_filter" {
   asset_groups {
     account_group_ids = [for ag in prismacloud_account_group.team : ag.group_id]
   }
+
+  # Create this dedicated Collection only after the Resource Lists exist. Each
+  # Resource List auto-spawns its own Collection; creating this one concurrently
+  # raced that side effect and produced a transient "object already exists".
+  depends_on = [prismacloud_resource_list.team]
 }
 
 # ----------------------------------------------------------------

@@ -163,11 +163,12 @@ jobs:
       - name: Terraform init
         run: terraform init -input=false
 
-      - name: Download plan artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: tfplan
-          path: terraform
-
+      # No remote backend is configured, so state is local to THIS job. Planning
+      # and applying in the same job keeps state consistent (a plan artifact from
+      # the separate plan job would reference state this job doesn't have). We
+      # therefore run a fresh apply here rather than applying a saved plan file.
       - name: Terraform apply
-        run: terraform apply -input=false -no-color tfplan
+        # -parallelism=1 serializes creation so the dashboard Collection isn't
+        # created in the same instant the Resource List auto-spawns its own
+        # Collection (that race produced a transient "object already exists").
+        run: terraform apply -input=false -no-color -auto-approve -parallelism=1
