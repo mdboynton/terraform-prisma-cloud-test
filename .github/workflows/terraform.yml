@@ -45,10 +45,13 @@ env:
   TF_VERSION: "1.13.3"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
-  # Provider auth (from secrets) — read natively by the prismacloud provider.
-  PRISMACLOUD_API_URL: ${{ secrets.PRISMACLOUD_API_URL }}
-  PRISMACLOUD_USERNAME: ${{ secrets.PRISMACLOUD_USERNAME }}
-  PRISMACLOUD_PASSWORD: ${{ secrets.PRISMACLOUD_PASSWORD }}
+  # Provider auth. providers.tf explicitly sets url/username/password from these
+  # TF variables, so a null variable would override the provider's own env-var
+  # fallback. We therefore feed the secrets in as TF_VAR_* (Terraform reads these
+  # into the matching variables automatically), which populates the provider args.
+  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
+  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
+  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
 
 defaults:
   run:
