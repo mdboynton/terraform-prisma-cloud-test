@@ -143,10 +143,10 @@ jobs:
     name: Apply (gated)
     needs: plan
     runs-on: ubuntu-latest
-    # Only apply on manual dispatch with apply=true, or on push to tuan_test/main.
-    if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.apply == true) ||
-      (github.event_name == 'push' && (github.ref == 'refs/heads/tuan_test' || github.ref == 'refs/heads/main'))
+    # Apply ONLY via a deliberate manual dispatch with apply=true. Pushes and PRs
+    # run plan only — nothing is applied automatically. This makes the "mine" repo
+    # safe to push to routinely while keeping apply an intentional, gated action.
+    if: github.event_name == 'workflow_dispatch' && inputs.apply == true
     # Requires a protected GitHub Environment named test-tenant with a required
     # reviewer — this is what gates the apply behind manual approval.
     environment:
