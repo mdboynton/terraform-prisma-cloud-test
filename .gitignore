@@ -10,8 +10,9 @@ AGENTS.md
 # Backups
 *.bak
 
-# Live config
-terraform/config/teams.yaml
+# Live configs (allow examples)
+terraform/config/*.yaml
+!terraform/config/*.example.yaml
 
 # macOS
 .DS_Store
@@ -22,18 +23,18 @@ terraform/config/teams.yaml
 *.swp
 *~
 
-# Python virtualenvs (defensive — shouldn't appear here, but kept just in case)
+# Python virtualenvs
 .venv/
 __pycache__/
 *.pyc
 
-# Secrets / local config (defensive duplicates of terraform/.gitignore)
+# Secrets / local config
 .env
 .env.*
 *.pem
 *.key
 
-# Terraform working directory / state (canonical excludes in terraform/.gitignore)
+# Terraform working directory / state
 **/.terraform/
 **/.terraform.tfstate.lock.info
 **/*.tfstate
