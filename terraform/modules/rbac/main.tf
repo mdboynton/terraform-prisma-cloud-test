@@ -3,8 +3,8 @@ locals {
 
   # Suffix vars are nullable to accept null passthroughs from try() at the root.
   # coalesce() restores the default when the caller passes null.
-  account_group_name_suffix = coalesce(var.account_group_name_suffix, "-ag")
-  resource_list_name_suffix = coalesce(var.resource_list_name_suffix, "-rl")
+  account_group_name_suffix               = coalesce(var.account_group_name_suffix, "-ag")
+  resource_list_name_suffix               = coalesce(var.resource_list_name_suffix, "-rl")
   role_name_suffix                        = coalesce(var.role_name_suffix, "-role")
   dashboard_filter_collection_name_suffix = coalesce(var.dashboard_filter_collection_name_suffix, "-assets")
   alert_rule_name_suffix                  = coalesce(var.alert_rule_name_suffix, "-alert-rule")

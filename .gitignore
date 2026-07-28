@@ -11,6 +11,7 @@ AGENTS.md
 
 # Live config
 terraform/config/teams.yaml
+terraform/config/compute-runtime-policies.yaml
 
 # macOS
 .DS_Store

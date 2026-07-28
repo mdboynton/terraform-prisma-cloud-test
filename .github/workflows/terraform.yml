@@ -7,21 +7,23 @@ name: Terraform (Prisma Cloud RBAC)
 #   approval via the `test-tenant` GitHub Environment.
 #
 # Required repository (or environment) secrets:
-#   PRISMACLOUD_API_URL   e.g. api.prismacloud.io
-#   PRISMACLOUD_USERNAME  access key UUID
-#   PRISMACLOUD_PASSWORD  secret key
+#   PRISMACLOUD_API_URL          e.g. api.prismacloud.io
+#   PRISMACLOUD_USERNAME         access key UUID
+#   PRISMACLOUD_PASSWORD         secret key
+#   PRISMA_COMPUTE_CONSOLE_URL   e.g. https://us-east1.cloud.twistlock.com/us-2-...
 #
-# The PaloAltoNetworks/prismacloud provider reads these three env vars natively;
-# no *.tfvars are needed for auth.
+# The PaloAltoNetworks/prismacloud provider reads the first three natively. The
+# compute-runtime-policies module reuses the same access key / secret key and only
+# needs the Compute Console URL in addition (fed as TF_VAR_prisma_compute_console_url).
 
 on:
   pull_request:
-    branches: [main, tuan_test]
+    branches: [main, tuan_test, tuan_test_compute_policies]
     paths:
       - "terraform/**"
       - ".github/workflows/terraform.yml"
   push:
-    branches: [tuan_test, main]
+    branches: [tuan_test, main, tuan_test_compute_policies]
     paths:
       - "terraform/**"
       - ".github/workflows/terraform.yml"
@@ -31,6 +33,14 @@ on:
         description: "Run terraform apply after a successful plan"
         type: boolean
         default: false
+      list_compute_runtime:
+        description: "Enable the read-only compute runtime policy listing (Direction 1 + 2) during plan"
+        type: boolean
+        default: false
+      list_collection:
+        description: "Optional: restrict the compute runtime listing to this collection name"
+        type: string
+        default: ""
 
 # Serialize runs so concurrent plans/applies don't fight over the tenant/state.
 concurrency:
@@ -52,6 +62,12 @@ env:
   TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+  # Compute Console URL for the compute-runtime-policies module. The access key /
+  # secret key are reused from the CSPM secrets above (same credentials).
+  TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
+  # Read-only compute runtime policy listing. Off unless enabled via manual dispatch.
+  TF_VAR_compute_runtime_list_enabled: ${{ github.event.inputs.list_compute_runtime || 'false' }}
+  TF_VAR_compute_runtime_list_collection: ${{ github.event.inputs.list_collection || '' }}
 
 defaults:
   run:

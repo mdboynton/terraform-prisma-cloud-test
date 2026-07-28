@@ -166,3 +166,41 @@ variable "permission_group_description" {
   type        = string
   default     = "VA Application Owner Read Only Permissions Group.  Assigned roles will be scoped to specific account groups and resource lists."
 }
+
+# ============================================================
+# Prisma Cloud Compute Console (Twistlock) authentication
+# Used by the prismacloudcompute provider (see providers.tf) and by the
+# compute-runtime-policies module's external read of live runtime policies.
+# The access key / secret key are reused from the CSPM variables above (D3);
+# only the console URL and optional settings are declared here.
+# ============================================================
+
+variable "prisma_compute_console_url" {
+  description = "(Required for compute-runtime-policies) The Prisma Cloud Compute Console URL, e.g. \"https://us-east1.cloud.twistlock.com/us-2-158320372\". Supplied via TF_VAR_prisma_compute_console_url in CI. Null disables the Compute provider path."
+  type        = string
+  default     = null
+}
+
+variable "prisma_compute_project" {
+  description = "(Optional) Compute Console project name for multi-project consoles. Defaults to null (Central Console / default project)."
+  type        = string
+  default     = null
+}
+
+variable "prisma_compute_skip_cert_verification" {
+  description = "(Optional) If true, skips TLS certificate verification for the Compute Console connection. Defaults to null (verify). Not recommended for production."
+  type        = bool
+  default     = null
+}
+
+variable "compute_runtime_list_enabled" {
+  description = "(Optional) When true, the compute-runtime-policies module reads both runtime policies and exposes listing outputs (full rule dump + collection->rules index). Read-only. Default false."
+  type        = bool
+  default     = false
+}
+
+variable "compute_runtime_list_collection" {
+  description = "(Optional) When compute_runtime_list_enabled is true, restricts the collection->rules index to this single collection name (e.g. an RBAC artifact's collection). Empty = index all collections."
+  type        = string
+  default     = ""
+}

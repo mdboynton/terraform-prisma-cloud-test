@@ -11,14 +11,26 @@ module once per entry. Each entry produces one team's Account Group(s), Resource
 List(s), Role, optional Service Account, and optional CSPM Alert Rule, all bound to a
 shared Permission Group.
 
+It also reads
+[`terraform/config/compute-runtime-policies.yaml`](terraform/config/compute-runtime-policies.yaml)
+and runs the
+[`compute-runtime-policies`](terraform/modules/compute-runtime-policies/README.md)
+module, which **attaches an RBAC Collection to existing Compute runtime policy rules**
+(Container + Host) so console-authored policies apply to a team's resources. It does not
+create or change the policies themselves — it only appends the collection to a matched
+rule, preserving what's already there.
+
 ## Layout
 
 | Path | Description |
 |---|---|
 | [`terraform/`](terraform/) | Root module. Run `terraform init/plan/apply` here. |
 | [`terraform/modules/rbac/`](terraform/modules/rbac/) | Deploy RBAC artifacts (Account Group, Resource List, Role, Service Account, Alert Rule). [README](terraform/modules/rbac/README.md) |
+| [`terraform/modules/compute-runtime-policies/`](terraform/modules/compute-runtime-policies/) | Attach an RBAC Collection to existing Compute Container/Host runtime policy rules (non-destructive append via the Compute API). [README](terraform/modules/compute-runtime-policies/README.md) |
 | [`terraform/config/teams.yaml`](terraform/config/teams.yaml) | The config file. One entry per team defines its RBAC artifacts. Gitignored; not loaded when absent (a clean plan with zero resources). |
 | [`terraform/config/teams.example.yaml`](terraform/config/teams.example.yaml) | Annotated example config. Copy it to `teams.yaml` and edit. |
+| [`terraform/config/compute-runtime-policies.yaml`](terraform/config/compute-runtime-policies.yaml) | Runtime-policy associations (which existing rule gets which collection). Gitignored; a no-op when absent. Use `git add -f` to include it in CI. |
+| [`terraform/config/compute-runtime-policies.example.yaml`](terraform/config/compute-runtime-policies.example.yaml) | Annotated example. Copy it to `compute-runtime-policies.yaml` and edit. |
 | [`terraform/testing.tf`](terraform/testing.tf) | A commented-out sentinel module for end-to-end smoke tests. Manual use only. |
 
 ## Quick start

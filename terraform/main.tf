@@ -77,3 +77,23 @@ module "prisma_cloud_rbac" {
   alert_excluded_policies = try(each.value.alert_rule.excluded_policies, [])
   alert_notification      = try(each.value.alert_rule.notification, null)
 }
+
+# Attaches RBAC collections to EXISTING Compute runtime policy rules (container +
+# host) so console-authored policies apply to a team's resources. Does not create
+# or redefine policies. Driven by config/compute-runtime-policies.yaml. A no-op
+# when that config has no associations.
+module "compute_runtime_policies" {
+  source = "./modules/compute-runtime-policies"
+
+  console_url            = var.prisma_compute_console_url
+  access_key             = var.prisma_cloud_access_key
+  secret_key             = var.prisma_cloud_secret_key
+  skip_cert_verification = coalesce(var.prisma_compute_skip_cert_verification, false)
+
+  container_associations = local.compute_container_associations
+  host_associations      = local.compute_host_associations
+
+  # Read-only listing (Direction 1 full dump + Direction 2 collection->rules index).
+  enable_list            = var.compute_runtime_list_enabled
+  list_collection_filter = var.compute_runtime_list_collection
+}

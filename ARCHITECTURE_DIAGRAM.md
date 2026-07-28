@@ -94,3 +94,38 @@ flowchart LR
 - The Role references the shared Permission Group and binds the team's Account Groups and Resource Lists (Compute Access Groups).
 - Each Resource List auto-spawns a Collection named `<resource-list> - Access Group (RBAC)` on the Runtime Security side.
 - Those Collections scope the per-team CWP policy baseline (Compliance, Vulnerabilities, Runtime), which alerts on high and critical findings.
+
+## [`compute-runtime-policies`](terraform/modules/compute-runtime-policies)
+
+Attaches an RBAC Collection to **existing** Compute **runtime** policy rules (Container +
+Host) so console-authored policies apply to a team's resources. It does **not** create or
+change policies — it only appends the collection to a matched rule, preserving the rest.
+Because runtime policies are tenant-wide singletons, this is done via a non-destructive
+**API read-merge-write** (mechanism B) rather than a Terraform provider resource.
+
+```mermaid
+flowchart LR
+    RBAC["RBAC module"] --> COL["Collection<br/>&lt;team&gt;-assets"]
+    YAML["config/compute-runtime-policies.yaml<br/>{ policy_rule_name, add_collection }"] --> M["compute-runtime-policies"]
+    COL --> M
+
+    subgraph ComputeConsole["Compute Console (Twistlock)"]
+        CRP["Container runtime policy<br/>(singleton, ordered rules)"]
+        HRP["Host runtime policy<br/>(singleton, ordered rules)"]
+    end
+
+    M -->|"GET → append collection → PUT (verbatim)"| CRP
+    M -->|"GET → append collection → PUT (verbatim)"| HRP
+    M -. "dry-run preview (every plan)" .-> PREVIEW["would_add /<br/>already_present /<br/>rule_not_found"]
+```
+
+### Flow
+
+- The admin authors runtime policies in the Compute console (they own the policy content).
+- The admin records, in `config/compute-runtime-policies.yaml`, which existing rule should
+  cover which RBAC Collection, then commits + pushes — which triggers the GitHub Action.
+- On `plan`, the module reads each live policy and previews per association whether the
+  collection would be added, is already present, or the rule name wasn't found.
+- On the gated `apply`, the module `GET`s the policy, appends the collection to the matched
+  rule's `collections` (idempotent, preserving all existing collections and fields), and
+  `PUT`s the exact object back — so only the targeted scoping changes.

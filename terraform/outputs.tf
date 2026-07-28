@@ -117,3 +117,30 @@
 #  value       = { for name, m in module.prisma_cloud_rbac : name => m.service_account_secret_key }
 #  sensitive   = true
 #}
+
+# ----------------------------------------------------------------
+# Compute runtime policy listing (read-only). Populated only when
+# compute_runtime_list_enabled = true; otherwise null.
+# ----------------------------------------------------------------
+
+# Direction 1 — full dump of each runtime policy's rules + their collections.
+output "compute_container_policy_rules" {
+  description = "Full dump of the container runtime policy: [{ name, disabled, collections }]. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.container_policy_rules
+}
+
+output "compute_host_policy_rules" {
+  description = "Full dump of the host runtime policy: [{ name, disabled, collections }]. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.host_policy_rules
+}
+
+# Direction 2 — collection -> rules index (which rules apply to a collection).
+output "compute_container_rules_by_collection" {
+  description = "Map of collection name => container runtime rule names referencing it (restricted to compute_runtime_list_collection when set). Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.container_rules_by_collection
+}
+
+output "compute_host_rules_by_collection" {
+  description = "Map of collection name => host runtime rule names referencing it (restricted to compute_runtime_list_collection when set). Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.host_rules_by_collection
+}
