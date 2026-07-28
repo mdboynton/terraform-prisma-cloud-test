@@ -81,6 +81,7 @@ In this repo the root module drives it from
 | `host_associations` | no | `[]` | List of `{ policy_rule_name, add_collection }` for the host runtime policy. |
 | `enable_list` | no | `false` | When true, read both runtime policies and expose the listing outputs below (read-only). |
 | `list_collection_filter` | no | `""` | With `enable_list`, restrict `*_rules_by_collection` to this one collection name. Empty = index all. |
+| `list_clusters` | no | `[]` | With `enable_list`, resolve which runtime rules apply to each named cluster (cluster → cluster-specific collections → rules). Empty = skip cluster resolution (no extra API call). |
 
 Empty association lists = the module is a no-op for that policy kind (no read, no write).
 `enable_list` is independent of associations — you can list without changing anything.
@@ -94,8 +95,9 @@ Empty association lists = the module is a no-op for that policy kind (no read, n
 | `container_apply_id` / `host_apply_id` | The `null_resource` id, proving the merge ran. Null when unmanaged. |
 | `container_policy_rules` / `host_policy_rules` | **Direction 1 — full dump:** every rule as `{ name, disabled, collections }`. Null unless `enable_list`. |
 | `container_rules_by_collection` / `host_rules_by_collection` | **Direction 2 — lookup:** map of collection name => rule names referencing it (restricted to `list_collection_filter` when set). Answers "which runtime rules apply to this RBAC collection?" Null unless `enable_list`. |
+| `container_rules_by_cluster` / `host_rules_by_cluster` | **Direction 3 — cluster lookup:** map of cluster name => `{ collections, rules }`. Answers "which runtime rules apply to this cluster?" Populated only when `list_clusters` is set. Null unless `enable_list`. |
 
-## Listing (read-only) — the two directions
+## Listing (read-only) — the three directions
 
 ```hcl
 module "compute_runtime_policies" {
@@ -105,11 +107,16 @@ module "compute_runtime_policies" {
   secret_key  = var.prisma_cloud_secret_key
 
   enable_list            = true
-  list_collection_filter = "team-assets"   # optional; omit to index all collections
+  list_collection_filter = "team-assets"          # optional; omit to index all collections
+  list_clusters          = ["hs-cluster-1", "mb-eks"] # optional; resolve rules per cluster
 }
 ```
 - **Direction 1** (`*_policy_rules`): a full dump of every runtime rule and its attached
   collections — "what does this policy contain?"
+- **Direction 3** (`*_rules_by_cluster`): a `cluster -> { collections, rules }` map —
+  "which runtime rules apply to this cluster?" Resolves cluster → cluster-specific
+  collections (exact name or targeted glob; the `*`/`All` wildcard is excluded) → the
+  runtime rules bound to those collections. Requires `list_clusters`.
 - **Direction 2** (`*_rules_by_collection`): a `collection -> [rules]` index — "which
   rules apply to this collection (RBAC artifact)?" This is powered by
   [`scripts/list.sh`](scripts/list.sh) and makes NO changes.

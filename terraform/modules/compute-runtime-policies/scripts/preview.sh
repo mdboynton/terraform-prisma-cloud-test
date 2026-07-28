@@ -58,17 +58,21 @@ TOKEN="$(curl "${CURL_OPTS[@]}" \
   | jq -r '.token')" || fail "authentication failed"
 [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || fail "authentication returned no token"
 
-# 2. GET the live policy.
-POLICY_JSON="$(curl "${CURL_OPTS[@]}" \
+# 2. GET the live policy. Written to a file and read via --slurpfile so a large
+#    policy does not overflow ARG_MAX ("Argument list too long") on the jq call.
+TMPDIR_PREVIEW="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_PREVIEW"' EXIT
+curl "${CURL_OPTS[@]}" \
   -H "Authorization: Bearer $TOKEN" \
-  -X GET "$BASE$POLICY_PATH")" || fail "failed to GET $POLICY_PATH"
+  -X GET "$BASE$POLICY_PATH" > "$TMPDIR_PREVIEW/policy.json" || fail "failed to GET $POLICY_PATH"
 
 # 3. Decode associations and compute the dry-run per association.
 ASSOC_JSON="$(printf '%s' "$ASSOC_B64" | base64 --decode)"
 
 PREVIEW="$(jq -n \
-  --argjson policy "$POLICY_JSON" \
+  --slurpfile policy_arr "$TMPDIR_PREVIEW/policy.json" \
   --argjson assoc "$ASSOC_JSON" '
+  ($policy_arr[0]) as $policy |
   {
     policy_kind: "'"$POLICY_KIND"'",
     rules_total: ($policy.rules | length),

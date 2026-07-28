@@ -204,3 +204,9 @@ variable "compute_runtime_list_collection" {
   type        = string
   default     = ""
 }
+
+variable "compute_runtime_list_clusters" {
+  description = "(Optional) When compute_runtime_list_enabled is true, resolves which runtime rules apply to each named cluster (cluster -> cluster-specific collections -> rules), exposed as compute_*_rules_by_cluster. Empty = no cluster resolution."
+  type        = list(string)
+  default     = []
+}

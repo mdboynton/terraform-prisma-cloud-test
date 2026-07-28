@@ -34,13 +34,17 @@ on:
         type: boolean
         default: false
       list_compute_runtime:
-        description: "Enable the read-only compute runtime policy listing (Direction 1 + 2) during plan"
+        description: "Enable the read-only compute runtime policy listing during plan"
         type: boolean
-        default: false
+        default: true
       list_collection:
         description: "Optional: restrict the compute runtime listing to this collection name"
         type: string
         default: ""
+      list_clusters:
+        description: "Comma-separated cluster names to resolve rules for (Direction 3)"
+        type: string
+        default: "hs-cluster-1,mb-eks"
 
 # Serialize runs so concurrent plans/applies don't fight over the tenant/state.
 concurrency:
@@ -65,9 +69,15 @@ env:
   # Compute Console URL for the compute-runtime-policies module. The access key /
   # secret key are reused from the CSPM secrets above (same credentials).
   TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
-  # Read-only compute runtime policy listing. Off unless enabled via manual dispatch.
-  TF_VAR_compute_runtime_list_enabled: ${{ github.event.inputs.list_compute_runtime || 'false' }}
+  # Read-only compute runtime policy listing. Enabled by default so a push surfaces
+  # the runtime rules (and per-cluster resolution) in the plan logs; a manual
+  # dispatch can override list_compute_runtime to false.
+  TF_VAR_compute_runtime_list_enabled: ${{ github.event.inputs.list_compute_runtime || 'true' }}
   TF_VAR_compute_runtime_list_collection: ${{ github.event.inputs.list_collection || '' }}
+  # Comma-separated clusters to resolve (Direction 3). Consumed by the "Encode
+  # compute list_clusters" step below, which converts it to the JSON array the
+  # root list(string) variable requires and exports TF_VAR_compute_runtime_list_clusters.
+  COMPUTE_LIST_CLUSTERS_CSV: ${{ github.event.inputs.list_clusters || 'hs-cluster-1,mb-eks' }}
 
 defaults:
   run:
@@ -93,6 +103,17 @@ jobs:
         run: terraform fmt -check -recursive
         continue-on-error: true
 
+      - name: Encode compute list_clusters
+        # The root compute_runtime_list_clusters is list(string); a TF_VAR_ for a
+        # list type must be a JSON array. Convert the comma-separated input into a
+        # JSON array and export it as TF_VAR_compute_runtime_list_clusters. Empty
+        # input yields [] (no cluster resolution).
+        run: |
+          csv="${COMPUTE_LIST_CLUSTERS_CSV}"
+          json="$(printf '%s' "$csv" | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
+          echo "TF_VAR_compute_runtime_list_clusters=${json}" >> "$GITHUB_ENV"
+          echo "Resolved TF_VAR_compute_runtime_list_clusters=${json}"
+
       - name: Terraform init
         run: terraform init -input=false
 
@@ -110,6 +131,20 @@ jobs:
       - name: Show plan (human-readable)
         if: always()
         run: terraform show -no-color tfplan || true
+
+      - name: Compute runtime listing outputs
+        # Surfaces the read-only compute runtime results in the run logs so they
+        # can be viewed in GitHub. Non-fatal: never blocks the plan.
+        if: always()
+        run: |
+          echo "===== compute_container_rules_by_cluster ====="
+          terraform output -json compute_container_rules_by_cluster 2>/dev/null | jq '.' || echo "(unavailable)"
+          echo "===== compute_host_rules_by_cluster ====="
+          terraform output -json compute_host_rules_by_cluster 2>/dev/null | jq '.' || echo "(unavailable)"
+          echo "===== compute_container_rules_by_collection ====="
+          terraform output -json compute_container_rules_by_collection 2>/dev/null | jq '.' || echo "(unavailable)"
+          echo "===== compute_host_rules_by_collection ====="
+          terraform output -json compute_host_rules_by_collection 2>/dev/null | jq '.' || echo "(unavailable)"
 
       - name: Upload plan artifact
         if: success()

@@ -144,3 +144,14 @@ output "compute_host_rules_by_collection" {
   description = "Map of collection name => host runtime rule names referencing it (restricted to compute_runtime_list_collection when set). Null unless compute_runtime_list_enabled."
   value       = module.compute_runtime_policies.host_rules_by_collection
 }
+
+# Direction 3 — cluster => { collections, rules } (which rules apply to a cluster).
+output "compute_container_rules_by_cluster" {
+  description = "Map of cluster name => { collections, rules } for container runtime (cluster-specific collection matches). Populated when compute_runtime_list_clusters is set. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.container_rules_by_cluster
+}
+
+output "compute_host_rules_by_cluster" {
+  description = "Map of cluster name => { collections, rules } for host runtime (cluster-specific collection matches). Populated when compute_runtime_list_clusters is set. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.host_rules_by_cluster
+}

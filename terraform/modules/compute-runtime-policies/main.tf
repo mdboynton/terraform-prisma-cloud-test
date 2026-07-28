@@ -19,6 +19,9 @@ locals {
   manage_host      = length(var.host_associations) > 0
 
   scripts_dir = "${path.module}/scripts"
+
+  # Comma-separated cluster names for the list.sh clusters_filter query field.
+  clusters_filter = join(",", var.list_clusters)
 }
 
 # ------------------------------------------------------------
@@ -68,6 +71,7 @@ data "external" "container_list" {
     policy_kind            = "container"
     skip_cert_verification = local.skip_cert
     collection_filter      = var.list_collection_filter
+    clusters_filter        = local.clusters_filter
   }
 }
 
@@ -82,6 +86,7 @@ data "external" "host_list" {
     policy_kind            = "host"
     skip_cert_verification = local.skip_cert
     collection_filter      = var.list_collection_filter
+    clusters_filter        = local.clusters_filter
   }
 }
 

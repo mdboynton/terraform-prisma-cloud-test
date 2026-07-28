@@ -93,3 +93,14 @@ variable "list_collection_filter" {
   type        = string
   default     = ""
 }
+
+variable "list_clusters" {
+  description = "(Optional) When set together with enable_list, resolves which runtime rules apply to each named cluster (Direction 3) by walking cluster -> collections that SPECIFICALLY select it (exact name or targeted glob; the */All wildcard is excluded) -> runtime rules. Empty = no cluster resolution (skips the extra collections API call)."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for c in var.list_clusters : length(c) > 0])
+    error_message = "Each list_clusters entry must be a non-empty cluster name."
+  }
+}

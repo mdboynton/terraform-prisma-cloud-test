@@ -61,3 +61,20 @@ output "host_rules_by_collection" {
     data.external.host_list[0].result.result_b64
   )).rules_by_collection : null
 }
+
+# Direction 3 — cluster -> { collections, rules }. Populated only when list_clusters
+# is set. Answers "which runtime rules apply to this cluster?" via
+# cluster -> cluster-specific collections -> rules.
+output "container_rules_by_cluster" {
+  description = "Map of cluster name -> { collections, rules } for the CONTAINER runtime policy (cluster-specific collection matches only). Empty map unless list_clusters is set. Null when enable_list = false."
+  value = var.enable_list ? jsondecode(base64decode(
+    data.external.container_list[0].result.result_b64
+  )).rules_by_cluster : null
+}
+
+output "host_rules_by_cluster" {
+  description = "Map of cluster name -> { collections, rules } for the HOST runtime policy (cluster-specific collection matches only). Empty map unless list_clusters is set. Null when enable_list = false."
+  value = var.enable_list ? jsondecode(base64decode(
+    data.external.host_list[0].result.result_b64
+  )).rules_by_cluster : null
+}

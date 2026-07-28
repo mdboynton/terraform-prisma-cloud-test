@@ -52,17 +52,19 @@ TOKEN="$(curl "${CURL_OPTS[@]}" \
   | jq -r '.token')" || fail "authentication failed"
 [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || fail "authentication returned no token"
 
-# 2. GET the live policy (verbatim).
-POLICY_JSON="$(curl "${CURL_OPTS[@]}" \
+# 2. GET the live policy (verbatim). Written to a file; passed to jq via
+#    --slurpfile so a large policy does not overflow ARG_MAX.
+TMPDIR_MERGE="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_MERGE"' EXIT
+curl "${CURL_OPTS[@]}" \
   -H "Authorization: Bearer $TOKEN" \
-  -X GET "$BASE$POLICY_PATH")" || fail "failed to GET $POLICY_PATH"
+  -X GET "$BASE$POLICY_PATH" > "$TMPDIR_MERGE/policy.json" || fail "failed to GET $POLICY_PATH"
 
 ASSOC_JSON="$(printf '%s' "$PCC_ASSOCIATIONS_B64" | base64 --decode)"
 
 # 3. Merge: for each association, append {name:add_collection} to the matched
 #    rule's collections if not already present. Everything else is untouched.
-MERGED_JSON="$(jq \
-  --argjson assoc "$ASSOC_JSON" '
+jq --argjson assoc "$ASSOC_JSON" '
   . as $policy
   | reduce $assoc[] as $a (
       $policy;
@@ -77,18 +79,19 @@ MERGED_JSON="$(jq \
         else . end
       )
     )
-  ' <<<"$POLICY_JSON")" || fail "merge failed"
+  ' "$TMPDIR_MERGE/policy.json" > "$TMPDIR_MERGE/merged.json" || fail "merge failed"
 
 # 4. Report what changed (names of rules whose collections grew).
 CHANGED="$(jq -n \
-  --argjson before "$POLICY_JSON" \
-  --argjson after  "$MERGED_JSON" '
-  [ $after.rules[]
-    | . as $ar
-    | ($before.rules[] | select(.name == $ar.name)) as $br
-    | select( (($ar.collections // []) | length) != (($br.collections // []) | length) )
-    | $ar.name
-  ]')"
+  --slurpfile before "$TMPDIR_MERGE/policy.json" \
+  --slurpfile after  "$TMPDIR_MERGE/merged.json" '
+  ($before[0]) as $b | ($after[0]) as $a
+  | [ $a.rules[]
+      | . as $ar
+      | ($b.rules[] | select(.name == $ar.name)) as $br
+      | select( (($ar.collections // []) | length) != (($br.collections // []) | length) )
+      | $ar.name
+    ]')"
 echo "changed_rules=$CHANGED" >&2
 
 if [ "$DRY_RUN" = "true" ]; then
@@ -96,16 +99,17 @@ if [ "$DRY_RUN" = "true" ]; then
   exit 0
 fi
 
-if [ "$MERGED_JSON" = "$POLICY_JSON" ]; then
+# Idempotent: skip the PUT when the merge produced no change.
+if cmp -s "$TMPDIR_MERGE/policy.json" "$TMPDIR_MERGE/merged.json"; then
   echo "No changes needed for $PCC_POLICY_KIND runtime policy (idempotent)." >&2
   exit 0
 fi
 
-# 5. PUT the merged policy back.
+# 5. PUT the merged policy back (body from file to avoid ARG_MAX on -d).
 curl "${CURL_OPTS[@]}" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -X PUT "$BASE$POLICY_PATH" \
-  -d "$MERGED_JSON" >/dev/null || fail "failed to PUT $POLICY_PATH"
+  --data-binary "@$TMPDIR_MERGE/merged.json" >/dev/null || fail "failed to PUT $POLICY_PATH"
 
 echo "Applied collection associations to $PCC_POLICY_KIND runtime policy." >&2

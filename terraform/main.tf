@@ -93,7 +93,9 @@ module "compute_runtime_policies" {
   container_associations = local.compute_container_associations
   host_associations      = local.compute_host_associations
 
-  # Read-only listing (Direction 1 full dump + Direction 2 collection->rules index).
+  # Read-only listing (Direction 1 full dump + Direction 2 collection->rules index
+  # + Direction 3 cluster->rules when list_clusters is set).
   enable_list            = var.compute_runtime_list_enabled
   list_collection_filter = var.compute_runtime_list_collection
+  list_clusters          = var.compute_runtime_list_clusters
 }
