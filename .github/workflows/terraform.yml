@@ -44,7 +44,7 @@ on:
       list_clusters:
         description: "Comma-separated cluster names to resolve rules for (Direction 3)"
         type: string
-        default: "hs-cluster-1,mb-eks"
+        default: "hs-cluster-1,hs-cluster-2"
 
 # Serialize runs so concurrent plans/applies don't fight over the tenant/state.
 concurrency:
@@ -77,7 +77,7 @@ env:
   # Comma-separated clusters to resolve (Direction 3). Consumed by the "Encode
   # compute list_clusters" step below, which converts it to the JSON array the
   # root list(string) variable requires and exports TF_VAR_compute_runtime_list_clusters.
-  COMPUTE_LIST_CLUSTERS_CSV: ${{ github.event.inputs.list_clusters || 'hs-cluster-1,mb-eks' }}
+  COMPUTE_LIST_CLUSTERS_CSV: ${{ github.event.inputs.list_clusters || 'hs-cluster-1,hs-cluster-2' }}
 
 defaults:
   run:
