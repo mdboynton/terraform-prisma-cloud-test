@@ -135,16 +135,22 @@ jobs:
       - name: Compute runtime listing outputs
         # Surfaces the read-only compute runtime results in the run logs so they
         # can be viewed in GitHub. Non-fatal: never blocks the plan.
+        #
+        # NOTE: `terraform output` reads STATE, which is empty on a plan-only run
+        # (nothing is applied), so it can't be used here. Instead we read the
+        # planned output values from the plan file via `terraform show -json`,
+        # which carries every output under .output_changes.<name>.after.
         if: always()
         run: |
-          echo "===== compute_container_rules_by_cluster ====="
-          terraform output -json compute_container_rules_by_cluster 2>/dev/null | jq '.' || echo "(unavailable)"
-          echo "===== compute_host_rules_by_cluster ====="
-          terraform output -json compute_host_rules_by_cluster 2>/dev/null | jq '.' || echo "(unavailable)"
-          echo "===== compute_container_rules_by_collection ====="
-          terraform output -json compute_container_rules_by_collection 2>/dev/null | jq '.' || echo "(unavailable)"
-          echo "===== compute_host_rules_by_collection ====="
-          terraform output -json compute_host_rules_by_collection 2>/dev/null | jq '.' || echo "(unavailable)"
+          plan_json="$(terraform show -json tfplan 2>/dev/null || echo '{}')"
+          show_output() {
+            echo "===== $1 ====="
+            printf '%s' "$plan_json" | jq -e --arg k "$1" '.output_changes[$k].after' 2>/dev/null || echo "(unavailable)"
+          }
+          show_output compute_container_rules_by_cluster
+          show_output compute_host_rules_by_cluster
+          show_output compute_container_rules_by_collection
+          show_output compute_host_rules_by_collection
 
       - name: Upload plan artifact
         if: success()
