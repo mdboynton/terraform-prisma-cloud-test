@@ -14,10 +14,10 @@
 
 # Rules on the CONTAINER runtime policy.
 container:
-  - policy_rule_name: "Default - alert on suspicious runtime behavior"
+  - policy_rule_name: "host-runtime-demo"
     add_collection: "tuan-test-assets"
 
 # Rules on the HOST runtime policy.
 host:
-  - policy_rule_name: "Default - alert on suspicious runtime behavior"
+  - policy_rule_name: "host-runtime-demo"
     add_collection: "tuan-test-assets"
