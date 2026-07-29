@@ -108,7 +108,7 @@ module "compute_runtime_policies" {
 
   enable_list            = true
   list_collection_filter = "team-assets"          # optional; omit to index all collections
-  list_clusters          = ["hs-cluster-1", "mb-eks"] # optional; resolve rules per cluster
+  list_clusters          = [] # optional; e.g. ["my-cluster"] to resolve rules per cluster
 }
 ```
 - **Direction 1** (`*_policy_rules`): a full dump of every runtime rule and its attached

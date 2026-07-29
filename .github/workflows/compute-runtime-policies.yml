@@ -38,9 +38,9 @@ on:
         type: string
         default: ""
       list_clusters:
-        description: "Comma-separated cluster names to resolve rules for"
+        description: "Comma-separated cluster names to resolve rules for. Leave EMPTY to skip cluster resolution entirely."
         type: string
-        default: "hs-cluster-1,hs-cluster-2"
+        default: ""
       apply:
         description: "Apply collection associations after a successful plan (requires approval)"
         type: boolean
@@ -72,7 +72,13 @@ env:
 
   # Consumed by the "Encode list_clusters" step, which converts it into the JSON
   # array a list(string) TF_VAR_ requires.
-  COMPUTE_LIST_CLUSTERS_CSV: ${{ github.event.inputs.list_clusters || 'hs-cluster-1,hs-cluster-2' }}
+  #
+  # NO DEFAULT FALLBACK ON PURPOSE. A `|| 'some,clusters'` here would silently
+  # re-introduce clusters whenever the field is cleared, and push/PR events carry
+  # no dispatch inputs at all — so this resolves to empty for them, which the
+  # encode step turns into [] (cluster resolution skipped). Cluster resolution is
+  # opt-in per run.
+  COMPUTE_LIST_CLUSTERS_CSV: ${{ github.event.inputs.list_clusters }}
 
   # Tenant inventory is a separate, read-only workflow.
   TF_VAR_tenant_inventory_enabled: "false"
@@ -106,11 +112,20 @@ jobs:
         # compute_runtime_list_clusters is list(string), and a TF_VAR_ for a list
         # type must be a JSON array. Convert the comma-separated input; empty
         # input yields [] (no cluster resolution).
+        #
+        # Uses `jq -n --arg` rather than piping into `jq -R`: with a completely
+        # empty string there is no input line at all, so `jq -R` emits NOTHING
+        # (not "[]"), which would set the TF_VAR_ to an empty string and make
+        # Terraform reject it as an invalid list(string).
         run: |
-          json="$(printf '%s' "${COMPUTE_LIST_CLUSTERS_CSV}" \
-            | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
+          json="$(jq -n -c --arg csv "${COMPUTE_LIST_CLUSTERS_CSV}" \
+            '$csv | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
           echo "TF_VAR_compute_runtime_list_clusters=${json}" >> "$GITHUB_ENV"
-          echo "Resolved clusters: ${json}"
+          if [ "$json" = "[]" ]; then
+            echo "Clusters: (none) — cluster resolution SKIPPED for this run."
+          else
+            echo "Clusters: ${json}"
+          fi
 
       - name: Terraform init
         run: terraform init -input=false
@@ -176,9 +191,11 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Encode list_clusters
+        # See the note on the matching step in the plan job: `jq -n --arg` is
+        # required so a fully empty value still yields [] rather than nothing.
         run: |
-          json="$(printf '%s' "${COMPUTE_LIST_CLUSTERS_CSV}" \
-            | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
+          json="$(jq -n -c --arg csv "${COMPUTE_LIST_CLUSTERS_CSV}" \
+            '$csv | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
           echo "TF_VAR_compute_runtime_list_clusters=${json}" >> "$GITHUB_ENV"
 
       - name: Terraform init
