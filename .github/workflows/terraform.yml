@@ -46,6 +46,27 @@ on:
         type: string
         default: "hs-cluster-1,hs-cluster-2"
 
+      # ----------------------------------------------------------------
+      # Tenant-level modules. These are WRITE-CAPABLE (real resources), not
+      # listing. Each toggle only controls whether the module is IN SCOPE for
+      # this run; the actual values it applies (IP allowlists, settings values,
+      # integration credentials) still come from the reviewed, version-
+      # controlled config in terraform/variables.tf. Toggling one on and
+      # running WITHOUT apply is a safe way to preview the diff.
+      # ----------------------------------------------------------------
+      tenant_settings_enabled:
+        description: "Tenant enterprise settings: include this module in the run (WRITES on apply)"
+        type: boolean
+        default: false
+      tenant_access_enabled:
+        description: "⚠️ Trusted login/alert IPs: include this module in the run (WRITES on apply; can lock users out)"
+        type: boolean
+        default: false
+      tenant_integrations_enabled:
+        description: "Integrations + reports: include this module in the run (WRITES on apply)"
+        type: boolean
+        default: false
+
 # Serialize runs so concurrent plans/applies don't fight over the tenant/state.
 concurrency:
   group: terraform-${{ github.ref }}
@@ -78,6 +99,14 @@ env:
   # compute list_clusters" step below, which converts it to the JSON array the
   # root list(string) variable requires and exports TF_VAR_compute_runtime_list_clusters.
   COMPUTE_LIST_CLUSTERS_CSV: ${{ github.event.inputs.list_clusters || 'hs-cluster-1,hs-cluster-2' }}
+  # Tenant-level modules. WRITE-CAPABLE — these gate whether each module is in
+  # scope for the run. Default 'false' so pushes/PRs (which have no dispatch
+  # inputs) never bring tenant config into scope; only a deliberate manual
+  # dispatch can. The values each module applies still come from the reviewed
+  # config in terraform/variables.tf, not from the dispatch form.
+  TF_VAR_tenant_settings_enabled: ${{ github.event.inputs.tenant_settings_enabled || 'false' }}
+  TF_VAR_tenant_access_enabled: ${{ github.event.inputs.tenant_access_enabled || 'false' }}
+  TF_VAR_tenant_integrations_enabled: ${{ github.event.inputs.tenant_integrations_enabled || 'false' }}
 
 defaults:
   run:
@@ -113,6 +142,18 @@ jobs:
           json="$(printf '%s' "$csv" | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
           echo "TF_VAR_compute_runtime_list_clusters=${json}" >> "$GITHUB_ENV"
           echo "Resolved TF_VAR_compute_runtime_list_clusters=${json}"
+
+      - name: Tenant module scope (write-capable)
+        # Makes it obvious in the log which tenant-level (write-capable) modules
+        # are in scope for this run, so an approver never has to guess.
+        run: |
+          echo "Tenant modules in scope for this run:"
+          echo "  tenant-settings     : ${TF_VAR_tenant_settings_enabled}"
+          echo "  tenant-access       : ${TF_VAR_tenant_access_enabled}   (trusted login/alert IPs)"
+          echo "  tenant-integrations : ${TF_VAR_tenant_integrations_enabled}"
+          if [ "${TF_VAR_tenant_access_enabled}" = "true" ]; then
+            echo "::warning title=tenant-access in scope::This run includes tenant-wide login/alert IP config. Review the plan carefully before approving any apply — an incomplete login IP allowlist can lock every user out of the tenant."
+          fi
 
       - name: Terraform init
         run: terraform init -input=false
