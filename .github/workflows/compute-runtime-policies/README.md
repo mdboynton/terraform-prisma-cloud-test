@@ -68,10 +68,30 @@ host_associations:
 
 The collection must already exist in the tenant.
 
-### Step 3 — Preview
+### Step 3 — Preview (the dry run)
 
-Every plan runs a **dry run** showing, per association, either `would_add` or
-`already_present`. No writes.
+There is nothing to enable — **the dry run happens automatically on every run**,
+including plain pushes and PRs. Open the run → **Plan (and list)** job → the step
+named **"Association dry run (what the apply would actually change)"**.
+
+**Read this step, not the plan.** The Terraform plan can only ever say
+`1 to add` / `2 to add`, because the write is performed by a script inside a
+`null_resource` and Terraform cannot see through it. That number is bookkeeping,
+not the policy diff. The dry run is the real preview — it queries the live policy
+and reports, per association:
+
+| Status | Meaning |
+|---|---|
+| `would_add` | The collection is absent and **will** be appended. |
+| `already_present` | Nothing to do — the merge is idempotent. |
+| `rule_not_found` | ⚠️ **No rule matches that name.** The apply will change nothing and still succeed. |
+
+`rule_not_found` is the one to watch: it is a *green run that did nothing*. The
+workflow raises a ⚠️ annotation at the top of the run summary for it, so you
+don't have to spot it by reading JSON.
+
+It also prints `existing_collections`, so you can confirm the append is additive
+and won't disturb what's already attached.
 
 ### Step 4 — Apply (gated)
 

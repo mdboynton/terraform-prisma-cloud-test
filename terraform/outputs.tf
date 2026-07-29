@@ -157,6 +157,33 @@ output "compute_host_rules_by_cluster" {
 }
 
 # ----------------------------------------------------------------
+# Compute runtime policy association DRY RUN (read-only).
+#
+# WHY THESE MATTER: the association write is performed by a null_resource
+# running a script, so `terraform plan` can only ever say "1 to add" — it
+# cannot show what the script will actually do to the policy. These outputs
+# are the real preview. For each configured association they report:
+#
+#   would_add       — collection is absent and WILL be appended
+#   already_present — nothing to do (the merge is idempotent)
+#   rule_not_found  — NO RULE MATCHES THAT NAME. The apply silently does
+#                     nothing and still succeeds, so this is the one status
+#                     that looks fine in the plan but means the config is wrong.
+#
+# Null when no associations of that kind are configured.
+# ----------------------------------------------------------------
+
+output "compute_container_preview" {
+  description = "Dry-run of the CONTAINER runtime policy associations: per-association status (would_add | already_present | rule_not_found) plus the rule's existing collections. Null when no container associations are configured."
+  value       = module.compute_runtime_policies.container_preview
+}
+
+output "compute_host_preview" {
+  description = "Dry-run of the HOST runtime policy associations: per-association status (would_add | already_present | rule_not_found) plus the rule's existing collections. Null when no host associations are configured."
+  value       = module.compute_runtime_policies.host_preview
+}
+
+# ----------------------------------------------------------------
 # Tenant-level inventory (READ-ONLY). Null unless tenant_inventory_enabled.
 # Sourced entirely from provider data sources — nothing here can write.
 # ----------------------------------------------------------------

@@ -152,6 +152,38 @@ jobs:
         if: always()
         run: terraform show -no-color tfplan || true
 
+      - name: Association dry run (what the apply would actually change)
+        # THE PLAN CANNOT SHOW THIS. The association write runs inside a
+        # null_resource script, so `terraform plan` only ever reports
+        # "N to add" for the bookkeeping resource — never the policy diff.
+        # These two outputs are the real preview, computed against the LIVE
+        # policy at plan time.
+        #
+        # `rule_not_found` is called out as a ::warning because it is the
+        # dangerous case: the apply matches no rule, changes nothing, and
+        # still exits 0 — a green run that silently did nothing.
+        if: always()
+        run: |
+          plan_json="$(terraform show -json tfplan 2>/dev/null || echo '{}')"
+
+          for k in compute_container_preview compute_host_preview; do
+            echo "===== $k ====="
+            printf '%s' "$plan_json" \
+              | jq -e --arg k "$k" '.output_changes[$k].after' 2>/dev/null \
+              || echo "(unavailable)"
+          done
+
+          # Surface rule_not_found as an annotation on the run itself.
+          printf '%s' "$plan_json" | jq -r '
+            [ .output_changes.compute_container_preview.after,
+              .output_changes.compute_host_preview.after ]
+            | map(select(. != null))
+            | .[] as $p
+            | $p.associations[]?
+            | select(.status == "rule_not_found")
+            | "::warning title=Runtime rule not found::No \($p.policy_kind) rule named \(.policy_rule_name) — the apply will change NOTHING for this entry and still succeed."
+          ' 2>/dev/null || true
+
       - name: Runtime policy listing
         # `terraform output` reads STATE, which is empty on a plan-only run, so
         # the planned values are read from the plan file instead — every output
