@@ -12,12 +12,23 @@
 # Collection created by the RBAC module for the team (e.g. "<team>-assets" or the
 # auto-spawned "<resource-list> - Access Group (RBAC)").
 
+# NOTE: rule names are matched EXACTLY and are per-policy — a name that exists
+# on the host policy does not necessarily exist on the container policy. A name
+# that matches nothing is reported as `rule_not_found` in the dry run and the
+# apply will silently do nothing, so always confirm against the dry run output.
+
 # Rules on the CONTAINER runtime policy.
+#
+# "Telnet-runtime" is a DISABLED container rule, so attaching a collection to it
+# enforces nothing — a safe end-to-end test of the write path. It currently has
+# "WLtesting" attached; the merge is additive, so that is preserved.
 container:
-  - policy_rule_name: "host-runtime-demo"
-    add_collection: "tuan-test-assets"
+  - policy_rule_name: "Telnet-runtime"
+    add_collection: "tuan-test-resource-list - Access Group (RBAC)"
 
 # Rules on the HOST runtime policy.
+#
+# "host-runtime-demo" is a real host rule (currently: "ec2-vm").
 host:
   - policy_rule_name: "host-runtime-demo"
-    add_collection: "tuan-test-assets"
+    add_collection: "tuan-test-resource-list - Access Group (RBAC)"
