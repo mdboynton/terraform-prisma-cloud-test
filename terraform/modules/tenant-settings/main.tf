@@ -11,12 +11,6 @@
 # of colliding with it. The provider uses a fixed ID for this singleton.
 # ============================================================
 
-locals {
-  # The enterprise settings singleton has no user-facing ID; the provider keys
-  # it under a constant. Used by the import block for adoption.
-  enterprise_settings_id = "enterprise_settings"
-}
-
 # ------------------------------------------------------------
 # READ-ONLY view of the tenant's current enterprise settings.
 # Always safe; exposed via outputs for inspection/auditing.
@@ -26,15 +20,14 @@ data "prismacloud_enterprise_settings" "current" {
 }
 
 # ------------------------------------------------------------
-# ADOPT the pre-existing singleton so the first apply updates it in place
-# rather than trying to create a duplicate.
+# ADOPTION NOTE
+#
+# A live tenant ALREADY has an enterprise settings singleton, so the first
+# apply must import it rather than create a duplicate. Terraform only permits
+# `import` blocks in the ROOT module, so the adoption lives in the root
+# configuration (see terraform/main.tf) rather than here. The adopt_existing
+# variable documents that intent for callers.
 # ------------------------------------------------------------
-import {
-  for_each = var.enabled && var.adopt_existing ? toset([local.enterprise_settings_id]) : toset([])
-
-  to = prismacloud_enterprise_settings.this[0]
-  id = each.value
-}
 
 # ------------------------------------------------------------
 # MANAGED enterprise settings.
