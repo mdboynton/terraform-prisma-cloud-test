@@ -20,6 +20,18 @@ module, which **attaches an RBAC Collection to existing Compute runtime policy r
 create or change the policies themselves — it only appends the collection to a matched
 rule, preserving what's already there.
 
+Alongside the per-team RBAC modules there are three **tenant-level** modules
+covering settings that apply to the whole tenant rather than to one team. Each
+uses the provider's **native** resources and data sources (no scripts), and each
+is **disabled by default** so tenant-wide config is only ever touched
+deliberately. They are split by lifecycle and blast radius:
+
+| Module | Manages | Blast radius |
+|---|---|---|
+| [`tenant-settings`](terraform/modules/tenant-settings/README.md) | Enterprise settings singleton (session timeout, access-key validity, audit logging). | Tenant-wide, moderate. |
+| [`tenant-access`](terraform/modules/tenant-access/README.md) | Trusted login/alert IPs and login-IP enforcement. | ⚠️ **Highest** — misconfiguration can lock every user out. |
+| [`tenant-integrations`](terraform/modules/tenant-integrations/README.md) | Outbound integrations (SIEM/chat/ticketing) and reports. | Moderate. |
+
 ## Layout
 
 | Path | Description |
@@ -27,6 +39,9 @@ rule, preserving what's already there.
 | [`terraform/`](terraform/) | Root module. Run `terraform init/plan/apply` here. |
 | [`terraform/modules/rbac/`](terraform/modules/rbac/) | Deploy RBAC artifacts (Account Group, Resource List, Role, Service Account, Alert Rule). [README](terraform/modules/rbac/README.md) |
 | [`terraform/modules/compute-runtime-policies/`](terraform/modules/compute-runtime-policies/) | Attach an RBAC Collection to existing Compute Container/Host runtime policy rules (non-destructive append via the Compute API). [README](terraform/modules/compute-runtime-policies/README.md) |
+| [`terraform/modules/tenant-settings/`](terraform/modules/tenant-settings/) | Tenant-wide enterprise settings singleton. Disabled by default. [README](terraform/modules/tenant-settings/README.md) |
+| [`terraform/modules/tenant-access/`](terraform/modules/tenant-access/) | ⚠️ Trusted login/alert IPs and login-IP enforcement. Highest blast radius; disabled by default. [README](terraform/modules/tenant-access/README.md) |
+| [`terraform/modules/tenant-integrations/`](terraform/modules/tenant-integrations/) | Outbound integrations and reports. Disabled by default. [README](terraform/modules/tenant-integrations/README.md) |
 | [`terraform/config/teams.yaml`](terraform/config/teams.yaml) | The config file. One entry per team defines its RBAC artifacts. Gitignored; not loaded when absent (a clean plan with zero resources). |
 | [`terraform/config/teams.example.yaml`](terraform/config/teams.example.yaml) | Annotated example config. Copy it to `teams.yaml` and edit. |
 | [`terraform/config/compute-runtime-policies.yaml`](terraform/config/compute-runtime-policies.yaml) | Runtime-policy associations (which existing rule gets which collection). Gitignored; a no-op when absent. Use `git add -f` to include it in CI. |
