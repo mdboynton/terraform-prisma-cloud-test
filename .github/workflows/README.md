@@ -1,81 +1,66 @@
-# CI: Terraform (Prisma Cloud RBAC)
+# CI Workflows
 
-[`terraform.yml`](terraform.yml) reconciles the Prisma Cloud **test tenant** from
-[`terraform/config/teams.yaml`](../../terraform/config/teams.yaml).
+Three workflows, one per area of Prisma Cloud configuration. Each has its own
+step-by-step guide in the folder beside it.
 
-## What it does
+| # | Workflow | Purpose | Changes the tenant? | Guide |
+|---|---|---|---|---|
+| 1 | [`rbac.yml`](rbac.yml) | Per-team RBAC: Account Groups, Resource Lists, Roles, Service Accounts, Alert Rules | ✅ Yes — approval gated | [rbac/README.md](rbac/README.md) |
+| 2 | [`compute-runtime-policies.yml`](compute-runtime-policies.yml) | List Compute runtime rules; attach a collection to an existing rule | ✅ Yes — approval gated | [compute-runtime-policies/README.md](compute-runtime-policies/README.md) |
+| 3 | [`tenant-inventory.yml`](tenant-inventory.yml) | List tenant-wide settings and configuration | ❌ **No** — read-only by construction | [tenant-inventory/README.md](tenant-inventory/README.md) |
 
-| Trigger | Behavior |
-|---|---|
-| Pull request to `main` / `tuan_test` | `init` + `validate` + `plan` (read-only). Plan is posted as a PR comment and uploaded as an artifact. Never applies. |
-| Manual `workflow_dispatch` with `apply=true` | `plan`, then a **gated** `apply` requiring approval via the `test-tenant` Environment. |
-| Push to `tuan_test` | `plan`, then a gated `apply` (same approval gate). |
+## Which one do I want?
 
-The `apply` job uses `environment: test-tenant`, so it will not run until a required
-reviewer approves it in the GitHub UI. That is the manual approval gate.
+- **Onboarding a team, or changing what a team can see** → workflow 1
+- **Seeing which runtime rules cover a cluster, or attaching a collection to a rule** → workflow 2
+- **Just looking at tenant settings, integrations, reports, trusted IPs** → workflow 3
 
-## Required repository secrets
+## Rules that apply to all of them
 
-Set these under **Settings → Secrets and variables → Actions** (or scope them to the
-`test-tenant` Environment):
+- **Plan is always safe.** It shows what *would* change and writes nothing.
+- **Pushing never applies.** Pushes and PRs run plan only.
+- **Apply is deliberate.** It requires a manual run with `apply` checked, *plus*
+  approval on the `test-tenant` Environment. Two separate actions.
+- **Workflow 3 has no apply at all** — its module contains zero `resource`
+  blocks, so there is nothing to gate.
 
-| Secret | Example | Notes |
+## Why they're separate
+
+Each workflow uses `-target` so it only evaluates its own resources. That keeps
+plans readable (no unrelated pending changes as noise) and means the RBAC
+pipeline can't modify compute policies, or vice versa. Read-only listing is
+split out entirely so you can inspect the tenant without touching a
+change-capable pipeline.
+
+## Shared setup
+
+**Secrets** — Settings → Secrets and variables → Actions:
+
+| Secret | Used by | Notes |
 |---|---|---|
-| `PRISMACLOUD_API_URL` | `api.prismacloud.io` | Tenant API host. Must match the provider's URL validation. |
-| `PRISMACLOUD_USERNAME` | `<access-key-uuid>` | Access key ID (UUID). |
-| `PRISMACLOUD_PASSWORD` | `<secret-key>` | Secret key. Sensitive. |
+| `PRISMACLOUD_API_URL` | all | e.g. `api.prismacloud.io` |
+| `PRISMACLOUD_USERNAME` | all | Access key UUID |
+| `PRISMACLOUD_PASSWORD` | all | Secret key |
+| `PRISMA_COMPUTE_CONSOLE_URL` | 2 | **Include the path prefix**, e.g. `https://us-east1.cloud.twistlock.com/us-2-158320372` |
 
-The `PaloAltoNetworks/prismacloud` provider reads these env vars natively — no
-`*.tfvars` are needed for authentication.
+**Environment** — create **`test-tenant`** (Settings → Environments) with a
+**required reviewer**. This is the approval gate for workflows 1 and 2. Without
+it those apply jobs still run, but unguarded.
 
-## Required GitHub Environment (approval gate)
+## A note on state
 
-Create an Environment named **`test-tenant`** (Settings → Environments) and add
-yourself as a **Required reviewer**. This is what pauses the `apply` job for manual
-approval. Without it, the job still runs but has no gate.
+There is no remote backend, so Terraform state is local to each job. This is why
+apply jobs re-plan rather than applying a saved plan file from the plan job, and
+why `-target` is used to keep each workflow in its own lane. Moving to a remote
+backend would be the natural next step if these need to share state or run
+concurrently.
 
-## IMPORTANT: `teams.yaml` is git-ignored
+## Git-ignored config
 
-[`terraform/config/teams.yaml`](../../terraform/config/teams.yaml) is listed in
-`.gitignore`, so it is **not committed and will not be present on the runner**. With
-it absent, [`locals.tf`](../../terraform/locals.tf) falls back to an empty team map
-and the plan shows **zero resources** — a safe no-op, but it will not exercise the
-modules.
+Two config files are git-ignored and therefore **absent on the runner** unless
+force-added:
 
-To actually test the `tuan-test` team in CI, choose one:
+- `terraform/config/teams.yaml` — workflow 1 plans zero team resources without it
+- `terraform/config/compute-runtime-policies.yaml` — workflow 2 is a no-op without it
 
-1. **Force-add the test config on the `tuan_test` branch only** (simplest for a
-   throwaway test):
-   ```bash
-   git add -f terraform/config/teams.yaml
-   ```
-   Do NOT do this on `main`, and never force-add a config containing real account
-   IDs or secrets.
-
-2. **Generate the config in the workflow** from an un-ignored source file (e.g.
-   commit `teams.ci.yaml` and copy it to `teams.yaml` in a workflow step). Preferred
-   if you want to keep the gitignore rule intact.
-
-## State backend caveat
-
-There is no remote backend configured, so state is **local and ephemeral per run**.
-Consequences:
-
-- A `plan` artifact produced by the `plan` job is applied in a separate `apply` job
-  that runs a fresh `init` with no shared state — fine for a first create-only smoke
-  test, but fragile for iterative applies.
-- Nothing persists Terraform state between runs. For anything beyond a one-shot
-  smoke test, add a remote backend (e.g. S3 / Terraform Cloud) before relying on
-  `apply`.
-
-## Local `.env`
-
-For local runs, `terraform/.env` (git-ignored) holds the same three variables:
-
-```bash
-export PRISMACLOUD_API_URL=api.prismacloud.io
-export PRISMACLOUD_USERNAME=<access-key-uuid>
-export PRISMACLOUD_PASSWORD=<secret-key>
-```
-
-`source terraform/.env` before running Terraform locally.
+Each has a committed `.example.yaml` to copy from.

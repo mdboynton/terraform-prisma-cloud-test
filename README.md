@@ -1,7 +1,27 @@
 # terraform-prisma-cloud-modules
 
-Terraform modules that provision Prisma Cloud RBAC artifacts from a YAML team
-registry. Edit the config, run `plan`/`apply`, and the tenant reconciles.
+Terraform modules for managing a Prisma Cloud tenant — per-team RBAC, Compute
+runtime policy associations, and read-only tenant inventory. Everything is
+driven from GitHub Actions; edit config, review the plan, approve the apply.
+
+## Workflows — start here
+
+Most people interact with this repo through the **Actions** tab. There are three
+workflows, each with its own step-by-step guide:
+
+| # | Workflow | Use it to | Changes the tenant? |
+|---|---|---|---|
+| 1 | [**RBAC (teams)**](.github/workflows/rbac/README.md) | Onboard a team; change what a team can see | ✅ Yes — approval gated |
+| 2 | [**Compute Runtime Policies**](.github/workflows/compute-runtime-policies/README.md) | See which runtime rules cover a cluster; attach a collection to a rule | ✅ Yes — approval gated |
+| 3 | [**Tenant Inventory**](.github/workflows/tenant-inventory/README.md) | Look at tenant settings, integrations, reports, trusted IPs | ❌ **No** — read-only by construction |
+
+Ground rules across all three: **plan is always safe**, **pushing never
+applies**, and an apply needs both a manual run *and* an approval. Workflow 3
+has no apply step at all.
+
+New to Terraform? Each guide above starts from first principles — no prior
+experience assumed. Overview of all three:
+[`.github/workflows/README.md`](.github/workflows/README.md).
 
 ## Modules
 
@@ -80,12 +100,25 @@ before the Terraform steps.
 
 ## Running from GitHub Actions
 
-The modules are designed to run unattended in CI. A workflow reconciles the tenant on
-change to `teams.yaml`:
+This is the normal way to use the repo — see the three guides linked in
+[Workflows](#workflows--start-here) above, or the index at
+[`.github/workflows/README.md`](.github/workflows/README.md).
 
-1. Check out the repo.
-2. Export `PRISMACLOUD_API_URL`, `PRISMACLOUD_USERNAME`, `PRISMACLOUD_PASSWORD` from secrets.
-3. `terraform init`, `terraform plan` (on pull request), `terraform apply` (on merge).
+Setup needed once:
 
-Store Terraform state in a remote backend so CI runs share it. Route the sensitive
-outputs (service-account secret keys) to your secrets store rather than logs.
+1. Add the secrets under **Settings → Secrets and variables → Actions**:
+   `PRISMACLOUD_API_URL`, `PRISMACLOUD_USERNAME`, `PRISMACLOUD_PASSWORD`, and
+   `PRISMA_COMPUTE_CONSOLE_URL` (workflow 2 only).
+2. Create a **`test-tenant`** Environment (**Settings → Environments**) with a
+   **required reviewer**. That reviewer approval is the apply gate for
+   workflows 1 and 2.
+
+Two things worth knowing:
+
+- **No remote backend is configured**, so state is local to each job. That's why
+  apply jobs re-plan instead of reusing the plan job's artifact, and why each
+  workflow uses `-target` to stay in its own lane. Adding a remote backend is
+  the natural next step if runs need to share state.
+- Sensitive outputs (service-account secret keys) live in state — treat the
+  state file as a secret and route those values to your secrets store rather
+  than logs.

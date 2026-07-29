@@ -1,4 +1,4 @@
-name: Tenant Inventory (read-only)
+name: 3. Tenant Inventory (read-only)
 
 # Lists tenant-level Prisma Cloud settings and configuration.
 #

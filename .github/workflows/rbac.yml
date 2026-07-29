@@ -1,0 +1,187 @@
+name: 1. RBAC (teams)
+
+# Reconciles per-team Prisma Cloud RBAC artifacts from
+# terraform/config/teams.yaml — Account Groups, Resource Lists, Roles, optional
+# Service Accounts and Alert Rules, all bound to a shared Permission Group.
+#
+# SCOPE: this workflow touches ONLY the RBAC resources (see TF_TARGETS below).
+# Compute runtime policies and the tenant inventory are handled by their own
+# workflows, and -target keeps their resources out of this plan so the diff
+# stays readable and this pipeline can't change them.
+#
+# Docs: .github/workflows/rbac/README.md
+#
+# Required secrets: PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
+
+on:
+  pull_request:
+    branches: [main, tuan_test, tuan_test_compute_policies]
+    paths:
+      - "terraform/main.tf"
+      - "terraform/locals.tf"
+      - "terraform/variables.tf"
+      - "terraform/outputs.tf"
+      - "terraform/modules/rbac/**"
+      - ".github/workflows/rbac.yml"
+  push:
+    branches: [tuan_test, main, tuan_test_compute_policies]
+    paths:
+      - "terraform/main.tf"
+      - "terraform/locals.tf"
+      - "terraform/variables.tf"
+      - "terraform/outputs.tf"
+      - "terraform/modules/rbac/**"
+      - ".github/workflows/rbac.yml"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Apply the RBAC changes after a successful plan (requires approval)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: rbac-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.13.3"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+  # providers.tf sets url/username/password from these TF variables explicitly,
+  # so they must arrive as TF_VAR_* rather than the provider's own env vars.
+  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
+  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
+  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+
+  # The other two areas stay switched off here so this run makes no API calls
+  # on their behalf.
+  TF_VAR_compute_runtime_list_enabled: "false"
+  TF_VAR_tenant_inventory_enabled: "false"
+
+  # Restricts every plan/apply below to the RBAC resources only.
+  TF_TARGETS: >-
+    -target=prismacloud_permission_group.app_owner_readonly_singleton
+    -target=module.prisma_cloud_rbac
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      exitcode: ${{ steps.plan.outputs.exitcode }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt (check)
+        id: fmt
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        run: terraform validate -no-color
+
+      - name: Terraform plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan
+          echo "exitcode=$?" >> "$GITHUB_OUTPUT"
+          set -e
+
+      - name: Show plan (human-readable)
+        if: always()
+        run: terraform show -no-color tfplan || true
+
+      - name: Upload plan artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbac-tfplan
+          path: terraform/tfplan
+          retention-days: 5
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { execSync } = require('child_process');
+            let plan = '';
+            try {
+              plan = execSync('terraform show -no-color tfplan', { cwd: 'terraform' }).toString();
+            } catch (e) {
+              plan = 'Plan output unavailable (see job logs).';
+            }
+            const max = 60000;
+            const body = [
+              '#### RBAC Terraform Plan `${{ steps.plan.outputs.exitcode }}`',
+              '',
+              '<details><summary>Show Plan</summary>',
+              '',
+              '```terraform',
+              plan.length > max ? plan.slice(0, max) + '\n... (truncated, see artifact/logs)' : plan,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Fail if plan errored
+        if: steps.plan.outputs.exitcode == '1'
+        run: exit 1
+
+  apply:
+    name: Apply (gated)
+    needs: plan
+    runs-on: ubuntu-latest
+    # Apply ONLY on a deliberate manual dispatch with apply=true. Pushes and PRs
+    # plan only, so routine pushes can never change the tenant.
+    if: github.event_name == 'workflow_dispatch' && inputs.apply == true
+    # Requires a protected Environment named test-tenant with a required
+    # reviewer — this is the manual approval gate.
+    environment:
+      name: test-tenant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      # State is local to this job (no remote backend), so a plan artifact from
+      # the plan job would reference state this job doesn't have. We therefore
+      # re-plan and apply here rather than applying a saved plan file.
+      #
+      # -parallelism=1 serializes creation so the dashboard Collection isn't
+      # created at the same instant the Resource List auto-spawns its own
+      # Collection (that race produced a transient "object already exists").
+      - name: Terraform apply
+        run: terraform apply -input=false -no-color -auto-approve -parallelism=1 ${TF_TARGETS}
