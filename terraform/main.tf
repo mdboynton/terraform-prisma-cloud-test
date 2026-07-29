@@ -101,81 +101,19 @@ module "compute_runtime_policies" {
 }
 
 # ============================================================
-# Tenant-level configuration. Split by lifecycle and blast radius; each is a
-# singleton (one per tenant, not per team) and each is OFF by default.
+# Tenant-level inventory — STRICTLY READ-ONLY.
+#
+# Contains only `data` blocks; there is not a single `resource` in the module,
+# so it is structurally incapable of changing the tenant. Nothing to gate, no
+# apply required. Driven by the tenant-inventory.yml workflow.
 # ============================================================
-
-# Adopt the tenant's pre-existing enterprise settings singleton. A live tenant
-# always already has one, so without this the first apply would try to create a
-# duplicate. Import blocks are only valid in the ROOT module, which is why this
-# lives here rather than inside modules/tenant-settings.
-import {
-  for_each = var.tenant_settings_enabled && var.tenant_settings_adopt_existing ? toset(["enterprise_settings"]) : toset([])
-
-  to = module.tenant_settings.prismacloud_enterprise_settings.this[0]
-  id = each.value
-}
-
-# Tenant-wide enterprise settings (session timeout, access key validity, audit
-# logging, ...). Adopts the tenant's pre-existing settings singleton rather than
-# trying to create one. No-op unless tenant_settings_enabled = true.
-module "tenant_settings" {
-  source = "./modules/tenant-settings"
+module "tenant_inventory" {
+  source = "./modules/tenant-inventory"
 
   providers = {
     prismacloud = prismacloud
   }
 
-  enabled        = var.tenant_settings_enabled
-  adopt_existing = var.tenant_settings_adopt_existing
-
-  access_key_max_validity = var.tenant_settings.access_key_max_validity
-  session_timeout         = var.tenant_settings.session_timeout
-
-  alarm_enabled                    = var.tenant_settings.alarm_enabled
-  audit_logs_enabled               = var.tenant_settings.audit_logs_enabled
-  audit_log_siem_intgr_ids         = var.tenant_settings.audit_log_siem_intgr_ids
-  apply_default_policies_enabled   = var.tenant_settings.apply_default_policies_enabled
-  default_policies_enabled         = var.tenant_settings.default_policies_enabled
-  require_alert_dismissal_note     = var.tenant_settings.require_alert_dismissal_note
-  user_attribution_in_notification = var.tenant_settings.user_attribution_in_notification
-
-  named_users_access_keys_expiry_notifications_enabled   = var.tenant_settings.named_users_access_keys_expiry_notifications_enabled
-  service_users_access_keys_expiry_notifications_enabled = var.tenant_settings.service_users_access_keys_expiry_notifications_enabled
-  notification_threshold_access_keys_expiry              = var.tenant_settings.notification_threshold_access_keys_expiry
-}
-
-# ⚠️ HIGHEST BLAST RADIUS. Trusted login/alert IPs. Enabling login IP
-# enforcement with an incomplete allowlist locks EVERY user out of the tenant,
-# which is why enforcement requires the separate acknowledge interlock.
-# No-op unless tenant_access_enabled = true.
-module "tenant_access" {
-  source = "./modules/tenant-access"
-
-  providers = {
-    prismacloud = prismacloud
-  }
-
-  enabled = var.tenant_access_enabled
-
-  trusted_login_ips          = var.tenant_trusted_login_ips
-  enforce_login_ip_allowlist = var.tenant_enforce_login_ip_allowlist
-  acknowledge_lockout_risk   = var.tenant_acknowledge_lockout_risk
-
-  trusted_alert_ips = var.tenant_trusted_alert_ips
-}
-
-# Outbound integrations (SIEM/ticketing/chat) and scheduled reports.
-# No-op unless tenant_integrations_enabled = true.
-module "tenant_integrations" {
-  source = "./modules/tenant-integrations"
-
-  providers = {
-    prismacloud = prismacloud
-  }
-
-  enabled = var.tenant_integrations_enabled
-
-  integrations = var.tenant_integrations
-  reports      = var.tenant_reports
+  enabled = var.tenant_inventory_enabled
+  scope   = var.tenant_inventory_scope
 }

@@ -157,46 +157,16 @@ output "compute_host_rules_by_cluster" {
 }
 
 # ----------------------------------------------------------------
-# Tenant-level configuration outputs. Null/empty unless the
-# corresponding tenant_*_enabled flag is true.
+# Tenant-level inventory (READ-ONLY). Null unless tenant_inventory_enabled.
+# Sourced entirely from provider data sources — nothing here can write.
 # ----------------------------------------------------------------
 
-output "tenant_enterprise_settings_id" {
-  description = "ID of the managed enterprise settings singleton. Null unless tenant_settings_enabled."
-  value       = module.tenant_settings.enterprise_settings_id
+output "tenant_inventory" {
+  description = "Read-only snapshot of tenant-level settings and configuration, keyed by category (enterprise_settings, trusted_login_ips, trusted_alert_ips, integrations, reports, notification_templates, anomaly_settings). Categories outside the requested scope are null. Null unless tenant_inventory_enabled."
+  value       = module.tenant_inventory.inventory
 }
 
-output "tenant_current_enterprise_settings" {
-  description = "Read-only snapshot of the tenant's live enterprise settings, for auditing/diffing. Null unless tenant_settings_enabled."
-  value       = module.tenant_settings.current_enterprise_settings
-}
-
-output "tenant_trusted_login_ip_ids" {
-  description = "Map of trusted login IP entry name => Prisma Cloud ID. Empty unless tenant_access_enabled."
-  value       = module.tenant_access.trusted_login_ip_ids
-}
-
-output "tenant_trusted_alert_ip_uuids" {
-  description = "Map of trusted alert IP group name => Prisma Cloud UUID. Empty unless tenant_access_enabled."
-  value       = module.tenant_access.trusted_alert_ip_uuids
-}
-
-output "tenant_login_ip_enforcement_enabled" {
-  description = "Whether tenant-wide login IP enforcement is managed by Terraform and its value. Null when the enforcement toggle is left unmanaged."
-  value       = module.tenant_access.login_ip_enforcement_enabled
-}
-
-output "tenant_integration_ids" {
-  description = "Map of integration name => Prisma Cloud integration ID. Empty unless tenant_integrations_enabled."
-  value       = module.tenant_integrations.integration_ids
-}
-
-output "tenant_integration_status" {
-  description = "Map of integration name => { status, valid } as reported by the tenant. Useful for spotting integrations that were created but fail health checks."
-  value       = module.tenant_integrations.integration_status
-}
-
-output "tenant_report_ids" {
-  description = "Map of report name => Prisma Cloud report ID. Empty unless tenant_integrations_enabled."
-  value       = module.tenant_integrations.report_ids
+output "tenant_inventory_summary" {
+  description = "Compact count-per-category summary of the tenant inventory, for a quick at-a-glance view without scrolling the full dump."
+  value       = module.tenant_inventory.summary
 }

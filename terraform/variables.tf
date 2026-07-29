@@ -212,172 +212,34 @@ variable "compute_runtime_list_clusters" {
 }
 
 # ============================================================
-# Tenant-level settings and configuration.
+# Tenant-level inventory (STRICTLY READ-ONLY).
 #
-# Unlike compute-runtime-policies (script-based, because the provider exposes
-# no data source for runtime policies), these use NATIVE provider resources
-# and data sources — real plan diffs and drift detection.
-#
-# Each module is split by lifecycle and blast radius, and each is OFF by
-# default so tenant-wide config is only touched deliberately.
+# Backed by the provider's native data sources — the module contains no
+# `resource` blocks at all, so it cannot create, modify or delete anything in
+# the tenant. Driven by the tenant-inventory.yml workflow.
 # ============================================================
 
-# ---------- tenant-settings (enterprise settings) ----------
-
-variable "tenant_settings_enabled" {
-  description = "(Optional) When true, Terraform manages the tenant's enterprise settings singleton. Default false. Requires tenant_access_key_max_validity to be set."
+variable "tenant_inventory_enabled" {
+  description = "(Optional) When true, read tenant-level settings/configuration and expose them as outputs. Read-only — no writes are possible. Default false so the ordinary terraform.yml plan does not make extra API calls."
   type        = bool
   default     = false
 }
 
-variable "tenant_settings_adopt_existing" {
-  description = "(Optional) When true (default), the first apply IMPORTS the tenant's pre-existing enterprise settings singleton instead of trying to create a duplicate. A live tenant always already has this object, so this should normally stay true."
-  type        = bool
-  default     = true
-}
+variable "tenant_inventory_scope" {
+  description = "(Optional) Which category to read: \"all\" (default) or one of enterprise-settings, trusted-ips, integrations, reports, notification-templates, anomaly-settings. Narrowing the scope skips the other API calls and keeps the run log focused."
+  type        = string
+  default     = "all"
 
-variable "tenant_settings" {
-  description = "(Optional) Enterprise settings values to manage. Every field is optional and defaults to null, meaning \"leave the tenant's current value alone\". Note access_key_max_validity is required by the provider whenever tenant_settings_enabled is true."
-  type = object({
-    access_key_max_validity = optional(number)
-    session_timeout         = optional(number)
-
-    alarm_enabled                    = optional(bool)
-    audit_logs_enabled               = optional(bool)
-    audit_log_siem_intgr_ids         = optional(set(string))
-    apply_default_policies_enabled   = optional(bool)
-    default_policies_enabled         = optional(map(bool))
-    require_alert_dismissal_note     = optional(bool)
-    user_attribution_in_notification = optional(bool)
-
-    named_users_access_keys_expiry_notifications_enabled   = optional(bool)
-    service_users_access_keys_expiry_notifications_enabled = optional(bool)
-    notification_threshold_access_keys_expiry              = optional(number)
-  })
-  default = {}
-}
-
-# ---------- tenant-access (trusted IPs) ----------
-
-variable "tenant_access_enabled" {
-  description = "(Optional) When true, Terraform manages tenant-wide trusted login/alert IPs. Default false. ⚠️ See tenant_enforce_login_ip_allowlist — this module can lock users out of the tenant."
-  type        = bool
-  default     = false
-}
-
-variable "tenant_trusted_login_ips" {
-  description = "(Optional) Trusted login IP allowlist entries: list of { name, cidrs, description }. Defining entries is safe on its own; nothing is enforced unless tenant_enforce_login_ip_allowlist is set to true."
-  type = list(object({
-    name        = string
-    cidrs       = set(string)
-    description = optional(string)
-  }))
-  default = []
-}
-
-variable "tenant_enforce_login_ip_allowlist" {
-  description = "(Optional) ⚠️ DANGEROUS. When true, logins from IPs outside the allowlist are rejected tenant-wide; an incomplete list locks everyone out. Null (default) leaves the enforcement toggle unmanaged. Setting true also requires tenant_acknowledge_lockout_risk = true."
-  type        = bool
-  default     = null
-}
-
-variable "tenant_acknowledge_lockout_risk" {
-  description = "(Optional) Safety interlock that must be true before tenant_enforce_login_ip_allowlist can be set to true. Makes enabling tenant-wide login IP enforcement a deliberate two-key action."
-  type        = bool
-  default     = false
-}
-
-variable "tenant_trusted_alert_ips" {
-  description = "(Optional) Trusted alert IP groups: list of { name, cidrs }, where cidrs is a list of { cidr, description }. Marks ranges as internal for alerting; does not affect login access."
-  type = list(object({
-    name = string
-    cidrs = list(object({
-      cidr        = string
-      description = optional(string)
-    }))
-  }))
-  default = []
-}
-
-# ---------- tenant-integrations (integrations + reports) ----------
-
-variable "tenant_integrations_enabled" {
-  description = "(Optional) When true, Terraform manages tenant outbound integrations and reports. Default false."
-  type        = bool
-  default     = false
-}
-
-variable "tenant_integrations" {
-  description = "(Optional) Outbound integrations: list of { name, integration_type, description, enabled, config }. The config object carries only the credential/endpoint fields the integration_type needs. Supply secrets via TF_VAR_/secret injection, never in committed files."
-  type = list(object({
-    name             = string
-    integration_type = string
-    description      = optional(string)
-    enabled          = optional(bool, true)
-
-    config = object({
-      url         = optional(string)
-      base_url    = optional(string)
-      host_url    = optional(string)
-      webhook_url = optional(string)
-      queue_url   = optional(string)
-      s3_uri      = optional(string)
-      domain      = optional(string)
-      region      = optional(string)
-
-      login      = optional(string)
-      user_name  = optional(string)
-      password   = optional(string)
-      api_key    = optional(string)
-      api_token  = optional(string)
-      auth_token = optional(string)
-      access_key = optional(string)
-      secret_key = optional(string)
-
-      integration_key = optional(string)
-      private_key     = optional(string)
-      pass_phrase     = optional(string)
-
-      account_id  = optional(string)
-      org_id      = optional(string)
-      external_id = optional(string)
-      role_arn    = optional(string)
-
-      source_id              = optional(string)
-      source_type            = optional(string)
-      connection_string      = optional(string)
-      pipe_name              = optional(string)
-      staging_integration_id = optional(string)
-      roll_up_interval       = optional(number)
-      more_info              = optional(bool)
-      tables                 = optional(map(bool))
-    })
-  }))
-  default = []
-}
-
-variable "tenant_reports" {
-  description = "(Optional) Reports: list of { name, report_type, cloud_type, target }. The target object controls scope and delivery (notify_to, schedule, notification_template_id)."
-  type = list(object({
-    name        = string
-    report_type = string
-    cloud_type  = optional(string)
-
-    target = object({
-      account_groups          = optional(set(string))
-      accounts                = optional(set(string))
-      regions                 = optional(set(string))
-      resource_groups         = optional(set(string))
-      compliance_standard_ids = optional(set(string))
-
-      notify_to                = optional(set(string))
-      notification_template_id = optional(string)
-
-      schedule            = optional(string)
-      schedule_enabled    = optional(bool)
-      compression_enabled = optional(bool)
-      download_now        = optional(bool)
-    })
-  }))
-  default = []
+  validation {
+    condition = contains([
+      "all",
+      "enterprise-settings",
+      "trusted-ips",
+      "integrations",
+      "reports",
+      "notification-templates",
+      "anomaly-settings",
+    ], var.tenant_inventory_scope)
+    error_message = "The tenant_inventory_scope must be one of: all, enterprise-settings, trusted-ips, integrations, reports, notification-templates, anomaly-settings."
+  }
 }
