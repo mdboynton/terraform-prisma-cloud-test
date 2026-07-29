@@ -117,3 +117,56 @@
 #  value       = { for name, m in module.prisma_cloud_rbac : name => m.service_account_secret_key }
 #  sensitive   = true
 #}
+
+# ----------------------------------------------------------------
+# Compute runtime policy listing (read-only). Populated only when
+# compute_runtime_list_enabled = true; otherwise null.
+# ----------------------------------------------------------------
+
+# Direction 1 — full dump of each runtime policy's rules + their collections.
+output "compute_container_policy_rules" {
+  description = "Full dump of the container runtime policy: [{ name, disabled, collections }]. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.container_policy_rules
+}
+
+output "compute_host_policy_rules" {
+  description = "Full dump of the host runtime policy: [{ name, disabled, collections }]. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.host_policy_rules
+}
+
+# Direction 2 — collection -> rules index (which rules apply to a collection).
+output "compute_container_rules_by_collection" {
+  description = "Map of collection name => container runtime rule names referencing it (restricted to compute_runtime_list_collection when set). Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.container_rules_by_collection
+}
+
+output "compute_host_rules_by_collection" {
+  description = "Map of collection name => host runtime rule names referencing it (restricted to compute_runtime_list_collection when set). Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.host_rules_by_collection
+}
+
+# Direction 3 — cluster => { collections, rules } (which rules apply to a cluster).
+output "compute_container_rules_by_cluster" {
+  description = "Map of cluster name => { collections, rules } for container runtime (cluster-specific collection matches). Populated when compute_runtime_list_clusters is set. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.container_rules_by_cluster
+}
+
+output "compute_host_rules_by_cluster" {
+  description = "Map of cluster name => { collections, rules } for host runtime (cluster-specific collection matches). Populated when compute_runtime_list_clusters is set. Null unless compute_runtime_list_enabled."
+  value       = module.compute_runtime_policies.host_rules_by_cluster
+}
+
+# ----------------------------------------------------------------
+# Tenant-level inventory (READ-ONLY). Null unless tenant_inventory_enabled.
+# Sourced entirely from provider data sources — nothing here can write.
+# ----------------------------------------------------------------
+
+output "tenant_inventory" {
+  description = "Read-only snapshot of tenant-level settings and configuration, keyed by category (enterprise_settings, trusted_login_ips, trusted_alert_ips, integrations, reports, notification_templates, anomaly_settings). Categories outside the requested scope are null. Null unless tenant_inventory_enabled."
+  value       = module.tenant_inventory.inventory
+}
+
+output "tenant_inventory_summary" {
+  description = "Compact count-per-category summary of the tenant inventory, for a quick at-a-glance view without scrolling the full dump."
+  value       = module.tenant_inventory.summary
+}

@@ -1,40 +1,46 @@
-name: Terraform (Prisma Cloud RBAC)
+name: 1. RBAC (teams)
 
-# Reconciles the Prisma Cloud test tenant from terraform/config/teams.yaml.
+# Reconciles per-team Prisma Cloud RBAC artifacts from
+# terraform/config/teams.yaml — Account Groups, Resource Lists, Roles, optional
+# Service Accounts and Alert Rules, all bound to a shared Permission Group.
 #
-# - Pull requests: init + validate + plan (read-only, no tenant writes on apply).
-# - Manual dispatch / push to tuan_test: plan, then a gated apply that requires
-#   approval via the `test-tenant` GitHub Environment.
+# SCOPE: this workflow touches ONLY the RBAC resources (see TF_TARGETS below).
+# Compute runtime policies and the tenant inventory are handled by their own
+# workflows, and -target keeps their resources out of this plan so the diff
+# stays readable and this pipeline can't change them.
 #
-# Required repository (or environment) secrets:
-#   PRISMACLOUD_API_URL   e.g. api.prismacloud.io
-#   PRISMACLOUD_USERNAME  access key UUID
-#   PRISMACLOUD_PASSWORD  secret key
+# Docs: .github/workflows/rbac/README.md
 #
-# The PaloAltoNetworks/prismacloud provider reads these three env vars natively;
-# no *.tfvars are needed for auth.
+# Required secrets: PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
 
 on:
   pull_request:
-    branches: [main, tuan_test]
+    branches: [main, tuan_test, tuan_test_compute_policies]
     paths:
-      - "terraform/**"
-      - ".github/workflows/terraform.yml"
+      - "terraform/main.tf"
+      - "terraform/locals.tf"
+      - "terraform/variables.tf"
+      - "terraform/outputs.tf"
+      - "terraform/modules/rbac/**"
+      - ".github/workflows/rbac.yml"
   push:
-    branches: [tuan_test, main]
+    branches: [tuan_test, main, tuan_test_compute_policies]
     paths:
-      - "terraform/**"
-      - ".github/workflows/terraform.yml"
+      - "terraform/main.tf"
+      - "terraform/locals.tf"
+      - "terraform/variables.tf"
+      - "terraform/outputs.tf"
+      - "terraform/modules/rbac/**"
+      - ".github/workflows/rbac.yml"
   workflow_dispatch:
     inputs:
       apply:
-        description: "Run terraform apply after a successful plan"
+        description: "Apply the RBAC changes after a successful plan (requires approval)"
         type: boolean
         default: false
 
-# Serialize runs so concurrent plans/applies don't fight over the tenant/state.
 concurrency:
-  group: terraform-${{ github.ref }}
+  group: rbac-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -45,13 +51,22 @@ env:
   TF_VERSION: "1.13.3"
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
-  # Provider auth. providers.tf explicitly sets url/username/password from these
-  # TF variables, so a null variable would override the provider's own env-var
-  # fallback. We therefore feed the secrets in as TF_VAR_* (Terraform reads these
-  # into the matching variables automatically), which populates the provider args.
+
+  # providers.tf sets url/username/password from these TF variables explicitly,
+  # so they must arrive as TF_VAR_* rather than the provider's own env vars.
   TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+
+  # The other two areas stay switched off here so this run makes no API calls
+  # on their behalf.
+  TF_VAR_compute_runtime_list_enabled: "false"
+  TF_VAR_tenant_inventory_enabled: "false"
+
+  # Restricts every plan/apply below to the RBAC resources only.
+  TF_TARGETS: >-
+    -target=prismacloud_permission_group.app_owner_readonly_singleton
+    -target=module.prisma_cloud_rbac
 
 defaults:
   run:
@@ -87,7 +102,7 @@ jobs:
         id: plan
         run: |
           set +e
-          terraform plan -input=false -no-color -out=tfplan
+          terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan
           echo "exitcode=$?" >> "$GITHUB_OUTPUT"
           set -e
 
@@ -99,7 +114,7 @@ jobs:
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: tfplan
+          name: rbac-tfplan
           path: terraform/tfplan
           retention-days: 5
 
@@ -108,7 +123,6 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const fs = require('fs');
             const { execSync } = require('child_process');
             let plan = '';
             try {
@@ -118,7 +132,7 @@ jobs:
             }
             const max = 60000;
             const body = [
-              '#### Terraform Plan `${{ steps.plan.outputs.exitcode }}`',
+              '#### RBAC Terraform Plan `${{ steps.plan.outputs.exitcode }}`',
               '',
               '<details><summary>Show Plan</summary>',
               '',
@@ -143,12 +157,11 @@ jobs:
     name: Apply (gated)
     needs: plan
     runs-on: ubuntu-latest
-    # Apply ONLY via a deliberate manual dispatch with apply=true. Pushes and PRs
-    # run plan only — nothing is applied automatically. This makes the "mine" repo
-    # safe to push to routinely while keeping apply an intentional, gated action.
+    # Apply ONLY on a deliberate manual dispatch with apply=true. Pushes and PRs
+    # plan only, so routine pushes can never change the tenant.
     if: github.event_name == 'workflow_dispatch' && inputs.apply == true
-    # Requires a protected GitHub Environment named test-tenant with a required
-    # reviewer — this is what gates the apply behind manual approval.
+    # Requires a protected Environment named test-tenant with a required
+    # reviewer — this is the manual approval gate.
     environment:
       name: test-tenant
     steps:
@@ -163,12 +176,12 @@ jobs:
       - name: Terraform init
         run: terraform init -input=false
 
-      # No remote backend is configured, so state is local to THIS job. Planning
-      # and applying in the same job keeps state consistent (a plan artifact from
-      # the separate plan job would reference state this job doesn't have). We
-      # therefore run a fresh apply here rather than applying a saved plan file.
+      # State is local to this job (no remote backend), so a plan artifact from
+      # the plan job would reference state this job doesn't have. We therefore
+      # re-plan and apply here rather than applying a saved plan file.
+      #
+      # -parallelism=1 serializes creation so the dashboard Collection isn't
+      # created at the same instant the Resource List auto-spawns its own
+      # Collection (that race produced a transient "object already exists").
       - name: Terraform apply
-        # -parallelism=1 serializes creation so the dashboard Collection isn't
-        # created in the same instant the Resource List auto-spawns its own
-        # Collection (that race produced a transient "object already exists").
-        run: terraform apply -input=false -no-color -auto-approve -parallelism=1
+        run: terraform apply -input=false -no-color -auto-approve -parallelism=1 ${TF_TARGETS}

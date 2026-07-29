@@ -166,3 +166,80 @@ variable "permission_group_description" {
   type        = string
   default     = "VA Application Owner Read Only Permissions Group.  Assigned roles will be scoped to specific account groups and resource lists."
 }
+
+# ============================================================
+# Prisma Cloud Compute Console (Twistlock) authentication
+# Used by the prismacloudcompute provider (see providers.tf) and by the
+# compute-runtime-policies module's external read of live runtime policies.
+# The access key / secret key are reused from the CSPM variables above (D3);
+# only the console URL and optional settings are declared here.
+# ============================================================
+
+variable "prisma_compute_console_url" {
+  description = "(Required for compute-runtime-policies) The Prisma Cloud Compute Console URL, e.g. \"https://us-east1.cloud.twistlock.com/us-2-158320372\". Supplied via TF_VAR_prisma_compute_console_url in CI. Null disables the Compute provider path."
+  type        = string
+  default     = null
+}
+
+variable "prisma_compute_project" {
+  description = "(Optional) Compute Console project name for multi-project consoles. Defaults to null (Central Console / default project)."
+  type        = string
+  default     = null
+}
+
+variable "prisma_compute_skip_cert_verification" {
+  description = "(Optional) If true, skips TLS certificate verification for the Compute Console connection. Defaults to null (verify). Not recommended for production."
+  type        = bool
+  default     = null
+}
+
+variable "compute_runtime_list_enabled" {
+  description = "(Optional) When true, the compute-runtime-policies module reads both runtime policies and exposes listing outputs (full rule dump + collection->rules index). Read-only. Default false."
+  type        = bool
+  default     = false
+}
+
+variable "compute_runtime_list_collection" {
+  description = "(Optional) When compute_runtime_list_enabled is true, restricts the collection->rules index to this single collection name (e.g. an RBAC artifact's collection). Empty = index all collections."
+  type        = string
+  default     = ""
+}
+
+variable "compute_runtime_list_clusters" {
+  description = "(Optional) When compute_runtime_list_enabled is true, resolves which runtime rules apply to each named cluster (cluster -> cluster-specific collections -> rules), exposed as compute_*_rules_by_cluster. Empty = no cluster resolution."
+  type        = list(string)
+  default     = []
+}
+
+# ============================================================
+# Tenant-level inventory (STRICTLY READ-ONLY).
+#
+# Backed by the provider's native data sources — the module contains no
+# `resource` blocks at all, so it cannot create, modify or delete anything in
+# the tenant. Driven by the tenant-inventory.yml workflow.
+# ============================================================
+
+variable "tenant_inventory_enabled" {
+  description = "(Optional) When true, read tenant-level settings/configuration and expose them as outputs. Read-only — no writes are possible. Default false so the ordinary terraform.yml plan does not make extra API calls."
+  type        = bool
+  default     = false
+}
+
+variable "tenant_inventory_scope" {
+  description = "(Optional) Which category to read: \"all\" (default) or one of enterprise-settings, trusted-ips, integrations, reports, notification-templates, anomaly-settings. Narrowing the scope skips the other API calls and keeps the run log focused."
+  type        = string
+  default     = "all"
+
+  validation {
+    condition = contains([
+      "all",
+      "enterprise-settings",
+      "trusted-ips",
+      "integrations",
+      "reports",
+      "notification-templates",
+      "anomaly-settings",
+    ], var.tenant_inventory_scope)
+    error_message = "The tenant_inventory_scope must be one of: all, enterprise-settings, trusted-ips, integrations, reports, notification-templates, anomaly-settings."
+  }
+}

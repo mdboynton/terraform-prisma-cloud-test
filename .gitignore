@@ -11,6 +11,10 @@ AGENTS.md
 
 # Live config
 terraform/config/teams.yaml
+terraform/config/compute-runtime-policies.yaml
+
+# Local diagnostic scripts (never committed)
+scripts-local/
 
 # macOS
 .DS_Store

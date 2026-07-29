@@ -1,0 +1,23 @@
+# Compute runtime policy associations (example).
+#
+# Purpose: attach an RBAC artifact's Collection to EXISTING runtime policy rules so
+# the (console-authored) policy applies to that team's resources. This module does
+# NOT create or redefine policies or rules — it only ADDS the named collection to a
+# rule's `collections` list, preserving everything already there.
+#
+# Copy to config/compute-runtime-policies.yaml (git-ignored) and edit for your tenant.
+#
+# Each entry targets one existing rule (by its exact name as it appears in the
+# Compute console) and one collection to append. `add_collection` is typically the
+# Collection created by the RBAC module for the team (e.g. "<team>-assets" or the
+# auto-spawned "<resource-list> - Access Group (RBAC)").
+
+# Rules on the CONTAINER runtime policy.
+container:
+  - policy_rule_name: "Default - alert on suspicious runtime behavior"
+    add_collection: "tuan-test-assets"
+
+# Rules on the HOST runtime policy.
+host:
+  - policy_rule_name: "Default - alert on suspicious runtime behavior"
+    add_collection: "tuan-test-assets"

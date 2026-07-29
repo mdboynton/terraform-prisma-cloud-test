@@ -15,3 +15,15 @@ provider "prismacloud" {
   retry_type                 = var.prisma_cloud_retry_type
   disable_reconnect          = var.prisma_cloud_disable_reconnect
 }
+
+# Compute Console (Twistlock) provider. Authenticates against the Compute Console
+# rather than the CSPM API. Reuses the same access key / secret key as the CSPM
+# provider (per D3). Used by modules/compute-runtime-policies to attach RBAC
+# collections to existing runtime policy rules.
+provider "prismacloudcompute" {
+  console_url            = var.prisma_compute_console_url
+  username               = var.prisma_cloud_access_key
+  password               = var.prisma_cloud_secret_key
+  project                = var.prisma_compute_project
+  skip_cert_verification = var.prisma_compute_skip_cert_verification
+}
