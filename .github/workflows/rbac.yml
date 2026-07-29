@@ -13,25 +13,22 @@ name: 1. RBAC (teams)
 #
 # Required secrets: PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
 
+# PATH FILTERS: a run is triggered only when a commit touches one of these
+# paths. They cover the RBAC module, every root .tf (the root wires the module
+# and defines its variables/providers), and the team config. Docs-only changes
+# (**.md) are deliberately excluded so README edits don't burn CI minutes.
 on:
   pull_request:
     branches: [main, tuan_test, tuan_test_compute_policies]
-    paths:
-      - "terraform/main.tf"
-      - "terraform/locals.tf"
-      - "terraform/variables.tf"
-      - "terraform/outputs.tf"
+    paths: &rbac_paths
+      - "terraform/*.tf"
+      - "terraform/.terraform.lock.hcl"
+      - "terraform/config/**"
       - "terraform/modules/rbac/**"
       - ".github/workflows/rbac.yml"
   push:
-    branches: [tuan_test, main, tuan_test_compute_policies]
-    paths:
-      - "terraform/main.tf"
-      - "terraform/locals.tf"
-      - "terraform/variables.tf"
-      - "terraform/outputs.tf"
-      - "terraform/modules/rbac/**"
-      - ".github/workflows/rbac.yml"
+    branches: [main, tuan_test, tuan_test_compute_policies]
+    paths: *rbac_paths
   workflow_dispatch:
     inputs:
       apply:
