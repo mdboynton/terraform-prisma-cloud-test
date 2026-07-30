@@ -1,6 +1,6 @@
 # CI Workflows
 
-Three workflows, one per area of Prisma Cloud configuration. Each has its own
+Five workflows, one per area of Prisma Cloud configuration. Each has its own
 step-by-step guide in the folder beside it.
 
 | # | Workflow | Purpose | Changes the tenant? | Guide |
@@ -8,12 +8,16 @@ step-by-step guide in the folder beside it.
 | 1 | [`rbac.yml`](rbac.yml) | Per-team RBAC: Account Groups, Resource Lists, Roles, Service Accounts, Alert Rules | Yes — approval gated | [rbac/README.md](rbac/README.md) |
 | 2 | [`compute-runtime-policies.yml`](compute-runtime-policies.yml) | List Compute runtime rules; attach a collection to an existing rule | Yes — approval gated | [compute-runtime-policies/README.md](compute-runtime-policies/README.md) |
 | 3 | [`tenant-inventory.yml`](tenant-inventory.yml) | List tenant-wide settings and configuration | **No** — read-only by construction | [tenant-inventory/README.md](tenant-inventory/README.md) |
+| 4 | [`access-audit.yml`](access-audit.yml) | Audit roles, users and permission groups; surface the rows a review acts on | **No** — read-only by construction | [access-audit/README.md](access-audit/README.md) |
+| 5 | [`drift-detection.yml`](drift-detection.yml) | Daily "did anything change in the tenant?" check; opens an issue when it did | **No** — only commits a snapshot to this repo | [drift-detection/README.md](drift-detection/README.md) |
 
 ## Which one do I want?
 
 - **Onboarding a team, or changing what a team can see** → workflow 1
 - **Seeing which runtime rules cover a cluster, or attaching a collection to a rule** → workflow 2
 - **Just looking at tenant settings, integrations, reports, trusted IPs** → workflow 3
+- **Reviewing who has access — stale accounts, unassigned roles** → workflow 4
+- **Finding out what changed since yesterday, including console-made changes** → workflow 5
 
 ## Rules that apply to all of them
 
@@ -21,8 +25,8 @@ step-by-step guide in the folder beside it.
 - **Pushing never applies.** Pushes and PRs run plan only.
 - **Apply is deliberate.** It requires a manual run with `apply` checked, *plus*
   approval on the `test-tenant` Environment. Two separate actions.
-- **Workflow 3 has no apply at all** — its module contains zero `resource`
-  blocks, so there is nothing to gate.
+- **Workflows 3, 4 and 5 have no apply at all** — their modules contain zero
+  `resource` blocks, so there is nothing to gate.
 
 ## Why they're separate
 
@@ -54,6 +58,11 @@ apply jobs re-plan rather than applying a saved plan file from the plan job, and
 why `-target` is used to keep each workflow in its own lane. Moving to a remote
 backend would be the natural next step if these need to share state or run
 concurrently.
+
+It is also why workflow 5 compares **snapshots** rather than running
+`terraform plan` and reading the diff: with no prior state to compare against,
+every run would look like a first run. Snapshots additionally catch changes to
+objects Terraform does not manage — which is most of this tenant.
 
 ## Git-ignored config
 

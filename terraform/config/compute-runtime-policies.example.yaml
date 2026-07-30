@@ -1,0 +1,50 @@
+# Compute runtime policy associations (example).
+#
+# Purpose: attach a Compute Collection to EXISTING runtime policy rules so the
+# (console-authored) policy applies to that team's resources. This module does
+# NOT create or redefine policies or rules - it only ADDS the named collection to
+# a rule's `collections` list, preserving everything already there.
+#
+# Copy to config/compute-runtime-policies.yaml (git-ignored) and edit for your
+# tenant. Absent, the module is a no-op.
+#
+# Each entry targets one existing rule (by its exact name as it appears in the
+# Compute console) and one collection to append.
+#
+# ---------------------------------------------------------------------------
+# THREE CONSTRAINTS THE API ENFORCES ON `add_collection`
+#
+# All three were found the hard way (HTTP 400 at apply). The dry run now checks
+# all of them BEFORE anything is written, so read its output first.
+#
+# 1. The collection must already EXIST in Compute.
+#    CSPM and Compute keep SEPARATE collection stores. A `prismacloud_collection`
+#    is invisible here. Create Compute collections with the rbac module's
+#    `compute_collection_enabled` option.
+#
+# 2. The name must match ^[A-Za-z0-9_:-]+$ - no spaces, no parentheses.
+#    This permanently rules out the collections Prisma Cloud auto-spawns for
+#    every Resource List, which are named "<resource-list> - Access Group (RBAC)".
+#    Those contain spaces and parentheses, so they can NEVER be used here.
+#    (Empirically 0 of 182 collections actually referenced by runtime rules are
+#    these system collections, so this matches how the platform behaves too.)
+#
+# 3. HOST rules only: the collection's `clusters` must be empty or ["*"].
+#    A cluster-scoped collection is rejected on a host rule. This is categorical -
+#    0 of 79 host rules in this tenant use one. "Cluster" is a Kubernetes concept
+#    and host rules govern VMs, so the scoping is meaningless there.
+# ---------------------------------------------------------------------------
+
+# Rules on the CONTAINER runtime policy.
+container:
+  - policy_rule_name: "Telnet-runtime"
+    add_collection: "tuan-test-workloads"
+
+# Rules on the HOST runtime policy.
+#
+# Empty on purpose. `tuan-test-workloads` is cluster-scoped, so constraint 3
+# above rejects it here even though the same collection works for containers.
+#
+# To associate host rules, use a collection whose `clusters` is empty or ["*"]
+# (set `compute_collection_clusters = []` in the rbac module).
+host: []

@@ -110,14 +110,26 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
 |---|---|---|
 | **Cloud account inventory** (read) | `prismacloud_cloud_accounts` — which accounts are onboarded, their status. Probably the most-asked question in any tenant. | Pure read. Low risk. |
 | **Policy & compliance inventory** (read) | `prismacloud_policies`, `prismacloud_compliance_standards` — what's enabled, what's custom vs default. | Pure read. Pairs naturally with the dashboard. |
-| **Team/role audit** (read) | `prismacloud_user_roles`, `prismacloud_user_profiles`, `prismacloud_permission_groups` — who has what. | Answers access-review questions that currently need console clicking. |
+| ~~**Team/role audit** (read)~~ | `prismacloud_user_roles`, `prismacloud_user_profiles`, `prismacloud_permission_groups` — who has what. | **DONE** — workflow 4, [`access-audit`](../terraform/modules/access-audit/README.md). |
 | **Alerts snapshot** (read) | `prismacloud_alerts` — current open alerts by severity. | Best value as a *scheduled* run feeding trend charts. |
 
 ### Worth considering
 
-- **Drift detection** (scheduled) — nightly `terraform plan`; open an issue if
-  non-empty. Catches console changes that diverge from code. This is the highest-value
-  item on the whole list and doesn't require any new module.
+- ~~**Drift detection** (scheduled)~~ — **DONE**, as workflow 5.
+
+  The original framing here was wrong in an instructive way. It assumed a nightly
+  `terraform plan` and therefore a remote backend (§3) as a prerequisite. With no
+  prior state, every run looks like a first run, so that approach could never have
+  worked as written.
+
+  What shipped compares successive read-only **snapshots** instead. That needs no
+  backend, and it covers strictly more: `terraform plan` only ever notices objects
+  Terraform manages, whereas a snapshot notices a role someone created by hand in
+  the console. Since most of this tenant is unmanaged, that difference is the
+  greater part of the value.
+
+  A backend is still worth having (§3), but it is now an *improvement* to drift
+  detection rather than a blocker for it.
 - **Onboard-a-team** — a `workflow_dispatch` form that writes a `teams.yaml` entry and
   opens a PR, instead of hand-editing YAML. Turns the repo into a self-service portal.
 - **Compute collections management** — now that the Compute provider is wired in,
@@ -142,10 +154,11 @@ Everything above is incremental. One thing is not:
 - Applies must re-plan rather than consume the uploaded plan artifact.
 - No state locking, so two concurrent applies are unsafe.
 - Terraform can't detect drift, because it has no prior state to compare against.
+  (Worked around by snapshot comparison in workflow 5 — see §2 — but plan-based
+  drift on *managed* resources still isn't possible.)
 
 A backend (S3 + DynamoDB, or TFC) with **separate state per area** fixes all four at
-once and removes the `-target` scaffolding. It is a prerequisite for real drift
-detection.
+once and removes the `-target` scaffolding.
 
 This is a bigger change than anything else here and doesn't need to happen now — but
 most of the awkwardness in the current setup traces back to it, so it's worth doing
@@ -155,10 +168,15 @@ before the workflow count grows much further.
 
 ## Suggested order
 
-1. Step summaries in all three workflows (§1) — biggest readability win per hour.
-2. PR comment for the compute dry run (§1).
-3. Cloud account inventory workflow (§2) — proves the read-only pattern generalizes.
-4. JSON snapshots to `docs/data/` (§0 layer 2) — after deciding the sensitive-data policy.
-5. Pages dashboard (§0 layer 3).
-6. Remote backend (§3), then drop `-target`.
-7. Scheduled drift detection (§2), which layers 3 and 6 make straightforward.
+1. ~~Team/role audit (§2)~~ — **done**, workflow 4.
+2. ~~Scheduled drift detection (§2)~~ — **done**, workflow 5. Moved to the front
+   once it turned out not to depend on the remote backend.
+3. Step summaries in the remaining workflows (§1) — biggest readability win per hour.
+   Workflows 4 and 5 already do this.
+4. PR comment for the compute dry run (§1).
+5. Cloud account inventory workflow (§2) — proves the read-only pattern generalizes.
+6. JSON snapshots to `docs/data/` (§0 layer 2). The sensitive-data policy is now
+   settled by workflow 5: hash usernames at the source, and guard the output.
+7. Pages dashboard (§0 layer 3) — the drift baseline is already a committed,
+   machine-readable JSON document it could read directly.
+8. Remote backend (§3), then drop `-target`.

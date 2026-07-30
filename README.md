@@ -1,12 +1,13 @@
 # terraform-prisma-cloud-modules
 
 Terraform modules for managing a Prisma Cloud tenant — per-team RBAC, Compute
-runtime policy associations, and read-only tenant inventory. Everything is
-driven from GitHub Actions; edit config, review the plan, approve the apply.
+runtime policy associations, read-only tenant inventory, access auditing, and
+daily drift detection. Everything is driven from GitHub Actions; edit config,
+review the plan, approve the apply.
 
 ## Workflows — start here
 
-Most people interact with this repo through the **Actions** tab. There are three
+Most people interact with this repo through the **Actions** tab. There are five
 workflows, each with its own step-by-step guide:
 
 | # | Workflow | Use it to | Changes the tenant? |
@@ -14,13 +15,15 @@ workflows, each with its own step-by-step guide:
 | 1 | [**RBAC (teams)**](.github/workflows/rbac/README.md) | Onboard a team; change what a team can see | Yes — approval gated |
 | 2 | [**Compute Runtime Policies**](.github/workflows/compute-runtime-policies/README.md) | See which runtime rules cover a cluster; attach a collection to a rule | Yes — approval gated |
 | 3 | [**Tenant Inventory**](.github/workflows/tenant-inventory/README.md) | Look at tenant settings, integrations, reports, trusted IPs | **No** — read-only by construction |
+| 4 | [**Access Audit**](.github/workflows/access-audit/README.md) | Review who has access: stale accounts, unassigned roles, permission groups | **No** — read-only by construction |
+| 5 | [**Drift Detection**](.github/workflows/drift-detection/README.md) | Find out what changed since yesterday, including console-made changes | **No** — only commits a snapshot to this repo |
 
-Ground rules across all three: **plan is always safe**, **pushing never
-applies**, and an apply needs both a manual run *and* an approval. Workflow 3
-has no apply step at all.
+Ground rules across all five: **plan is always safe**, **pushing never
+applies**, and an apply needs both a manual run *and* an approval. Workflows 3,
+4 and 5 have no apply step at all.
 
 New to Terraform? Each guide above starts from first principles — no prior
-experience assumed. Overview of all three:
+experience assumed. Overview of all five:
 [`.github/workflows/README.md`](.github/workflows/README.md).
 
 ## Modules
@@ -40,7 +43,7 @@ module, which **attaches an RBAC Collection to existing Compute runtime policy r
 create or change the policies themselves — it only appends the collection to a matched
 rule, preserving what's already there.
 
-Finally, [`tenant-inventory`](terraform/modules/tenant-inventory/README.md)
+[`tenant-inventory`](terraform/modules/tenant-inventory/README.md)
 **lists** tenant-level settings and configuration — enterprise settings, trusted
 login/alert IPs, integrations, reports, notification templates and anomaly
 settings. It is **read-only by construction**: the module contains only
@@ -48,6 +51,15 @@ Terraform `data` blocks and no `resource` blocks, so it cannot change anything
 in the tenant. It runs from its own
 [Tenant Inventory workflow](.github/workflows/tenant-inventory.yml) with a
 `scope` dropdown, separate from the change-capable pipeline.
+
+Finally, [`access-audit`](terraform/modules/access-audit/README.md) reads the
+tenant's **access-control** objects — roles, user profiles and permission groups
+— and derives the subset of rows an access review acts on: unassigned roles,
+never-logged-in accounts, stale logins, users with no roles. It is read-only by
+construction on the same basis. Because it can hash usernames (which are email
+addresses) it is also the input to
+[drift detection](.github/workflows/drift-detection/README.md), which fingerprints
+the tenant daily and opens an issue when something changes.
 
 ## Layout
 
@@ -57,6 +69,8 @@ in the tenant. It runs from its own
 | [`terraform/modules/rbac/`](terraform/modules/rbac/) | Deploy RBAC artifacts (Account Group, Resource List, Role, Service Account, Alert Rule). [README](terraform/modules/rbac/README.md) |
 | [`terraform/modules/compute-runtime-policies/`](terraform/modules/compute-runtime-policies/) | Attach an RBAC Collection to existing Compute Container/Host runtime policy rules (non-destructive append via the Compute API). [README](terraform/modules/compute-runtime-policies/README.md) |
 | [`terraform/modules/tenant-inventory/`](terraform/modules/tenant-inventory/) | **Read-only** listing of tenant-level settings/config (data sources only — cannot write). [README](terraform/modules/tenant-inventory/README.md) |
+| [`terraform/modules/access-audit/`](terraform/modules/access-audit/) | **Read-only** audit of roles, user profiles and permission groups, with optional username hashing. [README](terraform/modules/access-audit/README.md) |
+| [`scripts/drift/`](scripts/drift/) | `snapshot.sh` (plan JSON → privacy-safe fingerprint) and `diff.sh` (baseline vs current → markdown + exit code). Used by workflow 5. |
 | [`terraform/config/teams.yaml`](terraform/config/teams.yaml) | The config file. One entry per team defines its RBAC artifacts. Gitignored; not loaded when absent (a clean plan with zero resources). |
 | [`terraform/config/teams.example.yaml`](terraform/config/teams.example.yaml) | Annotated example config. Copy it to `teams.yaml` and edit. |
 | [`terraform/config/compute-runtime-policies.yaml`](terraform/config/compute-runtime-policies.yaml) | Runtime-policy associations (which existing rule gets which collection). Gitignored; a no-op when absent. Use `git add -f` to include it in CI. |
