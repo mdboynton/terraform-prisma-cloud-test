@@ -1,0 +1,181 @@
+name: 5. Drift Detection (scheduled)
+
+# Answers "did anything change in the tenant since yesterday?" and opens an
+# issue when the answer is yes.
+#
+# WHY SNAPSHOTS INSTEAD OF `terraform plan`:
+# this repo has no remote backend. State is local to each job and discarded when
+# it ends, so Terraform has no prior state to compare the tenant against and
+# cannot report drift the usual way. Comparing successive READ-ONLY snapshots
+# answers the same question without a backend, and additionally covers objects
+# Terraform does not manage - which is most of this tenant.
+#
+# READ-ONLY. Only `data` blocks are evaluated; the sole write is a commit of the
+# snapshot file back to this repo.
+#
+# Docs: .github/workflows/drift-detection/README.md
+
+on:
+  schedule:
+    # 08:00 UTC daily (~midnight US Pacific). Cron on GitHub is best-effort and
+    # can be delayed during peak load; this job is not time-critical.
+    - cron: "0 8 * * *"
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: "Commit the new snapshot even if drift is found (accepts the current state as the new baseline)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: drift-detection
+  cancel-in-progress: false
+
+permissions:
+  contents: write # commit the snapshot
+  issues: write # open the drift issue
+
+env:
+  TF_VERSION: "1.13.3"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
+  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
+  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+
+  # Both read-only areas on, so one plan covers access control AND tenant
+  # settings - the snapshot spans both.
+  TF_VAR_access_audit_enabled: "true"
+  TF_VAR_access_audit_scope: "all"
+  TF_VAR_tenant_inventory_enabled: "true"
+  TF_VAR_tenant_inventory_scope: "all"
+
+  # NON-NEGOTIABLE. The snapshot is committed to a PUBLIC repo, so usernames
+  # (which are email addresses) must be hashed before they ever reach the file.
+  # snapshot.sh independently greps its own output for an email address and
+  # hard-fails if one appears, so flipping this to false breaks the run rather
+  # than leaking.
+  TF_VAR_access_audit_redact_usernames: "true"
+
+  TF_VAR_compute_runtime_list_enabled: "false"
+
+  SNAPSHOT: .drift/tenant-snapshot.json
+
+jobs:
+  detect:
+    name: Detect tenant drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        working-directory: terraform
+        run: terraform init -input=false
+
+      - name: Read tenant state
+        working-directory: terraform
+        run: |
+          terraform plan -input=false -no-color \
+            -target=module.access_audit \
+            -target=module.tenant_inventory \
+            -out=tfplan
+          terraform show -json tfplan > /tmp/plan.json
+
+      - name: Build snapshot
+        run: |
+          mkdir -p .drift
+          bash scripts/drift/snapshot.sh /tmp/plan.json /tmp/current.json
+
+      - name: Compare against baseline
+        id: diff
+        run: |
+          set +e
+          bash scripts/drift/diff.sh "$SNAPSHOT" /tmp/current.json /tmp/drift.md
+          code=$?
+          set -e
+
+          # 0 = no drift, 2 = drift, anything else = the script itself failed.
+          case "$code" in
+            0) echo "drift=false" >> "$GITHUB_OUTPUT" ;;
+            2) echo "drift=true"  >> "$GITHUB_OUTPUT" ;;
+            *) echo "::error::diff.sh failed with exit $code"; exit 1 ;;
+          esac
+
+          cat /tmp/drift.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open drift issue
+        if: steps.diff.outputs.drift == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('/tmp/drift.md', 'utf8');
+            const title = `Tenant drift detected (${new Date().toISOString().slice(0, 10)})`;
+
+            // Reuse today's issue if the workflow runs twice, so a manual
+            // re-run doesn't create duplicates.
+            //
+            // Filtering by a label that doesn't exist yet returns an empty list
+            // rather than erroring, and issues.create below creates the label on
+            // demand - so a fresh repo needs no manual label setup.
+            const { data: existing } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'drift',
+              per_page: 100,
+            });
+
+            const match = existing.find(i => i.title === title);
+            if (match) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: match.number,
+                body: `Re-checked at ${new Date().toISOString()}\n\n${body}`,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body: `${body}\n\n---\nOpened automatically by [drift-detection](../actions/workflows/drift-detection.yml). Run: ${context.runId}`,
+                labels: ['drift'],
+              });
+            }
+
+      - name: Update baseline
+        # On a schedule the baseline always advances, so tomorrow reports only
+        # what changed since today rather than re-reporting the same drift
+        # forever. A manual run can opt out to inspect drift without accepting it.
+        if: github.event_name == 'schedule' || inputs.update_baseline
+        run: |
+          cp /tmp/current.json "$SNAPSHOT"
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$SNAPSHOT"
+
+          # Staged-vs-HEAD, NOT worktree-vs-index. On the very first run the
+          # baseline is a brand-new untracked file, and `git diff --quiet` ignores
+          # untracked files entirely - it would report "unchanged", skip the
+          # commit, and the baseline would never be created. The workflow would
+          # then report "no baseline yet / no drift" forever. Comparing after
+          # `git add` sees the addition.
+          if git diff --cached --quiet -- "$SNAPSHOT"; then
+            echo "Baseline unchanged - nothing to commit."
+            exit 0
+          fi
+
+          git commit -m "chore(drift): update tenant snapshot"
+
+          # A push can lose a race with a concurrent commit to main; rebase and
+          # retry once rather than failing the whole run over it.
+          git push || { git pull --rebase --autostash && git push; }
