@@ -243,3 +243,42 @@ variable "tenant_inventory_scope" {
     error_message = "The tenant_inventory_scope must be one of: all, enterprise-settings, trusted-ips, integrations, reports, notification-templates, anomaly-settings."
   }
 }
+
+# ----------------------------------------------------------------
+# Access audit (READ-ONLY). Consumed by modules/access-audit via
+# the access-audit.yml workflow.
+# ----------------------------------------------------------------
+
+variable "access_audit_enabled" {
+  description = "(Optional) Read the tenant's roles, user profiles, and permission groups. Default false so other workflows make no access-control API calls."
+  type        = bool
+  default     = false
+}
+
+variable "access_audit_scope" {
+  description = "(Optional) Which category to read: \"all\" (default), roles, users, or permission-groups. Narrowing the scope skips the other API calls."
+  type        = string
+  default     = "all"
+
+  validation {
+    condition = contains([
+      "all",
+      "roles",
+      "users",
+      "permission-groups",
+    ], var.access_audit_scope)
+    error_message = "The access_audit_scope must be one of: all, roles, users, permission-groups."
+  }
+}
+
+variable "access_audit_redact_usernames" {
+  description = "(Optional) Replace usernames with a stable hash prefix. Usernames are email addresses, so set this true for any output that leaves the team (published artifacts, a public repo). Default false because an access review needs real names."
+  type        = bool
+  default     = false
+}
+
+variable "access_audit_stale_login_days" {
+  description = "(Optional) Days since last login before a user is flagged stale. Users who never logged in are reported separately and are unaffected by this. Default 90."
+  type        = number
+  default     = 90
+}

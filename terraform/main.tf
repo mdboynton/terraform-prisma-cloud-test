@@ -117,6 +117,23 @@ module "compute_runtime_policies" {
 # so it is structurally incapable of changing the tenant. Nothing to gate, no
 # apply required. Driven by the tenant-inventory.yml workflow.
 # ============================================================
+# ============================================================
+# Access audit - STRICTLY READ-ONLY, same construction as tenant_inventory:
+# only `data` blocks, zero `resource` blocks. Driven by access-audit.yml.
+# ============================================================
+module "access_audit" {
+  source = "./modules/access-audit"
+
+  providers = {
+    prismacloud = prismacloud
+  }
+
+  enabled          = var.access_audit_enabled
+  scope            = var.access_audit_scope
+  redact_usernames = var.access_audit_redact_usernames
+  stale_login_days = var.access_audit_stale_login_days
+}
+
 module "tenant_inventory" {
   source = "./modules/tenant-inventory"
 

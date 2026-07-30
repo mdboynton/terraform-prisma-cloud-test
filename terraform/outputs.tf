@@ -210,3 +210,32 @@ output "tenant_inventory_summary" {
   description = "Compact count-per-category summary of the tenant inventory, for a quick at-a-glance view without scrolling the full dump."
   value       = module.tenant_inventory.summary
 }
+
+# ----------------------------------------------------------------
+# Access audit (READ-ONLY). Null unless access_audit_enabled.
+# ----------------------------------------------------------------
+
+output "access_audit_summary" {
+  description = "Counts per category (roles, users, permission groups) plus the flags that produced them. Contains no usernames, so it is safe to publish."
+  value       = module.access_audit.summary
+}
+
+output "access_audit_findings" {
+  description = "The rows an access review acts on: unassigned roles, and users that are disabled, stale, never-logged-in, or hold no roles. Honors access_audit_redact_usernames."
+  value       = module.access_audit.findings
+}
+
+output "access_audit_roles" {
+  description = "Full role listing with assigned-user and account-group counts. Null when out of scope."
+  value       = module.access_audit.roles
+}
+
+output "access_audit_users" {
+  description = "Full user listing with enabled/stale/never-logged-in flags. Honors access_audit_redact_usernames. Null when out of scope."
+  value       = module.access_audit.users
+}
+
+output "access_audit_permission_groups" {
+  description = "Full permission-group listing with custom vs built-in. Null when out of scope."
+  value       = module.access_audit.permission_groups
+}
