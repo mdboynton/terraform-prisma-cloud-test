@@ -1,0 +1,195 @@
+name: 4. Access Audit (read-only)
+
+# Answers "who has access to this tenant, and how" - roles, user profiles, and
+# permission groups, plus the subset of rows an access review acts on.
+#
+# READ-ONLY BY CONSTRUCTION. The access-audit module contains only Terraform
+# `data` blocks - no `resource` blocks at all - so this workflow cannot create,
+# modify or delete anything. There is deliberately NO apply job and NO
+# environment gate, because there is nothing to apply.
+#
+# Docs: .github/workflows/access-audit/README.md
+#
+# Required repository secrets:
+#   PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "What to audit"
+        type: choice
+        default: all
+        options:
+          - all
+          - roles
+          - users
+          - permission-groups
+      output_format:
+        description: "How much to print"
+        type: choice
+        default: summary-and-findings
+        options:
+          - summary-and-findings
+          - summary-only
+          - full-detail
+      redact_usernames:
+        description: "Hash usernames (they are email addresses). Leave OFF for an internal access review; turn ON before sharing the output."
+        type: boolean
+        default: false
+      stale_login_days:
+        description: "Days since last login before a user counts as stale"
+        type: string
+        default: "90"
+
+concurrency:
+  group: access-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.13.3"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
+  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
+  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+
+  TF_VAR_access_audit_enabled: "true"
+  TF_VAR_access_audit_scope: ${{ inputs.scope }}
+  TF_VAR_access_audit_redact_usernames: ${{ inputs.redact_usernames }}
+  TF_VAR_access_audit_stale_login_days: ${{ inputs.stale_login_days }}
+
+  # The other areas stay off so this run makes no unrelated API calls.
+  TF_VAR_compute_runtime_list_enabled: "false"
+  TF_VAR_tenant_inventory_enabled: "false"
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  audit:
+    name: Audit tenant access
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Read access configuration
+        # -target keeps this to the audit module: no other module is evaluated,
+        # so the run makes no API calls on their behalf and the plan stays clean.
+        run: terraform plan -input=false -no-color -target=module.access_audit -out=tfplan
+
+      - name: Render report
+        # Reads the PLAN file, not state: state is empty on a plan-only run, so
+        # `terraform output` would return nothing. Planned values live under
+        # .output_changes.<name>.after.
+        run: |
+          plan_json="$(terraform show -json tfplan)"
+          fmt="${{ inputs.output_format }}"
+
+          get() { printf '%s' "$plan_json" | jq -c --arg k "$1" '.output_changes[$k].after'; }
+
+          summary="$(get access_audit_summary)"
+          findings="$(get access_audit_findings)"
+
+          # ---------- Job summary (the primary artifact for a human) ----------
+          {
+            echo "## Access audit"
+            echo
+            echo "Scope: \`${{ inputs.scope }}\` · Stale threshold: **${{ inputs.stale_login_days }} days** · Usernames redacted: **${{ inputs.redact_usernames }}**"
+            echo
+
+            printf '%s' "$summary" | jq -r '
+              if .roles != null then
+                "### Roles\n",
+                "| Metric | Count |", "|---|---|",
+                "| Total | \(.roles.total) |",
+                "| Unassigned (no users) | \(.roles.unassigned) |",
+                "| Custom | \(.roles.custom) |", ""
+              else empty end,
+              if .users != null then
+                "### Users\n",
+                "| Metric | Count |", "|---|---|",
+                "| Total | \(.users.total) |",
+                "| Enabled | \(.users.enabled) |",
+                "| Disabled | \(.users.disabled) |",
+                "| Never logged in | \(.users.never_logged_in) |",
+                "| Stale | \(.users.stale) |",
+                "| Service accounts | \(.users.service_accounts) |",
+                "| Holding no roles | \(.users.no_roles) |", ""
+              else empty end,
+              if .permission_groups != null then
+                "### Permission groups\n",
+                "| Metric | Count |", "|---|---|",
+                "| Total | \(.permission_groups.total) |",
+                "| Custom | \(.permission_groups.custom) |",
+                "| Built-in | \(.permission_groups.builtin) |", ""
+              else empty end
+            '
+
+            if [ "$fmt" != "summary-only" ]; then
+              echo "### Review queue"
+              echo
+              printf '%s' "$findings" | jq -r '
+                to_entries[]
+                | select(.value != null)
+                | "- **\(.key | gsub("_"; " "))**: \(.value | length)"
+              '
+              echo
+              echo "<details><summary>Unassigned roles</summary>"
+              echo
+              printf '%s' "$findings" | jq -r '
+                if (.unassigned_roles // []) | length == 0 then "None."
+                else ("| Role | Last modified by |", "|---|---|"),
+                     (.unassigned_roles[] | "| \(.name) | \(.last_modified_by) |")
+                end'
+              echo
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # ---------- Log output ----------
+          echo "===== summary ====="
+          printf '%s' "$summary" | jq .
+
+          if [ "$fmt" != "summary-only" ]; then
+            echo "===== findings ====="
+            printf '%s' "$findings" | jq .
+          fi
+
+          if [ "$fmt" = "full-detail" ]; then
+            for k in access_audit_roles access_audit_users access_audit_permission_groups; do
+              echo "===== $k ====="
+              get "$k" | jq .
+            done
+          fi
+
+          # Full detail always goes to the artifact regardless of print format.
+          printf '%s' "$plan_json" | jq '{
+            summary:           .output_changes.access_audit_summary.after,
+            findings:          .output_changes.access_audit_findings.after,
+            roles:             .output_changes.access_audit_roles.after,
+            users:             .output_changes.access_audit_users.after,
+            permission_groups: .output_changes.access_audit_permission_groups.after
+          }' > access-audit.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: access-audit
+          path: terraform/access-audit.json
+          retention-days: 30
