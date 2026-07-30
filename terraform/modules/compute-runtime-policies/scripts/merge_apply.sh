@@ -106,10 +106,29 @@ if cmp -s "$TMPDIR_MERGE/policy.json" "$TMPDIR_MERGE/merged.json"; then
 fi
 
 # 5. PUT the merged policy back (body from file to avoid ARG_MAX on -d).
-curl "${CURL_OPTS[@]}" \
+#
+# The response body is captured rather than discarded: this endpoint reports
+# real, actionable reasons in it (unknown collection, illegal characters in a
+# collection name, ...). Without this, a rejection surfaced only as the opaque
+# `curl: (22) ... error: 400` that gives no clue what to fix.
+HTTP_CODE="$(curl "${CURL_OPTS[@]}" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -X PUT "$BASE$POLICY_PATH" \
-  --data-binary "@$TMPDIR_MERGE/merged.json" >/dev/null || fail "failed to PUT $POLICY_PATH"
+  --data-binary "@$TMPDIR_MERGE/merged.json" \
+  -o "$TMPDIR_MERGE/response.json" \
+  -w '%{http_code}' || true)"
+
+if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
+  API_ERR="$(jq -r '.err // .error // empty' "$TMPDIR_MERGE/response.json" 2>/dev/null || true)"
+  [ -n "$API_ERR" ] || API_ERR="$(head -c 300 "$TMPDIR_MERGE/response.json" 2>/dev/null || true)"
+  echo "ERROR: PUT $POLICY_PATH returned HTTP $HTTP_CODE" >&2
+  echo "       API said: ${API_ERR:-(empty response body)}" >&2
+  echo "       Common cause: add_collection must already exist AND match" >&2
+  echo "       ^[A-Za-z0-9_:-]+$ — spaces and parentheses are rejected, so" >&2
+  echo "       RBAC collections named '<x> - Access Group (RBAC)' cannot be" >&2
+  echo "       used here. Nothing was changed." >&2
+  exit 1
+fi
 
 echo "Applied collection associations to $PCC_POLICY_KIND runtime policy." >&2

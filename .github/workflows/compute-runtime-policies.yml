@@ -173,15 +173,24 @@ jobs:
               || echo "(unavailable)"
           done
 
-          # Surface rule_not_found as an annotation on the run itself.
+          # Surface every non-applyable status as an annotation on the run.
+          #
+          #   rule_not_found            -> apply is a silent no-op (green, did nothing)
+          #   collection_not_found      -> API rejects the PUT with HTTP 400
+          #   collection_invalid_name   -> API rejects the PUT with HTTP 400
           printf '%s' "$plan_json" | jq -r '
             [ .output_changes.compute_container_preview.after,
               .output_changes.compute_host_preview.after ]
             | map(select(. != null))
             | .[] as $p
             | $p.associations[]?
-            | select(.status == "rule_not_found")
-            | "::warning title=Runtime rule not found::No \($p.policy_kind) rule named \(.policy_rule_name) — the apply will change NOTHING for this entry and still succeed."
+            | if .status == "rule_not_found" then
+                "::warning title=Runtime rule not found::No \($p.policy_kind) rule named \(.policy_rule_name) — the apply will change NOTHING for this entry and still succeed."
+              elif .status == "collection_not_found" then
+                "::warning title=Collection not found::Collection \(.add_collection) does not exist — the \($p.policy_kind) apply will be REJECTED (HTTP 400)."
+              elif .status == "collection_invalid_name" then
+                "::warning title=Collection name rejected by API::\(.add_collection) contains characters this endpoint forbids (allowed: A-Z a-z 0-9 _ - :). RBAC collections ending in \" - Access Group (RBAC)\" can never be used here. The \($p.policy_kind) apply will be REJECTED (HTTP 400)."
+              else empty end
           ' 2>/dev/null || true
 
       - name: Runtime policy listing
@@ -239,6 +248,45 @@ jobs:
 
       - name: Terraform init
         run: terraform init -input=false
+
+      - name: Preflight — refuse to apply an association that cannot succeed
+        # Approving the environment gate does NOT re-validate the dry run, so
+        # without this an approver can green-light an apply that is guaranteed
+        # to fail (HTTP 400) or to silently do nothing (rule_not_found).
+        #
+        # This re-runs the read-only preview and stops BEFORE any write:
+        #   rule_not_found          -> apply would no-op but still report success
+        #   collection_not_found    -> API rejects the PUT
+        #   collection_invalid_name -> API rejects the PUT
+        #
+        # A partial failure is otherwise genuinely awkward here: container and
+        # host are two independent PUTs, so one can land while the other 400s.
+        run: |
+          terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan >/dev/null
+          plan_json="$(terraform show -json tfplan)"
+
+          bad="$(printf '%s' "$plan_json" | jq -r '
+            [ .output_changes.compute_container_preview.after,
+              .output_changes.compute_host_preview.after ]
+            | map(select(. != null))
+            | .[] as $p
+            | $p.associations[]?
+            | select(.status | IN("rule_not_found","collection_not_found","collection_invalid_name"))
+            | "  [\($p.policy_kind)] rule=\(.policy_rule_name) collection=\(.add_collection) -> \(.status)"
+          ')"
+
+          if [ -n "$bad" ]; then
+            echo "Refusing to apply. These associations cannot succeed:"
+            echo "$bad"
+            echo
+            echo "add_collection must already exist AND match ^[A-Za-z0-9_:-]+\$"
+            echo "(no spaces or parentheses), so RBAC collections named"
+            echo "'<name> - Access Group (RBAC)' are rejected by this endpoint."
+            echo "Nothing was changed."
+            exit 1
+          fi
+
+          echo "Preflight OK — every association is applyable."
 
       # The append is non-destructive and idempotent: an association that is
       # already present is a no-op, and existing collections on a rule are kept.

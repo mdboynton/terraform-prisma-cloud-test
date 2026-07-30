@@ -85,6 +85,15 @@ and reports, per association:
 | `would_add` | The collection is absent and **will** be appended. |
 | `already_present` | Nothing to do — the merge is idempotent. |
 | `rule_not_found` | ⚠️ **No rule matches that name.** The apply will change nothing and still succeed. |
+| `collection_not_found` | ⚠️ The collection does not exist — the API rejects the write (HTTP 400). |
+| `collection_invalid_name` | ⚠️ The collection name uses characters this endpoint forbids — HTTP 400. |
+
+> **⚠️ RBAC collections cannot be attached to runtime rules.**
+> This endpoint requires `add_collection` to already exist **and** match
+> `^[A-Za-z0-9_:-]+$` — no spaces, no parentheses. Collections created by the
+> RBAC module are named `<resource-list> - Access Group (RBAC)`, which contains
+> both, so the API always rejects them here. This is a Compute API restriction,
+> not a module limitation. Use a collection whose name satisfies the charset rule.
 
 `rule_not_found` is the one to watch: it is a *green run that did nothing*. The
 workflow raises a ⚠️ annotation at the top of the run summary for it, so you

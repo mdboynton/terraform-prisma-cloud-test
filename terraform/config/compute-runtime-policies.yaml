@@ -12,23 +12,34 @@
 # Collection created by the RBAC module for the team (e.g. "<team>-assets" or the
 # auto-spawned "<resource-list> - Access Group (RBAC)").
 
-# NOTE: rule names are matched EXACTLY and are per-policy — a name that exists
-# on the host policy does not necessarily exist on the container policy. A name
-# that matches nothing is reported as `rule_not_found` in the dry run and the
-# apply will silently do nothing, so always confirm against the dry run output.
+# TWO CONSTRAINTS, both enforced by the Compute API and both checked by the dry run:
+#
+# 1. policy_rule_name is matched EXACTLY and is PER-POLICY. A name on the host
+#    policy does not necessarily exist on the container policy. No match =>
+#    `rule_not_found`, and the apply would silently change nothing.
+#
+# 2. add_collection must ALREADY EXIST and its name must match ^[A-Za-z0-9_:-]+$
+#    — no spaces, no parentheses. Violating either returns HTTP 400 and the
+#    whole apply fails.
+#
+#    CONSEQUENCE: collections auto-created by the RBAC module are named
+#    "<resource-list> - Access Group (RBAC)". That contains spaces AND
+#    parentheses, so the runtime-policy endpoint ALWAYS rejects them. They
+#    cannot be attached to a runtime rule by this module. Use a collection
+#    whose name satisfies the charset rule.
 
 # Rules on the CONTAINER runtime policy.
 #
 # "Telnet-runtime" is a DISABLED container rule, so attaching a collection to it
 # enforces nothing — a safe end-to-end test of the write path. It currently has
-# "WLtesting" attached; the merge is additive, so that is preserved.
+# "WLtesting"; the merge is additive, so that is preserved.
 container:
   - policy_rule_name: "Telnet-runtime"
-    add_collection: "tuan-test-resource-list - Access Group (RBAC)"
+    add_collection: "test-test"
 
 # Rules on the HOST runtime policy.
 #
 # "host-runtime-demo" is a real host rule (currently: "ec2-vm").
 host:
   - policy_rule_name: "host-runtime-demo"
-    add_collection: "tuan-test-resource-list - Access Group (RBAC)"
+    add_collection: "test-test"
