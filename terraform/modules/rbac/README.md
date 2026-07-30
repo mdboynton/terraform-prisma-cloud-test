@@ -68,6 +68,30 @@ In practice the root module fans this out over
 The module does not create users. SAML groups are mapped to role IDs in the IdP;
 see the [Operations Runbook](../../../.etc/OPERATIONS_RUNBOOK.md) for the handoff contract.
 
+### The auto-spawned Collection (not Terraform's doing)
+
+Every `prismacloud_resource_list` causes Prisma Cloud — server-side, on create —
+to spawn a companion Collection named:
+
+```
+<resource_list_name> - Access Group (RBAC)
+```
+
+Terraform never declares it and never sees it in the plan. It has
+`owner = "Prisma Cloud"`, `system = true`, `prisma = true`, and appears only
+after the apply. Deleting it is not supported; it is bound to the Resource List.
+
+**The name cannot be changed.** The `- Access Group (RBAC)` suffix is generated
+by the platform, so the only lever is `resource_list_name_suffix`, which controls
+the prefix. There is no input — here or in the provider — that suppresses or
+renames the spawn.
+
+This matters because that suffix contains spaces and parentheses, and the Compute
+runtime-policy API only accepts `^[A-Za-z0-9_:-]+$`. So the auto-spawned
+Collection is **permanently unusable for runtime policy scoping**, no matter what
+the Resource List is called. That constraint is what the opt-in Compute Collection
+below exists to work around.
+
 ## Compute Collection (opt-in)
 
 A team can end up with **three** collections. They are not interchangeable, and
