@@ -11,9 +11,9 @@ workflows, each with its own step-by-step guide:
 
 | # | Workflow | Use it to | Changes the tenant? |
 |---|---|---|---|
-| 1 | [**RBAC (teams)**](.github/workflows/rbac/README.md) | Onboard a team; change what a team can see | ✅ Yes — approval gated |
-| 2 | [**Compute Runtime Policies**](.github/workflows/compute-runtime-policies/README.md) | See which runtime rules cover a cluster; attach a collection to a rule | ✅ Yes — approval gated |
-| 3 | [**Tenant Inventory**](.github/workflows/tenant-inventory/README.md) | Look at tenant settings, integrations, reports, trusted IPs | ❌ **No** — read-only by construction |
+| 1 | [**RBAC (teams)**](.github/workflows/rbac/README.md) | Onboard a team; change what a team can see | Yes — approval gated |
+| 2 | [**Compute Runtime Policies**](.github/workflows/compute-runtime-policies/README.md) | See which runtime rules cover a cluster; attach a collection to a rule | Yes — approval gated |
+| 3 | [**Tenant Inventory**](.github/workflows/tenant-inventory/README.md) | Look at tenant settings, integrations, reports, trusted IPs | **No** — read-only by construction |
 
 Ground rules across all three: **plan is always safe**, **pushing never
 applies**, and an apply needs both a manual run *and* an approval. Workflow 3

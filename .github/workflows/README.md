@@ -5,9 +5,9 @@ step-by-step guide in the folder beside it.
 
 | # | Workflow | Purpose | Changes the tenant? | Guide |
 |---|---|---|---|---|
-| 1 | [`rbac.yml`](rbac.yml) | Per-team RBAC: Account Groups, Resource Lists, Roles, Service Accounts, Alert Rules | ✅ Yes — approval gated | [rbac/README.md](rbac/README.md) |
-| 2 | [`compute-runtime-policies.yml`](compute-runtime-policies.yml) | List Compute runtime rules; attach a collection to an existing rule | ✅ Yes — approval gated | [compute-runtime-policies/README.md](compute-runtime-policies/README.md) |
-| 3 | [`tenant-inventory.yml`](tenant-inventory.yml) | List tenant-wide settings and configuration | ❌ **No** — read-only by construction | [tenant-inventory/README.md](tenant-inventory/README.md) |
+| 1 | [`rbac.yml`](rbac.yml) | Per-team RBAC: Account Groups, Resource Lists, Roles, Service Accounts, Alert Rules | Yes — approval gated | [rbac/README.md](rbac/README.md) |
+| 2 | [`compute-runtime-policies.yml`](compute-runtime-policies.yml) | List Compute runtime rules; attach a collection to an existing rule | Yes — approval gated | [compute-runtime-policies/README.md](compute-runtime-policies/README.md) |
+| 3 | [`tenant-inventory.yml`](tenant-inventory.yml) | List tenant-wide settings and configuration | **No** — read-only by construction | [tenant-inventory/README.md](tenant-inventory/README.md) |
 
 ## Which one do I want?
 

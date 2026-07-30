@@ -4,7 +4,7 @@
 
 Lists tenant-wide Prisma Cloud settings and configuration.
 
-**Can it change the tenant?** ❌ **No — and it structurally cannot.**
+**Can it change the tenant?** No — and it structurally cannot.
 
 ---
 

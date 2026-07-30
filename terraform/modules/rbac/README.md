@@ -99,9 +99,9 @@ only one of them can scope a Compute runtime policy:
 
 | Collection | Created by | Visible to Compute? | Usable in a runtime rule? |
 |---|---|---|---|
-| `<team>-assets` | `prismacloud_collection` (this module) | ❌ No | ❌ No |
-| `<rl> - Access Group (RBAC)` | Auto-spawned per Resource List | ✅ Yes | ❌ No — illegal characters |
-| `<team>-workloads` | `prismacloudcompute_collection` (opt-in) | ✅ Yes | ✅ **Yes** |
+| `<team>-assets` | `prismacloud_collection` (this module) | No | No |
+| `<rl> - Access Group (RBAC)` | Auto-spawned per Resource List | Yes | No — illegal characters |
+| `<team>-workloads` | `prismacloudcompute_collection` (opt-in) | Yes | **Yes** |
 
 Two independent reasons rule the first two out:
 

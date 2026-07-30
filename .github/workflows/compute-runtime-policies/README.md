@@ -7,7 +7,7 @@ Two capabilities for Prisma Cloud **Compute** runtime policies (Container + Host
 - **List** (read-only) — see which rules exist and where they apply
 - **Apply** (gated) — attach an RBAC collection to an **existing** rule
 
-**Can it change the tenant?** ✅ Yes — behind an approval gate. But note what it
+**Can it change the tenant?** Yes — behind an approval gate. But note what it
 *can't* do: it never creates, redefines or deletes a policy. It only **appends**
 a collection to a rule you already have, keeping everything already on that rule.
 
@@ -84,18 +84,18 @@ and reports, per association:
 |---|---|
 | `would_add` | The collection is absent and **will** be appended. |
 | `already_present` | Nothing to do — the merge is idempotent. |
-| `rule_not_found` | ⚠️ **No rule matches that name.** The apply will change nothing and still succeed. |
-| `collection_not_found` | ⚠️ The collection does not exist — the API rejects the write (HTTP 400). |
-| `collection_invalid_name` | ⚠️ The collection name uses characters this endpoint forbids — HTTP 400. |
-| `collection_cluster_scoped_on_host` | ⚠️ Cluster-scoped collection on a HOST rule — HTTP 400. |
+| `rule_not_found` | **No rule matches that name.** The apply will change nothing and still succeed. |
+| `collection_not_found` | The collection does not exist — the API rejects the write (HTTP 400). |
+| `collection_invalid_name` | The collection name uses characters this endpoint forbids — HTTP 400. |
+| `collection_cluster_scoped_on_host` | Cluster-scoped collection on a HOST rule — HTTP 400. |
 
-> **⚠️ HOST rules cannot use a cluster-scoped collection.**
+> **HOST rules cannot use a cluster-scoped collection.**
 > A host runtime rule requires the collection's `clusters` to be empty or `["*"]`
 > — hosts are not cluster members, so Compute refuses to scope a host policy by
 > cluster. The same collection is perfectly valid on a **container** rule. If you
 > need host associations, use a collection with `clusters: ["*"]`.
 
-> **⚠️ RBAC collections cannot be attached to runtime rules.**
+> **RBAC collections cannot be attached to runtime rules.**
 > This endpoint requires `add_collection` to already exist **and** match
 > `^[A-Za-z0-9_:-]+$` — no spaces, no parentheses. Collections created by the
 > RBAC module are named `<resource-list> - Access Group (RBAC)`, which contains
@@ -103,7 +103,7 @@ and reports, per association:
 > not a module limitation. Use a collection whose name satisfies the charset rule.
 
 `rule_not_found` is the one to watch: it is a *green run that did nothing*. The
-workflow raises a ⚠️ annotation at the top of the run summary for it, so you
+workflow raises a warning annotation at the top of the run summary for it, so you
 don't have to spot it by reading JSON.
 
 It also prints `existing_collections`, so you can confirm the append is additive
@@ -111,7 +111,7 @@ and won't disturb what's already attached.
 
 ### Step 4 — Apply (gated)
 
-**Run workflow** → ✅ check `apply` → an approver approves the `test-tenant`
+**Run workflow** → tick `apply` → an approver approves the `test-tenant`
 deployment → the append runs.
 
 **Safety properties:**

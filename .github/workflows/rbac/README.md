@@ -7,7 +7,7 @@ Resource Lists, Roles, optional Service Accounts and Alert Rules — all bound t
 one shared Permission Group. Driven by
 [`terraform/config/teams.yaml`](../../../terraform/config/teams.yaml).
 
-**Can it change the tenant?** ✅ Yes — behind an approval gate.
+**Can it change the tenant?** Yes — behind an approval gate.
 
 ---
 
@@ -45,7 +45,7 @@ Do this once before changing anything so you know what "normal" looks like.
 Team definitions live in `terraform/config/teams.yaml`. Edit it, commit on a
 branch, and open a pull request. The plan is posted **as a comment on the PR**.
 
-> ⚠️ **`teams.yaml` is git-ignored.** It won't exist on the runner unless it was
+> **`teams.yaml` is git-ignored.** It won't exist on the runner unless it was
 > force-added (`git add -f`). If your plan shows zero team resources, that's why.
 
 ## Step 3 — Review the plan on the PR
@@ -59,7 +59,7 @@ Merge when it looks right. **Merging does not apply.**
 ## Step 4 — Apply (gated)
 
 1. **Actions** → **1. RBAC (teams)** → **Run workflow**
-2. ✅ Check **`apply`** → Run
+2. Tick **`apply`** → Run
 3. **Plan** runs, then **Apply (gated)** pauses for approval
 4. An approver opens the run → **Review deployments** → **Approve**
 5. Verify in the Prisma Cloud console
