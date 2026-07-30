@@ -124,10 +124,12 @@ if [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "204" ]; then
   [ -n "$API_ERR" ] || API_ERR="$(head -c 300 "$TMPDIR_MERGE/response.json" 2>/dev/null || true)"
   echo "ERROR: PUT $POLICY_PATH returned HTTP $HTTP_CODE" >&2
   echo "       API said: ${API_ERR:-(empty response body)}" >&2
-  echo "       Common cause: add_collection must already exist AND match" >&2
-  echo "       ^[A-Za-z0-9_:-]+$ — spaces and parentheses are rejected, so" >&2
-  echo "       RBAC collections named '<x> - Access Group (RBAC)' cannot be" >&2
-  echo "       used here. Nothing was changed." >&2
+  echo "       add_collection must satisfy ALL of:" >&2
+  echo "         1. the collection already exists" >&2
+  echo "         2. its name matches ^[A-Za-z0-9_:-]+\$ (no spaces/parens, so" >&2
+  echo "            '<x> - Access Group (RBAC)' is never usable here)" >&2
+  echo "         3. HOST rules only: its clusters must be empty or ['*']" >&2
+  echo "       Nothing was changed by this request." >&2
   exit 1
 fi
 

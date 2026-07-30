@@ -190,6 +190,8 @@ jobs:
                 "::warning title=Collection not found::Collection \(.add_collection) does not exist — the \($p.policy_kind) apply will be REJECTED (HTTP 400)."
               elif .status == "collection_invalid_name" then
                 "::warning title=Collection name rejected by API::\(.add_collection) contains characters this endpoint forbids (allowed: A-Z a-z 0-9 _ - :). RBAC collections ending in \" - Access Group (RBAC)\" can never be used here. The \($p.policy_kind) apply will be REJECTED (HTTP 400)."
+              elif .status == "collection_cluster_scoped_on_host" then
+                "::warning title=Cluster-scoped collection on a HOST rule::Collection \(.add_collection) restricts clusters, which HOST runtime policies forbid (hosts are not cluster members). Use a collection whose clusters are [*], or attach this one to a CONTAINER rule instead. The host apply will be REJECTED (HTTP 400)."
               else empty end
           ' 2>/dev/null || true
 
@@ -255,9 +257,10 @@ jobs:
         # to fail (HTTP 400) or to silently do nothing (rule_not_found).
         #
         # This re-runs the read-only preview and stops BEFORE any write:
-        #   rule_not_found          -> apply would no-op but still report success
-        #   collection_not_found    -> API rejects the PUT
-        #   collection_invalid_name -> API rejects the PUT
+        #   rule_not_found                    -> no-op but still reports success
+        #   collection_not_found              -> API rejects the PUT
+        #   collection_invalid_name           -> API rejects the PUT
+        #   collection_cluster_scoped_on_host -> API rejects the PUT (host only)
         #
         # A partial failure is otherwise genuinely awkward here: container and
         # host are two independent PUTs, so one can land while the other 400s.
@@ -271,7 +274,7 @@ jobs:
             | map(select(. != null))
             | .[] as $p
             | $p.associations[]?
-            | select(.status | IN("rule_not_found","collection_not_found","collection_invalid_name"))
+            | select(.status | IN("rule_not_found","collection_not_found","collection_invalid_name","collection_cluster_scoped_on_host"))
             | "  [\($p.policy_kind)] rule=\(.policy_rule_name) collection=\(.add_collection) -> \(.status)"
           ')"
 

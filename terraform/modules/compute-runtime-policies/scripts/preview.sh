@@ -67,18 +67,26 @@ curl "${CURL_OPTS[@]}" \
   -X GET "$BASE$POLICY_PATH" > "$TMPDIR_PREVIEW/policy.json" || fail "failed to GET $POLICY_PATH"
 
 # 2b. GET the collections list so the preview can validate the TARGET collection,
-#     not just the rule. The runtime-policy PUT enforces two separate rules on
-#     add_collection, and violating either returns a bare HTTP 400 mid-apply:
+#     not just the rule. The runtime-policy PUT enforces THREE separate rules on
+#     add_collection, and violating any of them returns HTTP 400 mid-apply:
 #
 #       a) the collection must already EXIST
 #          -> "failed to fetch collection X, err mongo: no documents in result"
 #       b) the name must match ^[A-Za-z0-9_:-]+$
 #          -> "X contains invalid characters, valid characters are A-Z a-z 0-9 _ - :"
+#       c) HOST policies only: the collection's `clusters` must be empty or ["*"]
+#          -> "collection X violates resource constraints: resource clusters -
+#             resource must be empty or '*'"
 #
 #     (b) is checked even when the collection exists, so a perfectly valid
 #     collection can still be unusable here. Notably every RBAC-spawned
 #     collection ("<name> - Access Group (RBAC)") contains spaces and
 #     parentheses and is therefore ALWAYS rejected by this endpoint.
+#
+#     (c) is why the full collection objects are needed, not just their names:
+#     a cluster-scoped collection is perfectly valid for a CONTAINER rule but
+#     rejected by every HOST rule. Hosts are not cluster members, so Compute
+#     refuses to scope a host policy by cluster.
 curl "${CURL_OPTS[@]}" \
   -H "Authorization: Bearer $TOKEN" \
   -X GET "$BASE/api/v1/collections" > "$TMPDIR_PREVIEW/collections.json" \
@@ -93,6 +101,8 @@ PREVIEW="$(jq -n \
   --argjson assoc "$ASSOC_JSON" '
   ($policy_arr[0]) as $policy |
   ([ ($cols_arr[0] // [])[] | .name ]) as $col_names |
+  ($cols_arr[0] // []) as $cols |
+  ("'"$POLICY_KIND"'" == "host") as $is_host |
   {
     policy_kind: "'"$POLICY_KIND"'",
     rules_total: ($policy.rules | length),
@@ -100,12 +110,17 @@ PREVIEW="$(jq -n \
       $assoc[] as $a
       | ($policy.rules // []) as $rules
       | ($rules | map(select(.name == $a.policy_rule_name)) | first) as $match
+      | ($cols | map(select(.name == $a.add_collection)) | first) as $col
       | (
           # Mirrors the API-side validation, in the same order the API applies it.
           if ($a.add_collection | test("^[A-Za-z0-9_:-]+$") | not)
             then "invalid_name"
           elif ($col_names | index($a.add_collection)) == null
             then "not_found"
+          elif ($is_host
+                and (($col.clusters // []) | length) > 0
+                and (($col.clusters // []) != ["*"]))
+            then "cluster_scoped_on_host"
           else "ok" end
         ) as $col_status
       | {

@@ -87,6 +87,13 @@ and reports, per association:
 | `rule_not_found` | ⚠️ **No rule matches that name.** The apply will change nothing and still succeed. |
 | `collection_not_found` | ⚠️ The collection does not exist — the API rejects the write (HTTP 400). |
 | `collection_invalid_name` | ⚠️ The collection name uses characters this endpoint forbids — HTTP 400. |
+| `collection_cluster_scoped_on_host` | ⚠️ Cluster-scoped collection on a HOST rule — HTTP 400. |
+
+> **⚠️ HOST rules cannot use a cluster-scoped collection.**
+> A host runtime rule requires the collection's `clusters` to be empty or `["*"]`
+> — hosts are not cluster members, so Compute refuses to scope a host policy by
+> cluster. The same collection is perfectly valid on a **container** rule. If you
+> need host associations, use a collection with `clusters: ["*"]`.
 
 > **⚠️ RBAC collections cannot be attached to runtime rules.**
 > This endpoint requires `add_collection` to already exist **and** match

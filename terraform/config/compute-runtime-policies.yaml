@@ -12,7 +12,7 @@
 # Collection created by the RBAC module for the team (e.g. "<team>-assets" or the
 # auto-spawned "<resource-list> - Access Group (RBAC)").
 
-# TWO CONSTRAINTS, both enforced by the Compute API and both checked by the dry run:
+# THREE CONSTRAINTS, all enforced by the Compute API and all checked by the dry run:
 #
 # 1. policy_rule_name is matched EXACTLY and is PER-POLICY. A name on the host
 #    policy does not necessarily exist on the container policy. No match =>
@@ -28,6 +28,11 @@
 #    cannot be attached to a runtime rule by this module. Use a collection
 #    whose name satisfies the charset rule.
 
+# 3. HOST rules only: the collection's `clusters` must be empty or ["*"].
+#    Hosts are not cluster members, so Compute refuses to scope a host policy by
+#    cluster. A cluster-scoped collection is fine on a CONTAINER rule and always
+#    rejected on a HOST rule => `collection_cluster_scoped_on_host`.
+
 # Rules on the CONTAINER runtime policy.
 #
 # "Telnet-runtime" is a DISABLED container rule, so attaching a collection to it
@@ -39,7 +44,12 @@ container:
 
 # Rules on the HOST runtime policy.
 #
-# "host-runtime-demo" is a real host rule (currently: "ec2-vm").
-host:
-  - policy_rule_name: "host-runtime-demo"
-    add_collection: "tuan-test-workloads"
+# EMPTY ON PURPOSE. "tuan-test-workloads" is scoped to cluster hs-cluster-1, and
+# constraint 3 above makes any cluster-scoped collection permanently invalid on a
+# host rule. Attaching a team's cluster-scoped collection to a host policy is not
+# a thing Compute supports.
+#
+# To associate host rules, use a collection whose clusters are ["*"] — e.g. set
+# the team's compute_collection.clusters to [] in config/teams.yaml, or declare a
+# second, host-specific collection.
+host: []
