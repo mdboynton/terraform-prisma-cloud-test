@@ -34,6 +34,8 @@ module "prisma_cloud_rbac" {
 
   providers = {
     prismacloud = prismacloud
+    # Needed for the team's Compute-native Collection (compute_collection_enabled).
+    prismacloudcompute = prismacloudcompute
   }
 
   team_name             = each.key
@@ -67,6 +69,14 @@ module "prisma_cloud_rbac" {
   # Optional list of existing tenant user emails to grant the team Role.
   # Empty/unset = no members managed by Terraform.
   team_members = try(each.value.members, [])
+
+  # Compute-native Collection for the team. Opt-in, because it is the ONLY
+  # collection that can be attached to a runtime policy rule: CSPM Collections
+  # are invisible to Compute, and the auto-spawned "<rl> - Access Group (RBAC)"
+  # Collections are rejected by the runtime-policy API for illegal characters.
+  compute_collection_enabled     = try(each.value.compute_collection.enabled, false)
+  compute_collection_name_suffix = try(each.value.compute_collection.name_suffix, null)
+  compute_collection_clusters    = try(each.value.compute_collection.clusters, [])
 
   # Optional per-team CSPM Alert Rule tuning; unset = module defaults
   # (high+critical severity, scan all policies, no notification config).

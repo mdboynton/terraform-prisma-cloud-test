@@ -119,6 +119,19 @@
 #}
 
 # ----------------------------------------------------------------
+# Compute-native Collections created by the RBAC module.
+#
+# These are the ONLY team collections usable as `add_collection` in
+# config/compute-runtime-policies.yaml — CSPM collections are invisible to
+# Compute, and the auto-spawned "<rl> - Access Group (RBAC)" ones are rejected
+# by the runtime-policy API for illegal characters.
+# ----------------------------------------------------------------
+output "team_compute_collection_names" {
+  description = "Map of team name => Compute-native Collection name (null for teams with compute_collection.enabled = false). Use this value as add_collection in config/compute-runtime-policies.yaml."
+  value       = { for name, m in module.prisma_cloud_rbac : name => m.compute_collection_name }
+}
+
+# ----------------------------------------------------------------
 # Compute runtime policy listing (read-only). Populated only when
 # compute_runtime_list_enabled = true; otherwise null.
 # ----------------------------------------------------------------

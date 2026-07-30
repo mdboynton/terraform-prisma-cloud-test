@@ -69,6 +69,15 @@ output "dashboard_collection_name" {
 }
 
 # ----------------------------------------------------------------
+# Compute-native Collection
+# ----------------------------------------------------------------
+
+output "compute_collection_name" {
+  description = "Name of the team's Compute-native Collection — the value to use as `add_collection` in config/compute-runtime-policies.yaml. Null when compute_collection_enabled = false. Unlike the CSPM Collections, this one is visible to Compute AND satisfies the runtime-policy charset rule."
+  value       = var.compute_collection_enabled ? prismacloudcompute_collection.team_workloads[0].name : null
+}
+
+# ----------------------------------------------------------------
 # Alert Rule
 # ----------------------------------------------------------------
 

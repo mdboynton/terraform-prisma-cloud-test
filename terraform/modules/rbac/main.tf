@@ -7,7 +7,13 @@ locals {
   resource_list_name_suffix               = coalesce(var.resource_list_name_suffix, "-rl")
   role_name_suffix                        = coalesce(var.role_name_suffix, "-role")
   dashboard_filter_collection_name_suffix = coalesce(var.dashboard_filter_collection_name_suffix, "-assets")
+  compute_collection_name_suffix          = coalesce(var.compute_collection_name_suffix, "-workloads")
   alert_rule_name_suffix                  = coalesce(var.alert_rule_name_suffix, "-alert-rule")
+
+  # Compute-native Collection name. team_name is caller-supplied, so the charset
+  # rule is re-checked on the ASSEMBLED name — validating only the suffix would
+  # miss an illegal team_name.
+  compute_collection_name = "${var.team_name}${local.compute_collection_name_suffix}"
 
   # Dedicated dashboard Collection name (distinct from the per-Resource-List
   # auto-spawned Collections).
@@ -108,6 +114,50 @@ resource "prismacloud_collection" "team_dashboard_filter" {
   # Resource List auto-spawns its own Collection; creating this one concurrently
   # raced that side effect and produced a transient "object already exists".
   depends_on = [prismacloud_resource_list.team]
+}
+
+# ----------------------------------------------------------------
+# Compute-native Collection (opt-in via compute_collection_enabled).
+#
+# WHY THIS EXISTS, given the team already gets two CSPM Collections:
+#
+#   1. CSPM and Compute keep SEPARATE collection stores. A prismacloud_collection
+#      is invisible to the Compute console, so it cannot scope a runtime policy.
+#   2. The Collection auto-spawned per Resource List IS visible to Compute, but
+#      is named "<rl> - Access Group (RBAC)". The runtime-policy endpoint only
+#      accepts names matching ^[A-Za-z0-9_:-]+$, so the spaces and parentheses
+#      make every one of those Collections permanently unusable there.
+#
+# This resource is the only route to a Compute Collection that can actually be
+# attached to a runtime rule by the compute-runtime-policies module. It mirrors
+# the team's Resource List workload filters, so the runtime policy applies to
+# the same workloads the team's RBAC scope covers.
+# ----------------------------------------------------------------
+resource "prismacloudcompute_collection" "team_workloads" {
+  count = var.compute_collection_enabled ? 1 : 0
+
+  name        = local.compute_collection_name
+  description = local.description
+
+  # Compute treats an empty list as "match nothing", so every unspecified
+  # dimension must be an explicit ["*"] to mean "any".
+  clusters          = length(var.compute_collection_clusters) > 0 ? var.compute_collection_clusters : ["*"]
+  namespaces        = ["*"]
+  images            = ["*"]
+  containers        = ["*"]
+  hosts             = ["*"]
+  labels            = ["*"]
+  functions         = ["*"]
+  account_ids       = ["*"]
+  application_ids   = ["*"]
+  code_repositories = ["*"]
+
+  lifecycle {
+    precondition {
+      condition     = can(regex("^[A-Za-z0-9_:-]+$", local.compute_collection_name))
+      error_message = "Compute Collection name '${local.compute_collection_name}' contains characters the Compute runtime-policy API rejects. Allowed: A-Z a-z 0-9 _ - : (no spaces or parentheses). Adjust team_name or compute_collection_name_suffix."
+    }
+  }
 }
 
 # ----------------------------------------------------------------

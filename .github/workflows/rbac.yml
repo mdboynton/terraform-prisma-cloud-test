@@ -55,12 +55,19 @@ env:
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
 
+  # Required because a team may declare compute_collection.enabled, which
+  # creates a Compute-native Collection. The root always CONFIGURES the compute
+  # provider, so this must be set even for teams that don't use the feature.
+  TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
+
   # The other two areas stay switched off here so this run makes no API calls
   # on their behalf.
   TF_VAR_compute_runtime_list_enabled: "false"
   TF_VAR_tenant_inventory_enabled: "false"
 
-  # Restricts every plan/apply below to the RBAC resources only.
+  # Restricts every plan/apply below to the RBAC resources only. The team's
+  # Compute Collection lives inside module.prisma_cloud_rbac, so it is already
+  # covered — attaching that Collection to a runtime RULE remains workflow 2.
   TF_TARGETS: >-
     -target=prismacloud_permission_group.app_owner_readonly_singleton
     -target=module.prisma_cloud_rbac

@@ -35,11 +35,11 @@
 # "WLtesting"; the merge is additive, so that is preserved.
 container:
   - policy_rule_name: "Telnet-runtime"
-    add_collection: "test-test"
+    add_collection: "tuan-test-workloads"
 
 # Rules on the HOST runtime policy.
 #
 # "host-runtime-demo" is a real host rule (currently: "ec2-vm").
 host:
   - policy_rule_name: "host-runtime-demo"
-    add_collection: "test-test"
+    add_collection: "tuan-test-workloads"

@@ -21,3 +21,14 @@ tuan-test:
           - "tuan-test-*"
         clusters:
           - "tuan-test-*"
+  # Compute-native Collection => "tuan-test-workloads".
+  #
+  # This is the collection to reference from config/compute-runtime-policies.yaml.
+  # The two CSPM collections the team also gets cannot be used there:
+  #   - "tuan-test-assets" (prismacloud_collection) is invisible to Compute
+  #   - "tuan-test-resource-list - Access Group (RBAC)" is visible, but its
+  #     spaces and parentheses are rejected by the runtime-policy API
+  compute_collection:
+    enabled: true
+    clusters:
+      - "hs-cluster-1"

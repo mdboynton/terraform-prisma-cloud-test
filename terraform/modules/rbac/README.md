@@ -68,6 +68,42 @@ In practice the root module fans this out over
 The module does not create users. SAML groups are mapped to role IDs in the IdP;
 see the [Operations Runbook](../../../.etc/OPERATIONS_RUNBOOK.md) for the handoff contract.
 
+## Compute Collection (opt-in)
+
+A team can end up with **three** collections. They are not interchangeable, and
+only one of them can scope a Compute runtime policy:
+
+| Collection | Created by | Visible to Compute? | Usable in a runtime rule? |
+|---|---|---|---|
+| `<team>-assets` | `prismacloud_collection` (this module) | ❌ No | ❌ No |
+| `<rl> - Access Group (RBAC)` | Auto-spawned per Resource List | ✅ Yes | ❌ No — illegal characters |
+| `<team>-workloads` | `prismacloudcompute_collection` (opt-in) | ✅ Yes | ✅ **Yes** |
+
+Two independent reasons rule the first two out:
+
+1. **CSPM and Compute keep separate collection stores.** A `prismacloud_collection`
+   simply does not exist as far as the Compute console is concerned.
+2. **The runtime-policy endpoint only accepts names matching `^[A-Za-z0-9_:-]+$`.**
+   The auto-spawned collection *is* visible to Compute, but its name contains
+   spaces and parentheses, so the API rejects it with HTTP 400. This applies to
+   every RBAC-spawned collection in the tenant, without exception.
+
+So if you want a team's runtime policy scoping, enable the Compute collection:
+
+```yaml
+my-team:
+  compute_collection:
+    enabled: true
+    clusters: ["my-cluster"]   # omit for ["*"] (all clusters)
+```
+
+That produces `my-team-workloads` — the value to use as `add_collection` in
+`config/compute-runtime-policies.yaml`. The name is validated against the
+charset rule at **plan** time, so an illegal name fails before anything is
+created rather than as an opaque 400 mid-apply.
+
+Unset (the default) creates no Compute collection.
+
 ## Shared Permission Group
 
 Declared once in [`terraform/main.tf`](../../main.tf). The grant catalog is

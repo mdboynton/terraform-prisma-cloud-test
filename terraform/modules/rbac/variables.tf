@@ -178,6 +178,47 @@ variable "dashboard_filter_collection_name_suffix" {
 }
 
 # ============================================================
+# Compute Collection (Compute console — SEPARATE store from CSPM)
+# ============================================================
+
+variable "compute_collection_enabled" {
+  description = "(Optional) Create a Compute-native Collection for the team, scoped by the same workload filters as the team's Resource List. Required if you want to attach the team to a runtime policy rule: CSPM Collections are not visible to Compute, and the auto-spawned `<rl> - Access Group (RBAC)` Collections are rejected by the runtime-policy API (illegal characters). Default: false."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "compute_collection_name_suffix" {
+  description = "(Optional) Suffix appended to team_name to form the Compute Collection's name. Default: `<team_name>-workloads`. The resulting name must satisfy the Compute API charset rule (A-Z a-z 0-9 _ - :)."
+  type        = string
+  default     = "-workloads"
+  nullable    = true
+
+  validation {
+    condition     = var.compute_collection_name_suffix == null || length(var.compute_collection_name_suffix) > 0
+    error_message = "The compute_collection_name_suffix must be either null (to use the default) or a non-empty string."
+  }
+
+  # Gate the charset at PLAN time. Without this the failure surfaces only as an
+  # opaque HTTP 400 from the runtime-policy endpoint, at apply, after the
+  # Collection already exists.
+  validation {
+    condition = (
+      var.compute_collection_name_suffix == null ||
+      can(regex("^[A-Za-z0-9_:-]+$", var.compute_collection_name_suffix))
+    )
+    error_message = "The compute_collection_name_suffix may only contain A-Z a-z 0-9 _ - : — no spaces or parentheses. The Compute runtime-policy API rejects any collection name outside this set."
+  }
+}
+
+variable "compute_collection_clusters" {
+  description = "(Optional) Cluster names for the team's Compute Collection. Defaults to [\"*\"] (all clusters) when empty, matching Compute's own default."
+  type        = list(string)
+  default     = []
+  nullable    = false
+}
+
+# ============================================================
 # Alert Rule (CSPM)
 # ============================================================
 
