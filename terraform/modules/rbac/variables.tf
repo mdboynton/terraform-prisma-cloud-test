@@ -175,6 +175,11 @@ variable "dashboard_filter_collection_name_suffix" {
     condition     = var.dashboard_filter_collection_name_suffix == null || length(var.dashboard_filter_collection_name_suffix) > 0
     error_message = "The dashboard_filter_collection_name_suffix must be either null (to use the default) or a non-empty string."
   }
+
+  # NOT charset-validated on purpose. This is a CSPM collection, which Compute
+  # never sees, so the runtime-policy charset rule does not apply to it. Adding
+  # that constraint here would imply the collection is usable for runtime
+  # associations — it is not, regardless of what it is named.
 }
 
 # ============================================================

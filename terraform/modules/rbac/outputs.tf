@@ -41,8 +41,15 @@ output "resource_list_names" {
 }
 
 # Constructed strings (not a data source) — see README §auto-collection-verification.
+#
+# NOT USABLE FOR RUNTIME POLICIES. Prisma Cloud chooses this name, and the
+# " - Access Group (RBAC)" suffix contains spaces and parentheses. The Compute
+# runtime-policy endpoint only accepts ^[A-Za-z0-9_:-]+$, so it rejects every one
+# of these with HTTP 400 — even though the Collection itself is real and visible
+# to Compute. There is no naming guardrail we can apply here: the name is not
+# ours to choose. Use compute_collection_name instead for runtime associations.
 output "auto_collection_expected_names" {
-  description = "Map of Resource List name => expected name of the Collection auto-spawned by Prisma Cloud for that Resource List. Verify in UI under Inventory → Collections. If missing, check the tenant's Collections quota (default 200) — quota exhaustion silently suppresses the auto-spawn."
+  description = "Map of Resource List name => expected name of the Collection auto-spawned by Prisma Cloud for that Resource List. Verify in UI under Inventory → Collections. If missing, check the tenant's Collections quota (default 200) — quota exhaustion silently suppresses the auto-spawn. NOTE: these names contain spaces and parentheses and are therefore REJECTED by the Compute runtime-policy API — use compute_collection_name for runtime rule associations."
   value       = { for k, rl in prismacloud_resource_list.team : rl.name => "${rl.name} - Access Group (RBAC)" }
 }
 
