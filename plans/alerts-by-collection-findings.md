@@ -181,6 +181,90 @@ a known-good value before relying on it.
 
 ---
 
+## 4b. Building our own "data source": collection -> filters DOES work
+
+The follow-up question was whether a script combining API calls could filter by
+collection where the alert API alone cannot. **Yes** — and it is simpler than
+feared, because a CSPM collection is a thin object.
+
+`GET /entitlement/api/v1/collection` returns 45 collections in this tenant. A
+representative one:
+
+```json
+{
+  "id": "ff93637a-d2db-4605-9b59-5e975be69c05",
+  "name": "collection-devsecops",
+  "assetGroups": {
+    "accountGroupIds": ["15a8eab3-f141-461e-b3b8-b161bf6bdc97"],
+    "accountIds": ["587930185011"]
+  }
+}
+```
+
+A collection is **only** an `assetGroups` selector. Across all 45, the complete
+vocabulary is three keys:
+
+| Selector | Collections using it | Maps to alert filter |
+|---|---|---|
+| `accountGroupIds` | 34 | `account.group` (after ID -> name lookup) |
+| `accountIds` | 23 | `cloud.accountId` **direct** |
+| `repositoryIds` | 18 | *(no equivalent — code-repo scope, not cloud alerts)* |
+
+There are no tag, cluster, or namespace selectors to worry about. That was the
+main risk in §4 and it does not materialise.
+
+### Verified end to end
+
+`cloud.accountId` filters correctly against an account known to have alerts:
+
+| Query | Rows | Verdict |
+|---|---|---|
+| *baseline* | 8869 | — |
+| `cloud.accountId=082654650179` | **139** | applied |
+| `cloud.account=jjeanclaude-panopto` | **139** | applied (name form agrees) |
+| `cloud.accountId=000000000000` | 0 | applied, no match |
+
+The two forms agreeing on 139 is a useful cross-check: the filter is real, not
+coincidence.
+
+**A caution on interpreting zero.** The first six collections tested all returned
+0 alerts, which initially looked like the silent-drop trap from §1. It was not —
+those are test collections pointing at accounts with genuinely no alerts. The
+only way to tell the two apart is to compare against the tenant-wide baseline: a
+dropped filter returns **the baseline**, a working filter with no matches returns
+**0**. The module must apply that check rather than trusting a plausible-looking
+number.
+
+### Design
+
+```
+collection name
+  -> GET /entitlement/api/v1/collection        (resolve name -> assetGroups)
+  -> accountIds     -> cloud.accountId=<csv>
+  -> accountGroupIds-> resolve to names -> account.group=<csv>
+  -> GET /v2/alert?<filters>                   (aggregate, paginate)
+```
+
+Three call types, all read-only. This is exactly the "own data source" pattern
+already used by
+[`compute-runtime-policies`](../terraform/modules/compute-runtime-policies/README.md).
+
+Required guards:
+
+1. **Fail if the collection name doesn't resolve** — do not fall back to an
+   unfiltered query.
+2. **Fail if a collection yields no translatable selector** (e.g. `repositoryIds`
+   only) rather than silently returning tenant-wide alerts.
+3. **Compare against the baseline count** to distinguish "filter ignored" from
+   "genuinely zero", per the caution above.
+4. `accountGroupIds` needs an ID-to-name lookup; `account.group` matches on name.
+
+One unresolved detail: `mdalbes-collection` has `accountIds: ["*"]`. A literal
+`*` must be treated as "all accounts" — i.e. omit the filter and label the result
+tenant-wide — not passed through as an account ID.
+
+---
+
 ## 5. Drift detection must not ingest this
 
 Alerts are high-churn by nature — the count moved from 8764 to 8820 during this
@@ -211,9 +295,10 @@ that is a separate time-series concern, not a drift baseline.
 
 | Question | Answer |
 |---|---|
-| Can we filter alerts by collection? | **No** — no such filter exists |
+| Can the alert API filter by collection directly? | **No** — no such filter exists |
+| Can we do it ourselves by combining calls? | **Yes** — a collection is just `assetGroups`; resolve it, then filter by account (§4b) |
 | Does the API reject an invalid filter? | **No** — silently ignored, returns everything |
 | Use the `prismacloud_alerts` data source? | **No** — volume, and `listing` lacks the needed fields |
 | Do Compute incidents appear here? | **Yes** — `workload_incident`, `workload_vulnerability` |
-| What should scope a team's alerts? | **`account.group`**, not `alertRule.name` |
+| What scopes a team's alerts? | `cloud.accountId` / `account.group`, **not** `alertRule.name` |
 | Include alerts in drift detection? | **No** — too high-churn |
