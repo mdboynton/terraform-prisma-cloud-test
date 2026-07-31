@@ -82,6 +82,34 @@ output "tenant_total" {
   value       = local.baseline_total
 }
 
+# ----------------------------------------------------------------
+# Per-alert detail (only populated when include_detail = true).
+#
+# Kept as SEPARATE outputs rather than folded into `summary`, so that the count
+# path and the detail path cannot be confused for one another. `summary.total`
+# is always the server's count; `detail.fetched` is however many rows we pulled.
+# ----------------------------------------------------------------
+
+output "detail_status" {
+  description = "not_requested | no_scope | missing_credentials | ok. Callers must branch on this: an empty row list means 'we fetched nothing', which is NOT the same as 'there are no alerts'."
+  value = (
+    !var.include_detail ? "not_requested" :
+    !local.scoped ? "no_scope" :
+    !local.detail_creds_present ? "missing_credentials" :
+    "ok"
+  )
+}
+
+output "detail" {
+  description = "Per-alert detail for the severities in detail_severities. Null unless include_detail is true and the fetch succeeded. `total_matching` is the server's count for the detail query; `fetched` is how many rows were actually returned under detail_limit, and `truncated` says whether the two differ because of the cap."
+  value       = local.detail_result
+}
+
+output "detail_rows" {
+  description = "Just the alert rows, for callers that want to render a table without unwrapping the envelope. Empty list rather than null when detail was not fetched - but check detail_status before reading an empty list as 'no alerts'."
+  value       = local.detail_result != null ? local.detail_result.rows : []
+}
+
 output "scope" {
   description = "How the collection was translated into alert filters. Exposed for troubleshooting: if a count looks wrong, this shows what was actually queried."
   value = local.enabled ? {

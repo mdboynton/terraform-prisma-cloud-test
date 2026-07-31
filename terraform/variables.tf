@@ -320,3 +320,24 @@ variable "alert_summary_status" {
   default     = "open"
   nullable    = false
 }
+
+variable "alert_summary_include_detail" {
+  description = "(Optional) Also fetch per-alert detail (policy name, resource name, type, region) alongside the counts. Adds one paged API call. Counts are identical either way."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "alert_summary_detail_severities" {
+  description = "(Optional) Which severities to fetch detail for. Critical only by default - everything fetched here goes into the JSON artifact, and only critical is rendered in the workflow summary."
+  type        = list(string)
+  default     = ["critical"]
+  nullable    = false
+}
+
+variable "alert_summary_detail_limit" {
+  description = "(Optional) Hard cap on alert detail rows fetched, to bound runtime and artifact size. When it truncates, the output still reports the true total_matching."
+  type        = number
+  default     = 500
+  nullable    = false
+}

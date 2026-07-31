@@ -267,3 +267,17 @@ output "alert_summary_scope" {
   description = "How the Collection was translated into alert filters, for troubleshooting an unexpected count."
   value       = module.alert_summary.scope
 }
+
+# Detail is a SEPARATE output from the counts on purpose. `alert_summary.total`
+# is the server's count; `alert_summary_detail.fetched` is how many rows were
+# pulled under the cap. Merging them would let a truncated fetch read as a
+# smaller total.
+output "alert_summary_detail" {
+  description = "Per-alert detail rows for the configured severities, plus fetched / total_matching / truncated. Null unless alert_summary_include_detail is true."
+  value       = module.alert_summary.detail
+}
+
+output "alert_summary_detail_status" {
+  description = "not_requested | no_scope | missing_credentials | ok. An empty row list means nothing was fetched, which is not the same as there being no alerts - branch on this."
+  value       = module.alert_summary.detail_status
+}

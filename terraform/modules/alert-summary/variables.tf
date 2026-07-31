@@ -53,3 +53,70 @@ variable "severities" {
   default     = ["critical", "high", "medium", "low", "informational"]
   nullable    = false
 }
+
+# ----------------------------------------------------------------
+# Per-alert detail (opt-in, additive).
+#
+# The counts above come from the provider's data source. The detail below comes
+# from a script, because the provider's `listing` carries no policy name, no
+# resource name and no severity. The two paths are deliberately independent:
+# `total` is always the SERVER's count and never becomes "however many rows we
+# happened to fetch".
+# ----------------------------------------------------------------
+
+variable "include_detail" {
+  description = "(Optional) Also fetch per-alert detail (policy name, resource name, type, region) for the severities in detail_severities. Adds one paged API call. Counts are unaffected either way."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "detail_severities" {
+  description = "(Optional) Which severities to fetch detail for. Defaults to critical only: detail is ~263 bytes per alert, so widening this to every severity on a large collection produces a large artifact and a slow run. Everything fetched here lands in the JSON artifact; only critical is rendered in the workflow summary."
+  type        = list(string)
+  default     = ["critical"]
+  nullable    = false
+
+  validation {
+    condition = length(setsubtract(toset(var.detail_severities),
+    toset(["critical", "high", "medium", "low", "informational"]))) == 0
+    error_message = "detail_severities may only contain: critical, high, medium, low, informational."
+  }
+
+  validation {
+    condition     = length(var.detail_severities) > 0
+    error_message = "detail_severities must not be empty. Set include_detail = false instead."
+  }
+}
+
+variable "detail_limit" {
+  description = "(Optional) Hard cap on how many alert detail rows to fetch. Exists to bound runtime and artifact size on large collections - the tenant holds ~9,000 open alerts. When the cap truncates, the `detail` output sets truncated = true and still reports the true total_matching."
+  type        = number
+  default     = 500
+  nullable    = false
+
+  validation {
+    condition     = var.detail_limit >= 1 && var.detail_limit <= 5000
+    error_message = "detail_limit must be between 1 and 5000."
+  }
+}
+
+variable "cspm_url" {
+  description = "(Optional) Prisma Cloud CSPM API host, e.g. \"api2.prismacloud.io\". Required only when include_detail is true - the detail script calls the REST API directly, so it cannot borrow the provider's configuration."
+  type        = string
+  default     = null
+}
+
+variable "access_key" {
+  description = "(Optional) Prisma Cloud access key ID. Required only when include_detail is true."
+  type        = string
+  default     = null
+  sensitive   = true
+}
+
+variable "secret_key" {
+  description = "(Optional) Prisma Cloud secret key. Required only when include_detail is true."
+  type        = string
+  default     = null
+  sensitive   = true
+}

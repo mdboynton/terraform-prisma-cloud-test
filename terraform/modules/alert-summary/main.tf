@@ -217,6 +217,77 @@ locals {
   severity_sum = local.scoped ? sum(concat([0], values(local.severity_counts))) : null
 }
 
+# ------------------------------------------------------------
+# Per-alert DETAIL (opt-in) - the only non-provider call in this module.
+#
+# WHY A SCRIPT: `prismacloud_alerts` returns a thin `listing` - alert_id, status
+# and timestamps. No policy name, no resource name, not even severity. Those
+# fields exist only on the REST list endpoint under `detailed=true`, which the
+# provider does not expose, so there is nothing to wire up here instead.
+#
+# WHY NOT `GET /alert/{id}`: measured at ~3.9s per call on this tenant, so a
+# 423-alert collection would take ~27 minutes over 423 round trips. The list
+# endpoint already carries the same fields and does it in one paged query -
+# 423 rows in 13.5s.
+#
+# `data "external"` is a DATA source, not a resource, so the module's
+# zero-resource guarantee still holds - a plan can still only ever report.
+#
+# This runs at PLAN time. It never feeds the counts above: `total` stays the
+# server's number so a truncated fetch can never masquerade as a smaller total.
+# ------------------------------------------------------------
+locals {
+  detail_enabled = local.scoped && var.include_detail
+
+  # nonsensitive() because access_key / secret_key are sensitive, and any value
+  # derived from them inherits that taint - which would make `detail_status`
+  # a sensitive output. Marking that output sensitive instead would be the wrong
+  # fix: the workflow has to read the status to tell "no alerts" apart from
+  # "never fetched", and Terraform redacts sensitive outputs in JSON.
+  # A boolean "were credentials supplied" reveals nothing about their value.
+  detail_creds_present = nonsensitive(
+    var.cspm_url != null && var.access_key != null && var.secret_key != null
+  )
+}
+
+data "external" "detail" {
+  count = local.detail_enabled && local.detail_creds_present ? 1 : 0
+
+  program = ["bash", "${path.module}/scripts/detail.sh"]
+
+  query = {
+    cspm_url   = var.cspm_url
+    access_key = var.access_key
+    secret_key = var.secret_key
+
+    # Base64 so a list survives the flat string-to-string query map, which is
+    # all the external provider accepts.
+    accounts_b64   = base64encode(jsonencode(local.account_ids))
+    severities_b64 = base64encode(jsonencode(var.detail_severities))
+
+    time_amount  = tostring(var.time_amount)
+    time_unit    = var.time_unit
+    alert_status = var.alert_status
+    max_rows     = tostring(var.detail_limit)
+  }
+}
+
+locals {
+  # The script returns a flat map (external data source protocol), with the real
+  # payload base64-encoded in `result_b64`.
+  detail_result = length(data.external.detail) > 0 ? jsondecode(base64decode(data.external.detail[0].result["result_b64"])) : null
+}
+
+# Asking for detail without credentials should say so, not silently return no
+# rows - which is indistinguishable from "this collection has no critical
+# alerts", the exact wrong conclusion to hand someone.
+check "detail_is_configured" {
+  assert {
+    condition     = !local.detail_enabled || local.detail_creds_present
+    error_message = "include_detail is true but cspm_url / access_key / secret_key were not all supplied, so no alert detail was fetched. This is NOT the same as the collection having no alerts - check the `detail_status` output."
+  }
+}
+
 # A `check` block warns without failing the plan - correct for the two
 # conditions above, which are suspicious rather than definitively wrong.
 check "alert_counts_are_plausible" {

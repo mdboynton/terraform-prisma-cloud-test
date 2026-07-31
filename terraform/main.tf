@@ -154,6 +154,17 @@ module "alert_summary" {
   time_amount     = var.alert_summary_time_amount
   time_unit       = var.alert_summary_time_unit
   alert_status    = var.alert_summary_status
+
+  # Per-alert detail (opt-in). The counts above come from the provider; the
+  # detail comes from a script that calls the REST API directly, so it needs
+  # the credentials passed explicitly - it cannot read the provider block.
+  include_detail    = var.alert_summary_include_detail
+  detail_severities = var.alert_summary_detail_severities
+  detail_limit      = var.alert_summary_detail_limit
+
+  cspm_url   = var.prisma_cloud_api_url
+  access_key = var.prisma_cloud_access_key
+  secret_key = var.prisma_cloud_secret_key
 }
 
 module "tenant_inventory" {
