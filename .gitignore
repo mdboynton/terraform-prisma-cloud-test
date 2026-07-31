@@ -2,6 +2,7 @@
 CONTEXT.md
 AGENTS.md
 .roo/
+.idex/
 
 # Miscellaneous files
 .etc/
@@ -9,9 +10,11 @@ AGENTS.md
 # Backups
 *.bak
 
-# Live config
-terraform/config/teams.yaml
-terraform/config/compute-runtime-policies.yaml
+# Live configs (allow examples)
+# This glob supersedes the previous per-file list (teams.yaml,
+# compute-runtime-policies.yaml) and covers any future config too.
+terraform/config/*.yaml
+!terraform/config/*.example.yaml
 
 # Local diagnostic scripts (never committed)
 scripts-local/
@@ -25,18 +28,18 @@ scripts-local/
 *.swp
 *~
 
-# Python virtualenvs (defensive — shouldn't appear here, but kept just in case)
+# Python virtualenvs
 .venv/
 __pycache__/
 *.pyc
 
-# Secrets / local config (defensive duplicates of terraform/.gitignore)
+# Secrets / local config
 .env
 .env.*
 *.pem
 *.key
 
-# Terraform working directory / state (canonical excludes in terraform/.gitignore)
+# Terraform working directory / state
 **/.terraform/
 **/.terraform.tfstate.lock.info
 **/*.tfstate
