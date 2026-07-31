@@ -1,0 +1,235 @@
+name: 6. Alert Summary (read-only)
+
+# Answers "how many open alerts does this collection have?" for a CSPM
+# Collection, broken down by severity.
+#
+# READ-ONLY BY CONSTRUCTION. The alert-summary module contains only Terraform
+# `data` blocks - no `resource` blocks - so this workflow cannot change the
+# tenant. There is deliberately no apply job and no environment gate.
+#
+# COUNTS ONLY, deliberately. The alerts data source returns no resource or
+# policy fields, and the tenant holds ~8,800 open alerts at ~20KB each when
+# detailed. `limit = 1` reads the server-side total without the payload.
+#
+# Docs: .github/workflows/alert-summary/README.md
+#
+# Required repository secrets:
+#   PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
+
+on:
+  workflow_dispatch:
+    inputs:
+      collection_name:
+        description: "CSPM Collection name, exactly as it appears in the console"
+        type: string
+        required: true
+      alert_status:
+        description: "Which alerts to count"
+        type: choice
+        default: open
+        options:
+          - open
+          - resolved
+          - dismissed
+          - snoozed
+      time_amount:
+        description: "Lookback window size (paired with the unit below)"
+        type: string
+        default: "30"
+      time_unit:
+        description: "Lookback window unit"
+        type: choice
+        default: day
+        options:
+          - hour
+          - day
+          - week
+          - month
+          - year
+
+concurrency:
+  group: alert-summary-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.13.3"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
+  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
+  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+
+  TF_VAR_alert_summary_enabled: "true"
+  TF_VAR_alert_summary_collection_name: ${{ inputs.collection_name }}
+  TF_VAR_alert_summary_status: ${{ inputs.alert_status }}
+  TF_VAR_alert_summary_time_amount: ${{ inputs.time_amount }}
+  TF_VAR_alert_summary_time_unit: ${{ inputs.time_unit }}
+
+  # Everything else off: this workflow asks one question and should not pay for
+  # unrelated API calls.
+  TF_VAR_access_audit_enabled: "false"
+  TF_VAR_tenant_inventory_enabled: "false"
+  TF_VAR_compute_runtime_list_enabled: "false"
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  summary:
+    name: Count alerts for a collection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Read alert counts
+        # -target keeps this to the alert module, so no other module is
+        # evaluated and no unrelated API calls are made.
+        run: terraform plan -input=false -no-color -target=module.alert_summary -out=tfplan
+
+      - name: Render report
+        run: |
+          # Reads the PLAN file, not state: state is empty on a plan-only run,
+          # so `terraform output` would return nothing.
+          plan_json="$(terraform show -json tfplan)"
+
+          get() { printf '%s' "$plan_json" | jq -c --arg k "$1" '.output_changes[$k].after'; }
+
+          status="$(get alert_summary_status | jq -r .)"
+          detail="$(get alert_summary_status_detail | jq -r '. // ""')"
+          summary="$(get alert_summary)"
+          scope="$(get alert_summary_scope)"
+
+          # BRANCH ON status, NOT ON THE EXIT CODE.
+          #
+          # The module's `check` blocks emit warnings but do NOT fail the plan -
+          # a nonexistent collection name still exits 0. And `terraform show
+          # -json` omits the `checks` array from a plan file entirely, so the
+          # failure is invisible to any caller that trusts the exit code.
+          # Verified both behaviours against the live tenant.
+          #
+          # Without this branch the job would go green and print nothing,
+          # implying "no alerts" when the truth is "we never looked".
+          if [ "$status" != "ok" ]; then
+            {
+              echo "## Alert summary - no counts produced"
+              echo
+              echo "**Collection:** \`${{ inputs.collection_name }}\`"
+              echo
+              echo "**Status:** \`$status\`"
+              echo
+              echo "> $detail"
+              echo
+              echo "No alert counts were produced. **Do not read the tenant-wide total as this collection's number.**"
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            echo "::error title=Alert summary failed::$status - $detail"
+            exit 1
+          fi
+
+          total=$(printf '%s' "$summary"  | jq -r '.total')
+          tenant=$(printf '%s' "$summary" | jq -r '.tenant_total')
+          accts=$(printf '%s' "$summary"  | jq -r '.account_count')
+          suspect=$(printf '%s' "$summary" | jq -r '.suspect_unfiltered')
+
+          # Share of the tenant, so a bare number has context.
+          pct=$(awk -v t="$total" -v n="$tenant" 'BEGIN { if (n > 0) printf "%.1f", (t / n) * 100; else print "0.0" }')
+
+          {
+            echo "## Alert summary"
+            echo
+            echo "**Collection:** \`${{ inputs.collection_name }}\` · **Status:** \`${{ inputs.alert_status }}\` · **Window:** ${{ inputs.time_amount }} ${{ inputs.time_unit }}"
+            echo
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| **Alerts in this collection** | **$total** |"
+            echo "| Tenant-wide (same window) | $tenant |"
+            echo "| Share of tenant | ${pct}% |"
+            echo "| Cloud accounts in scope | $accts |"
+            echo
+            echo "### By severity"
+            echo
+            echo "| Severity | Count |"
+            echo "|---|---|"
+            # Severity order is spelled out rather than sorted. Inside
+            # `sort_by(...)` the `.` is the array being indexed, not the element,
+            # so `index(.key)` raises "Cannot index array with string" - caught
+            # by dry-running this step against a real plan. Driving the fixed
+            # order directly is also what a reader expects: critical first.
+            printf '%s' "$summary" | jq -r '
+              . as $s
+              | ["critical","high","medium","low","informational"][]
+              | select($s.by_severity[.] != null)
+              | "| \(.) | \($s.by_severity[.]) |"'
+
+            # Anything outside the known list still gets shown, so the table can
+            # never silently omit alerts. The known list is bound to $k FIRST:
+            # inside `select(...)` the `.` is the entry, so referring to the
+            # literal array there hits the same rebinding problem as above.
+            printf '%s' "$summary" | jq -r '
+              ["critical","high","medium","low","informational"] as $k
+              | .by_severity
+              | to_entries[]
+              | select(.key | IN($k[]) | not)
+              | "| \(.key) (unexpected) | \(.value) |"'
+            echo
+
+            if [ "$suspect" = "true" ]; then
+              echo "> **Warning:** this count exactly equals the tenant-wide total."
+              echo "> The alerts API silently ignores unrecognised filters, so the"
+              echo "> scope may not have applied. Legitimate only if this collection"
+              echo "> covers every account that has alerts."
+              echo
+            fi
+
+            echo "<details><summary>Scope actually queried</summary>"
+            echo
+            echo '```json'
+            printf '%s' "$scope" | jq .
+            echo '```'
+            echo
+            echo "A collection cannot be passed to the alerts API directly - it is"
+            echo "translated into its cloud accounts. This shows that translation,"
+            echo "so an unexpected count can be traced to the scope that produced it."
+            echo
+            echo "</details>"
+            echo
+            echo "_Counts only. Per-alert detail (resource names, policies) is not available from this data source._"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$suspect" = "true" ]; then
+            echo "::warning title=Count may be unfiltered::Scoped total ($total) equals the tenant-wide total ($tenant). Verify the collection's scope."
+          fi
+
+          echo "===== summary ====="
+          printf '%s' "$summary" | jq .
+          echo "===== scope ====="
+          printf '%s' "$scope" | jq .
+
+          printf '%s' "$plan_json" | jq '{
+            status:        .output_changes.alert_summary_status.after,
+            status_detail: .output_changes.alert_summary_status_detail.after,
+            summary:       .output_changes.alert_summary.after,
+            scope:         .output_changes.alert_summary_scope.after
+          }' > alert-summary.json
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alert-summary
+          path: terraform/alert-summary.json
+          retention-days: 30
