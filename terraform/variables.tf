@@ -282,3 +282,41 @@ variable "access_audit_stale_login_days" {
   type        = number
   default     = 90
 }
+
+# ----------------------------------------------------------------
+# alert-summary (read-only)
+# ----------------------------------------------------------------
+
+variable "alert_summary_enabled" {
+  description = "(Optional) Read alert counts for a CSPM Collection. Default false so other workflows pay nothing for it."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "alert_summary_collection_name" {
+  description = "(Optional) Name of the CSPM Collection to scope alert counts to. Required when alert_summary_enabled is true."
+  type        = string
+  default     = null
+}
+
+variable "alert_summary_time_amount" {
+  description = "(Optional) Lookback window size for alert counts, paired with alert_summary_time_unit."
+  type        = number
+  default     = 30
+  nullable    = false
+}
+
+variable "alert_summary_time_unit" {
+  description = "(Optional) Lookback window unit: hour | day | week | month | year."
+  type        = string
+  default     = "day"
+  nullable    = false
+}
+
+variable "alert_summary_status" {
+  description = "(Optional) Alert status to count: open | resolved | dismissed | snoozed."
+  type        = string
+  default     = "open"
+  nullable    = false
+}

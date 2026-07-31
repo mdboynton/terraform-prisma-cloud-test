@@ -134,6 +134,28 @@ module "access_audit" {
   stale_login_days = var.access_audit_stale_login_days
 }
 
+# ----------------------------------------------------------------
+# Alert summary (read-only) - alert COUNTS scoped to a CSPM Collection.
+#
+# Counts only, by design: the alerts data source returns no resource or policy
+# fields, and a tenant holds ~8,800 open alerts at ~20KB each detailed, so
+# pulling alert bodies would bloat every plan. `limit = 1` reads the
+# server-side `total` without the payload.
+# ----------------------------------------------------------------
+module "alert_summary" {
+  source = "./modules/alert-summary"
+
+  providers = {
+    prismacloud = prismacloud
+  }
+
+  enabled         = var.alert_summary_enabled
+  collection_name = var.alert_summary_collection_name
+  time_amount     = var.alert_summary_time_amount
+  time_unit       = var.alert_summary_time_unit
+  alert_status    = var.alert_summary_status
+}
+
 module "tenant_inventory" {
   source = "./modules/tenant-inventory"
 

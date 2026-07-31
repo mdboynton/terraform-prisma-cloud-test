@@ -239,3 +239,31 @@ output "access_audit_permission_groups" {
   description = "Full permission-group listing with custom vs built-in. Null when out of scope."
   value       = module.access_audit.permission_groups
 }
+
+# ----------------------------------------------------------------
+# alert-summary (read-only)
+#
+# `alert_summary_status` is the one a workflow must branch on. A failed `check`
+# does NOT fail the plan, and check results are omitted from plan JSON, so exit
+# code alone cannot distinguish "0 alerts" from "collection name was wrong".
+# ----------------------------------------------------------------
+
+output "alert_summary" {
+  description = "Alert counts for the configured Collection, with the account scope that produced them."
+  value       = module.alert_summary.summary
+}
+
+output "alert_summary_status" {
+  description = "ok | disabled | collection_not_found | ambiguous_collection_name | repository_only | tenant_wide. Branch on this, not on the exit code."
+  value       = module.alert_summary.status
+}
+
+output "alert_summary_status_detail" {
+  description = "Human-readable explanation of alert_summary_status. Null when ok."
+  value       = module.alert_summary.status_detail
+}
+
+output "alert_summary_scope" {
+  description = "How the Collection was translated into alert filters, for troubleshooting an unexpected count."
+  value       = module.alert_summary.scope
+}
