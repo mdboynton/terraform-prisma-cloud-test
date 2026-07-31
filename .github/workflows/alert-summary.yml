@@ -7,9 +7,13 @@ name: 6. Alert Summary (read-only)
 # `data` blocks - no `resource` blocks - so this workflow cannot change the
 # tenant. There is deliberately no apply job and no environment gate.
 #
-# COUNTS ONLY, deliberately. The alerts data source returns no resource or
-# policy fields, and the tenant holds ~8,800 open alerts at ~20KB each when
-# detailed. `limit = 1` reads the server-side total without the payload.
+# COUNTS come from the provider data source, which returns no resource or policy
+# fields. `limit = 1` reads the server-side total without the payload.
+#
+# DETAIL (optional) comes from a separate script, because those fields exist only
+# on the REST endpoint. Critical-severity detail is rendered in the summary
+# below; everything else that is fetched goes to the JSON artifact only, to keep
+# this page readable on a collection with thousands of alerts.
 #
 # Docs: .github/workflows/alert-summary/README.md
 #
@@ -46,6 +50,24 @@ on:
           - week
           - month
           - year
+      include_detail:
+        description: "Also list individual alerts (policy, resource, region). Critical alerts are shown on this page; the rest go to the downloadable JSON."
+        type: boolean
+        default: true
+      detail_severities:
+        description: "Which severities to pull detail for. Only 'critical' is rendered in the summary - the others appear in the JSON artifact only."
+        type: choice
+        default: critical
+        options:
+          - critical
+          - critical,high
+          - critical,high,medium
+          - critical,high,medium,low
+          - critical,high,medium,low,informational
+      detail_limit:
+        description: "Max alert detail rows to fetch (bounds runtime and artifact size). Counts are never capped by this."
+        type: string
+        default: "500"
 
 concurrency:
   group: alert-summary-${{ github.ref }}
@@ -68,6 +90,12 @@ env:
   TF_VAR_alert_summary_status: ${{ inputs.alert_status }}
   TF_VAR_alert_summary_time_amount: ${{ inputs.time_amount }}
   TF_VAR_alert_summary_time_unit: ${{ inputs.time_unit }}
+
+  TF_VAR_alert_summary_include_detail: ${{ inputs.include_detail }}
+  TF_VAR_alert_summary_detail_limit: ${{ inputs.detail_limit }}
+  # The choice input is a comma-joined string; the Terraform variable is a
+  # list(string). Converted in the step below rather than here, because
+  # `env:` cannot run shell.
 
   # Everything else off: this workflow asks one question and should not pay for
   # unrelated API calls.
@@ -95,6 +123,16 @@ jobs:
       - name: Terraform init
         run: terraform init -input=false
 
+      - name: Build severity list
+        # The choice input is a comma-joined string because workflow_dispatch has
+        # no list type. A list(string) Terraform variable is set from the
+        # environment as JSON, so convert here.
+        run: |
+          json=$(printf '%s' "${{ inputs.detail_severities }}" \
+            | jq -Rc 'split(",") | map(select(length > 0))')
+          echo "TF_VAR_alert_summary_detail_severities=$json" >> "$GITHUB_ENV"
+          echo "Detail severities: $json"
+
       - name: Read alert counts
         # -target keeps this to the alert module, so no other module is
         # evaluated and no unrelated API calls are made.
@@ -112,6 +150,13 @@ jobs:
           detail="$(get alert_summary_status_detail | jq -r '. // ""')"
           summary="$(get alert_summary)"
           scope="$(get alert_summary_scope)"
+
+          detail_status="$(get alert_summary_detail_status | jq -r '. // "not_requested"')"
+          detail_json="$(get alert_summary_detail)"
+
+          # How many critical rows to render inline. Beyond this the table stops
+          # being readable and the artifact is the better tool.
+          DETAIL_TABLE_MAX=50
 
           # BRANCH ON status, NOT ON THE EXIT CODE.
           #
@@ -195,6 +240,62 @@ jobs:
               echo
             fi
 
+            # ---------------- Critical alert detail ----------------
+            #
+            # ONLY critical is rendered here, regardless of how many severities
+            # were fetched. Everything fetched lands in the JSON artifact. On a
+            # collection with thousands of alerts a full table would bury the
+            # counts above, which are the point of this page.
+            if [ "$detail_status" = "ok" ]; then
+              crit_total=$(printf '%s' "$detail_json" | jq -r '[.rows[] | select(.severity == "critical")] | length')
+
+              echo "### Critical alerts"
+              echo
+              if [ "$crit_total" -eq 0 ]; then
+                echo "None in scope."
+              else
+                shown=$crit_total
+                [ "$shown" -gt "$DETAIL_TABLE_MAX" ] && shown=$DETAIL_TABLE_MAX
+
+                echo "| Policy | Resource | Type | Account | Region |"
+                echo "|---|---|---|---|---|"
+                # Long policy names are truncated so the table stays readable;
+                # the untruncated value is in the artifact.
+                printf '%s' "$detail_json" | jq -r --argjson n "$shown" '
+                  [.rows[] | select(.severity == "critical")][:$n][]
+                  | "| \(.policy // "-" | if length > 70 then .[0:67] + "..." else . end) | \(.resource // "-") | \(.type // "-") | \(.account // "-") | \(.region // "-") |"'
+                echo
+
+                if [ "$crit_total" -gt "$shown" ]; then
+                  echo "_Showing $shown of $crit_total critical alerts. The rest are in the \`alert-summary\` artifact._"
+                  echo
+                fi
+              fi
+
+              # Any non-critical severities were fetched but deliberately not
+              # rendered. Say so explicitly - otherwise this page looks like it
+              # is missing data the user asked for.
+              other=$(printf '%s' "$detail_json" | jq -r '[.by_severity | to_entries[] | select(.key != "critical") | "\(.key): \(.value)"] | join(", ")')
+              if [ -n "$other" ]; then
+                echo "_Also fetched (in the JSON artifact only): $other._"
+                echo
+              fi
+
+              if [ "$(printf '%s' "$detail_json" | jq -r '.truncated')" = "true" ]; then
+                fetched=$(printf '%s' "$detail_json" | jq -r '.fetched')
+                matching=$(printf '%s' "$detail_json" | jq -r '.total_matching')
+                echo "> **Detail was capped.** Fetched $fetched of $matching matching alerts (detail_limit)."
+                echo "> The counts above are unaffected - they come from the server, not from this list."
+                echo
+              fi
+            elif [ "$detail_status" = "missing_credentials" ]; then
+              echo "### Alert detail"
+              echo
+              echo "> Detail was requested but credentials were incomplete, so **nothing was fetched**."
+              echo "> This is not the same as there being no alerts."
+              echo
+            fi
+
             echo "<details><summary>Scope actually queried</summary>"
             echo
             echo '```json'
@@ -207,7 +308,11 @@ jobs:
             echo
             echo "</details>"
             echo
-            echo "_Counts only. Per-alert detail (resource names, policies) is not available from this data source._"
+            if [ "$detail_status" = "not_requested" ]; then
+              echo "_Counts only. Re-run with **include_detail** to list the individual alerts._"
+            else
+              echo "_Full alert detail for every fetched severity is in the **alert-summary** artifact below._"
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$suspect" = "true" ]; then
@@ -219,12 +324,20 @@ jobs:
           echo "===== scope ====="
           printf '%s' "$scope" | jq .
 
+          # The artifact carries EVERY fetched severity, not just the critical
+          # rows rendered above. That split is the whole point: the summary page
+          # stays readable, and the full data is still one download away.
           printf '%s' "$plan_json" | jq '{
             status:        .output_changes.alert_summary_status.after,
             status_detail: .output_changes.alert_summary_status_detail.after,
             summary:       .output_changes.alert_summary.after,
-            scope:         .output_changes.alert_summary_scope.after
+            scope:         .output_changes.alert_summary_scope.after,
+            detail_status: .output_changes.alert_summary_detail_status.after,
+            detail:        .output_changes.alert_summary_detail.after
           }' > alert-summary.json
+
+          echo "===== artifact ====="
+          echo "bytes=$(wc -c < alert-summary.json) detail_rows=$(jq '.detail.fetched // 0' alert-summary.json)"
 
       - name: Upload report
         if: always()
