@@ -53,7 +53,72 @@ name. Trusting the HTTP status code is not sufficient here.
 
 ---
 
-## 2. Volume makes a Terraform data source the wrong tool
+## 2. CORRECTION: the data source DOES work — use it, with a cap
+
+> **This section originally concluded "use a script, not the data source." That
+> was wrong on the main point.** I had inferred it from the volume numbers and
+> the thin `listing` object without actually trying the data source. Tested, it
+> filters correctly. The volume concern below is real but is a reason to *cap*
+> the query, not to abandon the provider. Correction kept visible rather than
+> silently rewritten.
+
+Proven end to end, no scripts, in a scratch workspace:
+
+```hcl
+data "prismacloud_collections" "all" {}
+
+data "prismacloud_collection" "c" {
+  id = one([for c in data.prismacloud_collections.all.listing : c.id
+            if c.name == "collection-devsecops"])
+}
+
+locals {
+  # asset_groups is a SET, so it cannot be indexed - flatten across elements.
+  acct_ids = distinct(flatten([for g in data.prismacloud_collection.c.asset_groups : g.account_ids]))
+}
+
+data "prismacloud_alerts" "by_collection" {
+  limit = 1
+  time_range {
+    relative {
+      amount = 30
+      unit   = "day"
+    }
+  }
+  filters {
+    name  = "alert.status"
+    value = "open"
+  }
+  filters {
+    name  = "cloud.accountId"
+    value = join(",", local.acct_ids)
+  }
+}
+```
+
+Results:
+
+| Check | Result |
+|---|---|
+| Collection name resolves to `asset_groups` | yes — `{account_ids, account_group_ids, repository_ids}` |
+| Filter actually applies | **yes** — `baseline=8863` vs `scoped=116` |
+| Non-no-op resource changes in the plan | **0** (read-only, as required) |
+
+So the whole feature is expressible in plain Terraform. That is preferable to a
+script: no bash, no `jq`, no auth handling of our own, and it matches the
+existing read-only module pattern.
+
+### Two gotchas found while testing
+
+1. **`asset_groups` is a set, not a list.** `asset_groups[0]` fails with
+   *"Elements of a set are identified only by their value and don't have any
+   separate index"*. Use `flatten([for g in ... : g.account_ids])`.
+2. **Nested blocks need their own lines.** `time_range { relative { ... } }` on
+   one line is a parse error in HCL.
+
+---
+
+## 2b. Volume still constrains how the data source is used
 
 - **8,820** open alerts in the last 30 days.
 - `detailed=true` averages **~20.8 KB per alert**; one 500-alert page was
@@ -69,29 +134,36 @@ This is a genuinely different situation from the access-audit case, where I
 argued volume was a non-issue (452 rows at ~60 bytes each). Here it is the
 dominant constraint.
 
-**Therefore: use a script (`curl` + `jq`), not the `prismacloud_alerts` data
-source.** Same reasoning that produced
-[`compute-runtime-policies`](../terraform/modules/compute-runtime-policies/README.md):
-when the provider doesn't fit, a script gives pagination, an explicit cap, real
-error bodies, and control over what enters the plan.
+**Therefore: keep `limit` small and lean on `total`.** The data source exposes a
+`total` attribute (the server-side count) independently of how many rows it
+returns, so `limit = 1` yields the count for free without pulling the payload.
+That is how the verified example above gets 8863 / 116.
 
-Only aggregates and a capped sample should ever reach Terraform outputs.
+Only aggregates and a small capped sample should ever reach Terraform outputs.
 
-### Provider data source, for the record
+### The `listing` object is thin — plan around it
 
-`prismacloud_alerts` exists but is a poor fit independent of volume. Its
-`listing` object exposes only:
+`prismacloud_alerts.listing` exposes only:
 
 ```
 alert_id, alert_count, alert_time, event_occurred,
 first_seen, last_seen, status, triggered_by
 ```
 
-There is **no resource, policy, severity, or account field**, so it cannot
-produce a useful per-team alert report even if volume were acceptable. Its
-`filters` block is a free-form `name`/`value` list, meaning the provider does
-no validation either — it forwards names straight to the API, inheriting the
-silent-drop behaviour above.
+There is **no resource, policy, severity, or account field**. So the data source
+is excellent for **counts and breakdowns** (query once per severity / status /
+policy type and read `total`), but it cannot produce a per-alert table with
+resource names.
+
+If per-alert detail is genuinely needed, that is the one case for a
+supplementary script — the same call made for
+[`compute-runtime-policies`](../terraform/modules/compute-runtime-policies/README.md).
+Start without it; a counts-and-breakdown report may well be enough.
+
+Note the `filters` block is a free-form `name`/`value` list: the provider does
+no validation and forwards names straight to the API, so it **inherits the
+silent-drop behaviour** from §1. The baseline-comparison guard applies equally
+to the data source.
 
 ---
 
@@ -237,17 +309,19 @@ number.
 
 ### Design
 
+The raw API calls are what the provider issues internally. Since provider data
+sources cover all three steps (§2), the module is **plain Terraform** — no
+scripts:
+
 ```
-collection name
-  -> GET /entitlement/api/v1/collection        (resolve name -> assetGroups)
-  -> accountIds     -> cloud.accountId=<csv>
-  -> accountGroupIds-> resolve to names -> account.group=<csv>
-  -> GET /v2/alert?<filters>                   (aggregate, paginate)
+prismacloud_collections  -> find id by name
+prismacloud_collection   -> asset_groups
+  account_ids       -> filters { name = "cloud.accountId", value = join(",", ...) }
+  account_group_ids -> resolve to names -> filters { name = "account.group", ... }
+prismacloud_alerts       -> total   (limit = 1, so no payload is pulled)
 ```
 
-Three call types, all read-only. This is exactly the "own data source" pattern
-already used by
-[`compute-runtime-policies`](../terraform/modules/compute-runtime-policies/README.md).
+Verified end to end with 0 resource changes.
 
 Required guards:
 
@@ -298,7 +372,8 @@ that is a separate time-series concern, not a drift baseline.
 | Can the alert API filter by collection directly? | **No** — no such filter exists |
 | Can we do it ourselves by combining calls? | **Yes** — a collection is just `assetGroups`; resolve it, then filter by account (§4b) |
 | Does the API reject an invalid filter? | **No** — silently ignored, returns everything |
-| Use the `prismacloud_alerts` data source? | **No** — volume, and `listing` lacks the needed fields |
+| Use the `prismacloud_alerts` data source? | **Yes** — filters correctly; use `limit = 1` and read `total` |
+| Do we need scripts? | **No** for counts. Only if per-alert resource detail is required |
 | Do Compute incidents appear here? | **Yes** — `workload_incident`, `workload_vulnerability` |
 | What scopes a team's alerts? | `cloud.accountId` / `account.group`, **not** `alertRule.name` |
 | Include alerts in drift detection? | **No** — too high-churn |
