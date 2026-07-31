@@ -111,7 +111,7 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
 | **Cloud account inventory** (read) | `prismacloud_cloud_accounts` — which accounts are onboarded, their status. Probably the most-asked question in any tenant. | Pure read. Low risk. |
 | **Policy & compliance inventory** (read) | `prismacloud_policies`, `prismacloud_compliance_standards` — what's enabled, what's custom vs default. | Pure read. Pairs naturally with the dashboard. |
 | ~~**Team/role audit** (read)~~ | `prismacloud_user_roles`, `prismacloud_user_profiles`, `prismacloud_permission_groups` — who has what. | **DONE** — workflow 4, [`access-audit`](../terraform/modules/access-audit/README.md). |
-| **Alerts snapshot** (read) | `prismacloud_alerts` — current open alerts by severity. | Best value as a *scheduled* run feeding trend charts. |
+| ~~**Alerts snapshot** (read)~~ | `prismacloud_alerts` — current open alerts by severity. | **DONE** — workflow 6, [`alert-summary`](../terraform/modules/alert-summary/README.md), scoped to a Collection. Counts only; see below. |
 
 ### Worth considering
 
@@ -134,6 +134,22 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
   opens a PR, instead of hand-editing YAML. Turns the repo into a self-service portal.
 - **Compute collections management** — now that the Compute provider is wired in,
   managing collections directly is a small increment.
+
+### Follow-ups from workflow 6
+
+- **Per-alert detail.** `prismacloud_alerts.listing` exposes no resource or
+  policy fields, so the workflow reports counts only. Resource names would need
+  direct API calls with pagination — worth doing only if someone actually asks.
+- **Alert trends.** Deliberately NOT folded into drift detection: alert counts
+  moved 8764 → 8920 within one session, which would drown the drift baseline in
+  noise. A trend chart is a separate time-series concern.
+- **A cautionary note for any future alert work.** The alerts API silently
+  ignores filter names it doesn't recognise and returns HTTP 200 with the full
+  tenant-wide result set. It also returns 0 — not an error — for a
+  comma-separated multi-value filter, where repeated filter blocks are required.
+  Both were found by measurement, and both produce plausible-looking wrong
+  numbers. Details in
+  [`alerts-by-collection-findings.md`](alerts-by-collection-findings.md).
 
 ### Deliberately not recommended
 

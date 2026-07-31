@@ -1,6 +1,6 @@
 # CI Workflows
 
-Five workflows, one per area of Prisma Cloud configuration. Each has its own
+Six workflows, one per area of Prisma Cloud configuration. Each has its own
 step-by-step guide in the folder beside it.
 
 | # | Workflow | Purpose | Changes the tenant? | Guide |
@@ -10,6 +10,7 @@ step-by-step guide in the folder beside it.
 | 3 | [`tenant-inventory.yml`](tenant-inventory.yml) | List tenant-wide settings and configuration | **No** — read-only by construction | [tenant-inventory/README.md](tenant-inventory/README.md) |
 | 4 | [`access-audit.yml`](access-audit.yml) | Audit roles, users and permission groups; surface the rows a review acts on | **No** — read-only by construction | [access-audit/README.md](access-audit/README.md) |
 | 5 | [`drift-detection.yml`](drift-detection.yml) | Daily "did anything change in the tenant?" check; opens an issue when it did | **No** — only commits a snapshot to this repo | [drift-detection/README.md](drift-detection/README.md) |
+| 6 | [`alert-summary.yml`](alert-summary.yml) | Count alerts for a CSPM Collection, broken down by severity | **No** — read-only by construction | [alert-summary/README.md](alert-summary/README.md) |
 
 ## Which one do I want?
 
@@ -18,6 +19,7 @@ step-by-step guide in the folder beside it.
 - **Just looking at tenant settings, integrations, reports, trusted IPs** → workflow 3
 - **Reviewing who has access — stale accounts, unassigned roles** → workflow 4
 - **Finding out what changed since yesterday, including console-made changes** → workflow 5
+- **Seeing how many alerts a team's collection has** → workflow 6
 
 ## Rules that apply to all of them
 
@@ -25,7 +27,7 @@ step-by-step guide in the folder beside it.
 - **Pushing never applies.** Pushes and PRs run plan only.
 - **Apply is deliberate.** It requires a manual run with `apply` checked, *plus*
   approval on the `test-tenant` Environment. Two separate actions.
-- **Workflows 3, 4 and 5 have no apply at all** — their modules contain zero
+- **Workflows 3, 4, 5 and 6 have no apply at all** — their modules contain zero
   `resource` blocks, so there is nothing to gate.
 
 ## Why they're separate

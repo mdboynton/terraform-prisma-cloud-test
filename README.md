@@ -7,7 +7,7 @@ review the plan, approve the apply.
 
 ## Workflows — start here
 
-Most people interact with this repo through the **Actions** tab. There are five
+Most people interact with this repo through the **Actions** tab. There are six
 workflows, each with its own step-by-step guide:
 
 | # | Workflow | Use it to | Changes the tenant? |
@@ -17,13 +17,14 @@ workflows, each with its own step-by-step guide:
 | 3 | [**Tenant Inventory**](.github/workflows/tenant-inventory/README.md) | Look at tenant settings, integrations, reports, trusted IPs | **No** — read-only by construction |
 | 4 | [**Access Audit**](.github/workflows/access-audit/README.md) | Review who has access: stale accounts, unassigned roles, permission groups | **No** — read-only by construction |
 | 5 | [**Drift Detection**](.github/workflows/drift-detection/README.md) | Find out what changed since yesterday, including console-made changes | **No** — only commits a snapshot to this repo |
+| 6 | [**Alert Summary**](.github/workflows/alert-summary/README.md) | Count alerts for a CSPM Collection, broken down by severity | **No** — read-only by construction |
 
-Ground rules across all five: **plan is always safe**, **pushing never
+Ground rules across all six: **plan is always safe**, **pushing never
 applies**, and an apply needs both a manual run *and* an approval. Workflows 3,
-4 and 5 have no apply step at all.
+4, 5 and 6 have no apply step at all.
 
 New to Terraform? Each guide above starts from first principles — no prior
-experience assumed. Overview of all five:
+experience assumed. Overview of all six:
 [`.github/workflows/README.md`](.github/workflows/README.md).
 
 ## Modules
@@ -70,6 +71,7 @@ the tenant daily and opens an issue when something changes.
 | [`terraform/modules/compute-runtime-policies/`](terraform/modules/compute-runtime-policies/) | Attach an RBAC Collection to existing Compute Container/Host runtime policy rules (non-destructive append via the Compute API). [README](terraform/modules/compute-runtime-policies/README.md) |
 | [`terraform/modules/tenant-inventory/`](terraform/modules/tenant-inventory/) | **Read-only** listing of tenant-level settings/config (data sources only — cannot write). [README](terraform/modules/tenant-inventory/README.md) |
 | [`terraform/modules/access-audit/`](terraform/modules/access-audit/) | **Read-only** audit of roles, user profiles and permission groups, with optional username hashing. [README](terraform/modules/access-audit/README.md) |
+| [`terraform/modules/alert-summary/`](terraform/modules/alert-summary/) | **Read-only** alert counts scoped to a CSPM Collection, resolved to its cloud accounts. [README](terraform/modules/alert-summary/README.md) |
 | [`scripts/drift/`](scripts/drift/) | `snapshot.sh` (plan JSON → privacy-safe fingerprint) and `diff.sh` (baseline vs current → markdown + exit code). Used by workflow 5. |
 | [`terraform/config/teams.yaml`](terraform/config/teams.yaml) | The config file. One entry per team defines its RBAC artifacts. Gitignored; not loaded when absent (a clean plan with zero resources). |
 | [`terraform/config/teams.example.yaml`](terraform/config/teams.example.yaml) | Annotated example config. Copy it to `teams.yaml` and edit. |
