@@ -1,6 +1,7 @@
 # alert-summary
 
-Counts CSPM alerts scoped to a Collection, broken down by severity.
+Counts CSPM alerts scoped to a Collection, broken down by severity, and
+optionally lists the individual alerts with their policy and resource names.
 
 **This module is read-only by construction.** It contains only `data` blocks:
 
@@ -14,12 +15,19 @@ versions.tf:0
 
 A plan against it always reports **0 to add, 0 to change, 0 to destroy**.
 
+The optional detail fetch does not weaken this: it uses `data "external"` — a
+*data* source — and [the script](scripts/detail.sh) it runs only issues `GET`
+requests.
+
 ## Requirements
 
 | Requirement | Version |
 |---|---|
 | Terraform | `~> 1.13` |
 | `PaloAltoNetworks/prismacloud` | `1.7.1` |
+| `hashicorp/external` | `~> 2.3` (detail fetch only — a data source, not a resource) |
+
+`bash`, `curl` and `jq` must be on PATH when `include_detail` is true.
 
 ## Usage
 
@@ -48,6 +56,15 @@ Normally you drive it through
 | `time_amount` | `number` | `30` | Lookback window size. |
 | `time_unit` | `string` | `"day"` | `hour` \| `day` \| `week` \| `month` \| `year`. |
 | `severities` | `list(string)` | all five | Severities to break down by. One query each. |
+| `include_detail` | `bool` | `false` | Also fetch per-alert detail. One extra paged call. Counts unaffected. |
+| `detail_severities` | `list(string)` | `["critical"]` | Which severities to fetch detail for. |
+| `detail_limit` | `number` | `500` | Cap on detail rows. Bounds runtime and plan size; never caps the counts. |
+| `cspm_url` | `string` | `null` | API host. Required only when `include_detail` is true. |
+| `access_key` | `string` | `null` | Required only when `include_detail` is true. Sensitive. |
+| `secret_key` | `string` | `null` | Required only when `include_detail` is true. Sensitive. |
+
+The three credential inputs exist because the detail script calls the REST API
+directly and cannot read the provider's configuration.
 
 ## Outputs
 
@@ -60,6 +77,9 @@ Normally you drive it through
 | `tenant_total` | Tenant-wide count over the same window, for proportion. |
 | `summary` | All of the above in one object. |
 | `scope` | The account IDs actually queried, for troubleshooting. |
+| `detail_status` | `not_requested` \| `no_scope` \| `missing_credentials` \| `ok`. **Branch on this** — an empty row list is not the same as "no alerts". |
+| `detail` | `{rows, fetched, total_matching, truncated, max_rows, severities, by_severity}`. Null unless detail was fetched. |
+| `detail_rows` | Just the rows, for rendering. Empty list rather than null when nothing was fetched. |
 
 ---
 
@@ -151,17 +171,66 @@ collection name still exits 0. Worse, `terraform show -json` omits the `checks`
 array from a plan file entirely, so the failure is invisible to anything reading
 plan JSON. Both behaviours were verified, and `status` exists because of them.
 
-## Limitations
+## Per-alert detail (opt-in)
 
-**Counts only.** `prismacloud_alerts.listing` exposes just `alert_id`, `status`,
-timestamps and `triggered_by` — no resource, policy or severity fields. Severity
-counts come from one query per severity, not from inspecting alerts.
+`prismacloud_alerts.listing` exposes just `alert_id`, `status`, timestamps and
+`triggered_by` — no resource, policy or severity fields. So detail comes from
+[`scripts/detail.sh`](scripts/detail.sh) via `data "external"`, which is a *data*
+source: the zero-resource guarantee above still holds, and the script only issues
+`GET` requests.
 
-Per-alert detail (resource names, policy names) would need direct API calls with
-pagination. Deliberately deferred: the tenant holds ~8,800 open alerts at ~20 KB
-each when detailed, roughly 180 MB of plan JSON, and a data source embeds its
-whole result in the plan. `limit = 1` reads the server-side `total` without the
-payload.
+Set `include_detail = true`. The counts are unchanged either way.
+
+### Why the list endpoint, not `GET /alert/{id}`
+
+The obvious endpoint is the wrong one. Measured on this tenant:
+
+| Approach | Calls | Time | Payload |
+|---|---|---|---|
+| `GET /alert/{id}` per alert | 423 | **~27 min** | 3.3 MB |
+| List, `detailed=true`, paged | 2 | **13.5 s** | 177 KB after reduction |
+| List, `detailed=false` | 1 | ~1 s | **no `policy.name`, no `severity`** — unusable |
+
+The list endpoint already carries every field the per-alert GET would return.
+Verified: `policy.name`, `policy.severity`, `resource.name`,
+`resource.resourceType`, `resource.id`, `resource.account`, `resource.regionId`
+and `alertTime` were present on 100/100 rows.
+
+### Reduction
+
+A `detailed=true` row is ~9.3 KB, almost all of it `resource.data` (the full
+cloud config blob). The script keeps eleven fields and drops the rest **per page,
+before accumulating** — 263 bytes/alert, a 35× reduction. That is what makes it
+safe for a data source, which embeds its whole result in the plan.
+
+### Pagination
+
+Token-based, and there is a trap. The response field is `nextPageToken`, but the
+request parameter is **`pageToken`**. Sending `nextPageToken` back returns
+HTTP 200 and **re-serves page one** — an infinite loop quietly collecting
+duplicates. Same silent-ignore behaviour as the filters. The terminator is
+`nextPageToken: null`.
+
+Verified: 423 rows over 2 pages produced **423 unique ids**.
+
+### Counts and detail are independent
+
+`total` is always the server's count. `fetched` is how many rows came back under
+`detail_limit`. A truncated fetch cannot make the collection look smaller —
+verified with `detail_limit = 25` against 101 criticals:
+
+| Field | Value |
+|---|---|
+| `summary.total` | 415 (unchanged) |
+| `detail.fetched` | 25 |
+| `detail.total_matching` | 101 |
+| `detail.truncated` | `true` |
+
+### The unscoped guard
+
+The script **refuses to run** with an empty account list. An unscoped query would
+not error — it would return all ~9,000 tenant alerts labelled as the
+collection's. Same reason as every other guard here.
 
 **Not suitable for drift detection.** Alert counts move constantly (8764 → 8920
 over one session). They are deliberately excluded from
@@ -175,3 +244,18 @@ over one session). They are deliberately excluded from
 | `collection-devsecops` | `ok` | 0 | 8920 | all zero (account genuinely has none) |
 | `no-such-collection-xyz` | `collection_not_found` | null | — | — |
 | `mdalbes-collection` | `tenant_wide` | null | — | — |
+
+Alert counts move constantly, so the totals above are a snapshot; the invariants
+(sums, nulls, statuses) are what matter.
+
+### Detail path
+
+| Case | Result |
+|---|---|
+| `phe-collection-test`, critical | `fetched: 101`, matches the critical count exactly |
+| `phe-collection-test`, all severities | 423 rows over 2 pages, **423 unique ids**, breakdown sums to 423 |
+| `PCS-aws-org` (2,382 alerts, large) | 148 critical in **5.4 s**, no truncation |
+| `detail_limit = 25` vs 101 criticals | `fetched: 25`, `total_matching: 101`, `truncated: true`, **`summary.total` unchanged at 415** |
+| `include_detail = false` | **zero** detail API calls, `detail_status: not_requested` |
+| Nonexistent collection | **zero** detail API calls, `detail_status: no_scope`, `total: null` |
+| Empty account list (script directly) | Refused with an error, rather than returning tenant-wide alerts |

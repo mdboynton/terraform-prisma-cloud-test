@@ -10,7 +10,7 @@ step-by-step guide in the folder beside it.
 | 3 | [`tenant-inventory.yml`](tenant-inventory.yml) | List tenant-wide settings and configuration | **No** — read-only by construction | [tenant-inventory/README.md](tenant-inventory/README.md) |
 | 4 | [`access-audit.yml`](access-audit.yml) | Audit roles, users and permission groups; surface the rows a review acts on | **No** — read-only by construction | [access-audit/README.md](access-audit/README.md) |
 | 5 | [`drift-detection.yml`](drift-detection.yml) | Daily "did anything change in the tenant?" check; opens an issue when it did | **No** — only commits a snapshot to this repo | [drift-detection/README.md](drift-detection/README.md) |
-| 6 | [`alert-summary.yml`](alert-summary.yml) | Count alerts for a CSPM Collection, broken down by severity | **No** — read-only by construction | [alert-summary/README.md](alert-summary/README.md) |
+| 6 | [`alert-summary.yml`](alert-summary.yml) | Count alerts for a CSPM Collection by severity, and list the critical ones | **No** — read-only by construction | [alert-summary/README.md](alert-summary/README.md) |
 
 ## Which one do I want?
 

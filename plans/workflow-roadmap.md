@@ -111,7 +111,7 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
 | **Cloud account inventory** (read) | `prismacloud_cloud_accounts` — which accounts are onboarded, their status. Probably the most-asked question in any tenant. | Pure read. Low risk. |
 | **Policy & compliance inventory** (read) | `prismacloud_policies`, `prismacloud_compliance_standards` — what's enabled, what's custom vs default. | Pure read. Pairs naturally with the dashboard. |
 | ~~**Team/role audit** (read)~~ | `prismacloud_user_roles`, `prismacloud_user_profiles`, `prismacloud_permission_groups` — who has what. | **DONE** — workflow 4, [`access-audit`](../terraform/modules/access-audit/README.md). |
-| ~~**Alerts snapshot** (read)~~ | `prismacloud_alerts` — current open alerts by severity. | **DONE** — workflow 6, [`alert-summary`](../terraform/modules/alert-summary/README.md), scoped to a Collection. Counts only; see below. |
+| ~~**Alerts snapshot** (read)~~ | `prismacloud_alerts` — current open alerts by severity. | **DONE** — workflow 6, [`alert-summary`](../terraform/modules/alert-summary/README.md), scoped to a Collection. Counts plus opt-in per-alert detail; see below. |
 
 ### Worth considering
 
@@ -137,9 +137,20 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
 
 ### Follow-ups from workflow 6
 
-- **Per-alert detail.** `prismacloud_alerts.listing` exposes no resource or
-  policy fields, so the workflow reports counts only. Resource names would need
-  direct API calls with pagination — worth doing only if someone actually asks.
+- ~~**Per-alert detail.**~~ **DONE.** `prismacloud_alerts.listing` exposes no
+  resource or policy fields, so detail comes from `scripts/detail.sh` via
+  `data "external"` (still zero resources, GET only). Critical alerts render on
+  the run summary; every fetched severity goes to the JSON artifact.
+  - The obvious endpoint was the wrong one: `GET /alert/{id}` measured ~3.9 s per
+    call (~27 min for 423 alerts), while the *list* endpoint with
+    `detailed=true` carries the same fields in one paged query — 423 rows in
+    13.5 s.
+  - Rows are reduced per page (dropping `resource.data`) from ~9.3 KB to 263
+    bytes, which is what makes it safe for a data source.
+  - Pagination trap: the response field is `nextPageToken` but the request
+    parameter is **`pageToken`**. Sending the former back returns HTTP 200 and
+    re-serves page one — a silent infinite loop. Same silent-ignore family as
+    the filter bug below.
 - **Alert trends.** Deliberately NOT folded into drift detection: alert counts
   moved 8764 → 8920 within one session, which would drown the drift baseline in
   noise. A trend chart is a separate time-series concern.
