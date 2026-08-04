@@ -44,7 +44,7 @@ No apply job, no approval gate. Run it as often as you like.
 | `time_unit` | `day` | `hour` \| `day` \| `week` \| `month` \| `year` |
 | `include_detail` | `true` | Also list the individual alerts. Adds one paged API call. |
 | `detail_severities` | `critical` | Which severities to pull detail for. **Only critical is shown on the summary page** — see below. |
-| `detail_limit` | `500` | Caps how many detail rows are fetched. Never caps the counts. |
+| `detail_limit` | `500` | Caps how many detail rows are fetched (`100`–`5000`). Never caps the counts. |
 
 ## Where the results appear
 
@@ -159,6 +159,20 @@ it.
 | `PRISMACLOUD_PASSWORD` | Secret key |
 
 No Environment or reviewer needed — there's nothing to gate.
+
+## When a run fails
+
+The summary page always explains the failure — you should not need to open the
+raw log. Three shapes:
+
+| What you see | Meaning |
+|---|---|
+| "no counts produced" with a status | The collection resolved to something unusable (see the table above). |
+| "run failed" with a quoted Terraform error | Usually an input out of range. The exact message is shown. |
+| "failed before or outside the Terraform plan" | Checkout, setup, or `init` failed. Job log has it. |
+
+The job also has a **15-minute timeout**. The slowest real run was ~14 seconds,
+so hitting it means something is stuck — usually tenant rate limiting.
 
 ## Troubleshooting
 

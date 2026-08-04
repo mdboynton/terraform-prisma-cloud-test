@@ -65,9 +65,19 @@ on:
           - critical,high,medium,low
           - critical,high,medium,low,informational
       detail_limit:
+        # A choice, not free text. The module validates the range anyway, but a
+        # typo like "50O" would only surface as a Terraform variable-validation
+        # error partway through the run. A fixed list removes the mistake
+        # instead of catching it. Values match the module's 1..5000 bound.
         description: "Max alert detail rows to fetch (bounds runtime and artifact size). Counts are never capped by this."
-        type: string
+        type: choice
         default: "500"
+        options:
+          - "100"
+          - "500"
+          - "1000"
+          - "2500"
+          - "5000"
 
 concurrency:
   group: alert-summary-${{ github.ref }}
@@ -111,6 +121,12 @@ jobs:
   summary:
     name: Count alerts for a collection
     runs-on: ubuntu-latest
+
+    # The detail fetch pages up to 200 times with a 1s pause between, so a
+    # rate-limited tenant could stall the job against the 6-hour default.
+    # The slowest real run measured 13.5s; 15 minutes is generous.
+    timeout-minutes: 15
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -134,9 +150,17 @@ jobs:
           echo "Detail severities: $json"
 
       - name: Read alert counts
+        id: plan
         # -target keeps this to the alert module, so no other module is
         # evaluated and no unrelated API calls are made.
-        run: terraform plan -input=false -no-color -target=module.alert_summary -out=tfplan
+        #
+        # Output is teed to a file so the failure step below can quote the real
+        # error on the summary page. Without this the message exists only in the
+        # raw log, which is where the useful text goes to die.
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color \
+            -target=module.alert_summary -out=tfplan 2>&1 | tee plan-output.txt
 
       - name: Render report
         run: |
@@ -180,6 +204,12 @@ jobs:
               echo
               echo "No alert counts were produced. **Do not read the tenant-wide total as this collection's number.**"
             } >> "$GITHUB_STEP_SUMMARY"
+
+            # Tells the failure step to stay quiet: this case is already
+            # explained above, in terms specific to the collection. Without the
+            # marker the run would show two stacked failure blocks saying
+            # roughly the same thing.
+            touch handled-failure.marker
 
             echo "::error title=Alert summary failed::$status - $detail"
             exit 1
@@ -351,10 +381,73 @@ jobs:
           echo "===== artifact ====="
           echo "bytes=$(wc -c < alert-summary.json) detail_rows=$(jq '.detail.fetched // 0' alert-summary.json)"
 
+      # Runs ONLY when something above failed.
+      #
+      # Every other step writes to the summary page on the success path, so a
+      # failed run used to produce a completely blank summary - a red X and
+      # nothing else, forcing the user into the raw logs to discover something
+      # as mundane as a mistyped number. Terraform's variable-validation
+      # messages are good; they were just invisible.
+      - name: Report failure
+        if: failure()
+        run: |
+          # The render step explains a resolved-but-unusable collection better
+          # than this generic block can, and marks it handled.
+          if [ -f handled-failure.marker ]; then
+            echo "Failure already reported on the summary page."
+            exit 0
+          fi
+
+          {
+            echo "## Alert summary - run failed"
+            echo
+            echo "**Collection:** \`${{ inputs.collection_name }}\`"
+            echo
+            echo "No alert counts were produced. **Do not read any number in this"
+            echo "run as this collection's alert count.**"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Quote the actual Terraform error when we captured one. Input
+          # validation failures land here and are usually self-explanatory.
+          if [ -f plan-output.txt ] && grep -q "Error:" plan-output.txt; then
+            {
+              echo "### What went wrong"
+              echo
+              echo '```'
+              # Trim to the first error and a few lines of context - the full
+              # plan output is long and the first error is the actionable one.
+              grep -m1 -A8 "Error:" plan-output.txt
+              echo '```'
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "The failure happened before or outside the Terraform plan."
+              echo "See the job log for details."
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo "### Common causes"
+            echo
+            echo "| Symptom | Fix |"
+            echo "|---|---|"
+            echo "| \`Invalid value for variable\` | An input is out of range - check the lookback window and detail limit. |"
+            echo "| \`No CSPM Collection named ...\` | The name must match the console exactly, including case and spaces. |"
+            echo "| Authentication errors | The \`PRISMACLOUD_*\` repository secrets may be missing or expired. |"
+            echo "| Timed out | The tenant may be rate limiting. Re-run, or lower \`detail_limit\`. |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload report
-        if: always()
+        # NOT always(): the artifact is written by the render step, so on an
+        # earlier failure the path does not exist and upload-artifact prints
+        # "No files were found" - a spurious warning stacked on the real error.
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: alert-summary
           path: terraform/alert-summary.json
+          if-no-files-found: error
           retention-days: 30

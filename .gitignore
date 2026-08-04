@@ -19,6 +19,17 @@ terraform/config/*.yaml
 # Local diagnostic scripts (never committed)
 scripts-local/
 
+# Workflow run artifacts. These are produced inside terraform/ by the read-only
+# workflows and must never be committed - alert-summary.json in particular
+# contains live resource names. The nested terraform/.gitignore that used to
+# cover the plan files was removed in the repo cleanup, so they are listed here.
+terraform/tfplan
+terraform/plan-output.txt
+terraform/handled-failure.marker
+terraform/alert-summary.json
+terraform/access-audit.json
+terraform/tenant-inventory.json
+
 # macOS
 .DS_Store
 
