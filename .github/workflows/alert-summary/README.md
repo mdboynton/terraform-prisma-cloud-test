@@ -98,8 +98,12 @@ Worth understanding, because they can legitimately differ:
 
 If the cap truncates, the page says so and still reports the true
 `total_matching`. A capped fetch can never make the collection look smaller than
-it is — verified: with `detail_limit=25` against 101 criticals, the run reported
-`fetched: 25`, `total_matching: 101`, and the collection total stayed at 415.
+it is — verified: with `detail_limit=25` against 104 criticals, the run reported
+`fetched: 25`, `total_matching: 104`, and the collection total stayed at 415.
+
+The page also distinguishes **why** a list is short. A deliberate cap reads
+differently from the API stopping early on us — the latter says explicitly that
+the shortfall was *not* the cap, because that one warrants a re-run.
 
 ## When the run fails on purpose
 
@@ -168,6 +172,7 @@ No Environment or reviewer needed — there's nothing to gate.
 | "credentials were incomplete, so nothing was fetched" | Detail was requested but a secret is missing. This is **not** the same as having no alerts, which is why it is called out rather than shown as an empty table. |
 | Want high/medium detail on the page | Artifact-only by design. Widen `detail_severities` and open `alert-summary.json`. |
 | Detail was capped | Raise `detail_limit`. The counts were never capped — only the row list was. |
+| "Detail is incomplete and this was NOT the cap" | Pagination stopped early (`empty_page` / `no_token`), usually rate limiting. Counts are still correct; re-run to get the full row list. |
 
 ## More detail
 

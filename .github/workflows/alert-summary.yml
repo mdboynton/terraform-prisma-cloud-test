@@ -284,7 +284,19 @@ jobs:
               if [ "$(printf '%s' "$detail_json" | jq -r '.truncated')" = "true" ]; then
                 fetched=$(printf '%s' "$detail_json" | jq -r '.fetched')
                 matching=$(printf '%s' "$detail_json" | jq -r '.total_matching')
-                echo "> **Detail was capped.** Fetched $fetched of $matching matching alerts (detail_limit)."
+                reason=$(printf '%s' "$detail_json" | jq -r '.stop_reason // "unknown"')
+
+                # "We capped it deliberately" and "the API stopped early on us"
+                # are different situations and must not read the same. Only the
+                # first is expected; the others mean rows are missing.
+                if [ "$reason" = "cap" ]; then
+                  echo "> **Detail was capped.** Fetched $fetched of $matching matching alerts (detail_limit)."
+                  echo "> Raise \`detail_limit\` to see more."
+                else
+                  echo "> **Detail is incomplete and this was NOT the cap.** Fetched $fetched of"
+                  echo "> $matching matching alerts, stopped early: \`$reason\`."
+                  echo "> Likely rate limiting or the API ending pagination early. Re-run to get the rest."
+                fi
                 echo "> The counts above are unaffected - they come from the server, not from this list."
                 echo
               fi

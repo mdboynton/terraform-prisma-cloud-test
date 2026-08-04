@@ -79,13 +79,33 @@ BASE="${BASE%/}"
 
 CURL_OPTS=(--silent --show-error --fail-with-body)
 
+TMP="$(mktemp -d)"
+chmod 700 "$TMP"
+trap 'rm -rf "$TMP"' EXIT
+
 # 1. Authenticate.
-TOKEN="$(curl "${CURL_OPTS[@]}" \
-  -H 'Content-Type: application/json' \
-  -X POST "$BASE/login" \
-  -d "{\"username\":\"$ACCESS_KEY\",\"password\":\"$SECRET_KEY\"}" \
+#
+# The credentials go in on STDIN via `--data @-`, NOT as `-d "<json>"`.
+# Anything in argv is world-readable through `ps` for the life of the process:
+# measured on this tenant, `-d` exposed `password":"aNOD...` to a plain
+# `ps -o args=`. A CI runner can have other processes on it. Same reason the
+# bearer token is passed with `-H @file` below rather than on the command line.
+#
+# jq builds the body so a key containing a quote or backslash cannot break out
+# of the JSON - hand-rolled string interpolation would.
+TOKEN="$(jq -nc --arg u "$ACCESS_KEY" --arg p "$SECRET_KEY" '{username:$u,password:$p}' \
+  | curl "${CURL_OPTS[@]}" \
+      -H 'Content-Type: application/json' \
+      -X POST "$BASE/login" \
+      --data @- \
   | jq -r '.token')" || fail "authentication failed"
 [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || fail "authentication returned no token"
+
+# The token is a credential too. `-H @file` keeps it out of argv; the file is in
+# a 0700 directory and is removed by the EXIT trap.
+printf 'x-redlock-auth: %s\n' "$TOKEN" > "$TMP/auth.hdr"
+chmod 600 "$TMP/auth.hdr"
+AUTH_HDR=(-H "@$TMP/auth.hdr")
 
 # 2. Build the repeated query parameters.
 #
@@ -108,9 +128,6 @@ while IFS= read -r s; do
   [ -n "$s" ] && QARGS+=(--data-urlencode "policy.severity=$s")
 done <<<"$(jq -r '.[]' <<<"$SEVERITIES")"
 
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-
 PAGE_SIZE=250
 [ "$MAX_ROWS" -lt "$PAGE_SIZE" ] && PAGE_SIZE="$MAX_ROWS"
 
@@ -130,18 +147,38 @@ TOTAL_ROWS="null"
 : > "$TMP/all.ndjson"
 FETCHED=0
 
+# WHY the loop stopped, recorded at each break rather than inferred afterwards.
+#
+# The earlier version inferred it with `fetched >= max_rows`, which silently
+# reported an INCOMPLETE fetch as complete: stopping early at 300 of 600 rows
+# under a cap of 500 satisfies neither `>= max`, so `truncated` came out false
+# and the caller had no way to know 300 alerts were missing. Stop reasons are
+# not interchangeable, so they are no longer guessed.
+#   complete   - the server had no more rows
+#   cap        - we hit max_rows, more exist
+#   empty_page - a page returned 0 rows while more were expected
+#   no_token   - the server stopped paginating while more were expected
+#   page_guard - the 200-page ceiling tripped
+STOP_REASON="complete"
+
 while : ; do
   PAGE_NUM=$((PAGE_NUM + 1))
-  [ "$PAGE_NUM" -gt 200 ] && fail "pagination exceeded 200 pages - aborting rather than looping forever"
+  if [ "$PAGE_NUM" -gt 200 ]; then
+    STOP_REASON="page_guard"
+    break
+  fi
 
   REMAINING=$((MAX_ROWS - FETCHED))
-  [ "$REMAINING" -le 0 ] && break
+  if [ "$REMAINING" -le 0 ]; then
+    STOP_REASON="cap"
+    break
+  fi
   THIS_PAGE="$PAGE_SIZE"
   [ "$REMAINING" -lt "$THIS_PAGE" ] && THIS_PAGE="$REMAINING"
 
   if [ -z "$PAGE_TOKEN" ]; then
     curl "${CURL_OPTS[@]}" -G "$BASE/v2/alert" \
-      -H "x-redlock-auth: $TOKEN" \
+      "${AUTH_HDR[@]}" \
       --data-urlencode 'timeType=relative' \
       --data-urlencode "timeAmount=$TIME_AMOUNT" \
       --data-urlencode "timeUnit=$TIME_UNIT" \
@@ -152,7 +189,7 @@ while : ; do
   else
     # The token carries the original filters; they are not resent.
     curl "${CURL_OPTS[@]}" -G "$BASE/v2/alert" \
-      -H "x-redlock-auth: $TOKEN" \
+      "${AUTH_HDR[@]}" \
       --data-urlencode "pageToken=$PAGE_TOKEN" \
       --data-urlencode "limit=$THIS_PAGE" > "$TMP/page.json" \
       || fail "alert query failed on page $PAGE_NUM"
@@ -161,7 +198,12 @@ while : ; do
   [ "$TOTAL_ROWS" = "null" ] && TOTAL_ROWS="$(jq -r '.totalRows // 0' "$TMP/page.json")"
 
   GOT="$(jq '.items | length' "$TMP/page.json")"
-  [ "$GOT" -eq 0 ] && break
+  if [ "$GOT" -eq 0 ]; then
+    # Zero rows mid-run is the signature of a rate-limited empty body - the very
+    # thing the sleep below mitigates. Distinguish it from a clean finish.
+    [ "$FETCHED" -lt "$TOTAL_ROWS" ] && STOP_REASON="empty_page"
+    break
+  fi
 
   # Reduce HERE, per page, so the full detailed payload is never accumulated.
   # A detailed=true row is ~9.3 KB; the fields kept below are ~263 bytes. For a
@@ -184,7 +226,12 @@ while : ; do
   FETCHED=$((FETCHED + GOT))
 
   PAGE_TOKEN="$(jq -r '.nextPageToken // ""' "$TMP/page.json")"
-  [ -z "$PAGE_TOKEN" ] && break
+  if [ -z "$PAGE_TOKEN" ]; then
+    # No token means the server is done. If it is done before delivering
+    # totalRows, we are missing rows through no fault of the cap.
+    [ "$FETCHED" -lt "$TOTAL_ROWS" ] && STOP_REASON="no_token"
+    break
+  fi
 
   # The tenant rate-limits sustained looping; without this, long runs start
   # returning empty bodies partway through.
@@ -204,13 +251,27 @@ ERR="$(jq -s \
   --argjson total "$TOTAL_ROWS" \
   --argjson max "$MAX_ROWS" \
   --argjson sevs "$SEVERITIES" \
+  --arg stop "$STOP_REASON" \
   '. as $rows
    | ($rows | length) as $n
    | {
        rows:           $rows,
        fetched:        $n,
        total_matching: $total,
-       truncated:      (($total > $n) and ($n >= $max)),
+
+       # `truncated` means ONE thing: we do not have every matching alert.
+       # It deliberately does NOT test the cap. Testing `$n >= $max` as well
+       # made an early stop (300 of 600 under a cap of 500) report as complete.
+       truncated:      ($total > $n),
+
+       # Whether the row list is the whole answer. The inverse of truncated,
+       # named positively because that is how a caller reads it.
+       complete:       ($total <= $n),
+
+       # WHY it is short, so "we capped it deliberately" is never confused with
+       # "the API stopped early on us". Only the first is expected.
+       stop_reason:    $stop,
+
        max_rows:       $max,
        severities:     $sevs,
        by_severity:    (reduce $rows[] as $r ({}; .[$r.severity] = ((.[$r.severity] // 0) + 1)))

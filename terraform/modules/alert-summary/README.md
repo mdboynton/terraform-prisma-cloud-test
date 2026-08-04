@@ -78,7 +78,7 @@ directly and cannot read the provider's configuration.
 | `summary` | All of the above in one object. |
 | `scope` | The account IDs actually queried, for troubleshooting. |
 | `detail_status` | `not_requested` \| `no_scope` \| `missing_credentials` \| `ok`. **Branch on this** — an empty row list is not the same as "no alerts". |
-| `detail` | `{rows, fetched, total_matching, truncated, max_rows, severities, by_severity}`. Null unless detail was fetched. |
+| `detail` | `{rows, fetched, total_matching, truncated, complete, stop_reason, max_rows, severities, by_severity}`. Null unless detail was fetched. |
 | `detail_rows` | Just the rows, for rendering. Empty list rather than null when nothing was fetched. |
 
 ---
@@ -217,20 +217,59 @@ Verified: 423 rows over 2 pages produced **423 unique ids**.
 
 `total` is always the server's count. `fetched` is how many rows came back under
 `detail_limit`. A truncated fetch cannot make the collection look smaller —
-verified with `detail_limit = 25` against 101 criticals:
+verified with `detail_limit = 25` against 104 criticals:
 
 | Field | Value |
 |---|---|
 | `summary.total` | 415 (unchanged) |
 | `detail.fetched` | 25 |
-| `detail.total_matching` | 101 |
+| `detail.total_matching` | 104 |
 | `detail.truncated` | `true` |
+| `detail.stop_reason` | `cap` |
+
+### `truncated` vs `stop_reason`
+
+`truncated` means exactly one thing: **`total_matching > fetched`** — we do not
+have every matching alert. It does *not* test the cap.
+
+That distinction was a bug. The original condition also required
+`fetched >= max_rows`, on the assumption that the cap is the only reason to stop
+early. It isn't: stopping at 300 of 600 rows under a cap of 500 satisfies
+neither clause, so `truncated` came out `false` and 300 missing alerts were
+reported as a complete list.
+
+`stop_reason` says *why* the list is short, so a deliberate cap is never
+confused with a failure:
+
+| `stop_reason` | Meaning |
+|---|---|
+| `complete` | The server had no more rows. Expected. |
+| `cap` | `detail_limit` was reached, more exist. Expected — raise the limit. |
+| `empty_page` | A page returned 0 rows while more were expected. Usually rate limiting. |
+| `no_token` | The server stopped paginating early. Rows are missing. |
+| `page_guard` | The 200-page ceiling tripped. |
+
+Only the first two are normal. The workflow renders the last three differently,
+saying explicitly that the shortfall was **not** the cap.
 
 ### The unscoped guard
 
 The script **refuses to run** with an empty account list. An unscoped query would
 not error — it would return all ~9,000 tenant alerts labelled as the
 collection's. Same reason as every other guard here.
+
+### Credentials never touch `argv`
+
+The login body goes in on **stdin** (`curl --data @-`) and the bearer token via
+**`-H @file`** from a `0700` temp dir removed by an `EXIT` trap.
+
+This is not theoretical hygiene. The original `-d "{\"username\":...}"` form was
+measured exposing the secret key to a plain `ps -o args=` on this machine, for
+the life of the request. CI runners can host other processes. After the change,
+sampling every 0.5s across a full run found the key in argv **0 times**.
+
+The JSON body is built with `jq -n --arg`, so a credential containing a quote or
+backslash cannot break out of the JSON — string interpolation would allow that.
 
 **Not suitable for drift detection.** Alert counts move constantly (8764 → 8920
 over one session). They are deliberately excluded from
