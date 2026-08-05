@@ -193,6 +193,27 @@ before the workflow count grows much further.
 
 ---
 
+## The state problem (RBAC)
+
+There is no `backend` block, so state is local to each CI runner and discarded
+after every run. A second apply therefore tries to recreate what already exists
+and fails with `object already exists`.
+
+Mitigated for now by `terraform/import.tf`, which adopts existing artifacts
+instead of recreating them. Verified: a from-scratch plan against an existing
+team reports `5 to import, 2 to add, 0 to destroy`, and repeats identically.
+
+That is a stopgap, not a fix. It only covers IDs someone wrote down, so a team
+created by one run must be hand-added before the next. It also does nothing
+about concurrency — two applies at once can still fight.
+
+**The fix is a remote backend** (S3 + DynamoDB, or Terraform Cloud). Needs a
+bucket/token, roughly an hour. Until then, `import.tf` is effectively the state.
+
+Committing a state file to this repo is NOT an option: Terraform stores
+sensitive attributes in plaintext, including the service account secret key the
+API returns only once.
+
 ## Suggested order
 
 1. ~~Team/role audit (§2)~~ — **done**, workflow 4.

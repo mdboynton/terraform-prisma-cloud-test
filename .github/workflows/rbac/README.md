@@ -90,7 +90,51 @@ cannot be changed from here.
 with a **required reviewer**. That is what pauses the apply. Without it the job
 still runs — but with no gate.
 
+## State: there is no backend (read this before your second apply)
+
+This repo has **no `backend` block**, so Terraform state is local to whichever
+CI runner performed the apply and is destroyed with it. Nothing persists between
+runs. It is also why the apply job re-plans rather than applying the plan file
+from the plan job — that artifact would reference state this job doesn't have.
+
+**The consequence:** every run starts believing the tenant is empty. On a second
+apply Terraform tries to *create* artifacts that already exist, and the API
+rejects the duplicate with `object already exists`.
+
+**The current mitigation** is [`terraform/import.tf`](../../../terraform/import.tf):
+`import` blocks that tell Terraform "this already exists, adopt it". A plan
+against an already-provisioned team should read:
+
+```
+Plan: 5 to import, 2 to add, 0 to change, 0 to destroy.
+```
+
+`to import` is the healthy signal. If you instead see those same artifacts under
+`to add`, an import block is missing or its address is wrong — **stop**, because
+the apply will fail on the duplicate.
+
+**When you create a new team,** its artifacts won't be in `import.tf` yet. The
+first apply creates them; add their IDs to `import.tf` afterwards or the *next*
+run will collide. The file header has the exact API calls to look the IDs up.
+
+**Never commit a state file to this repo.** Terraform writes sensitive
+attributes to state in **plaintext**, including
+`prismacloud_user_profile.service_account`'s secret key — which the API returns
+only once. `sensitive = true` redacts CLI output, not the state file. Git
+history is permanent, so a committed key means rotating the service account.
+
+**The real fix** is a remote backend (S3 + DynamoDB, or Terraform Cloud): state
+persists, it's encrypted, and it's locked against two applies running at once.
+Import blocks are a stopgap that only covers IDs someone remembered to write
+down.
+
 ## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `object already exists` on apply | The artifact exists in the tenant but has no `import` block. Add it to [`terraform/import.tf`](../../../terraform/import.tf) — see the state section above. |
+| Plan says `to add` for a team you already provisioned | Same cause. Do not apply; the create will be rejected. |
+| `Cannot import non-existent remote object` | An ID in `import.tf` is stale or from a different tenant. Re-read it from the API using the commands in that file's header. |
 
 | Symptom | Cause / fix |
 |---|---|
