@@ -1,7 +1,7 @@
 {
   "counts": {
-    "roles": 167,
-    "roles_unassigned": 72,
+    "roles": 169,
+    "roles_unassigned": 74,
     "users": 846,
     "users_enabled": 846,
     "users_disabled": 0,
@@ -314,6 +314,12 @@
       "assigned_user_count": 0
     },
     {
+      "name": "MadhuVAImage",
+      "role_type": "System Admin",
+      "account_group_count": 0,
+      "assigned_user_count": 0
+    },
+    {
       "name": "Marc's Image Analysis Sandbox Role",
       "role_type": "jw-appsec",
       "account_group_count": 0,
@@ -341,7 +347,7 @@
       "name": "NYC-OTI-ruben-test SVC",
       "role_type": "Ruben-PG",
       "account_group_count": 0,
-      "assigned_user_count": 3
+      "assigned_user_count": 2
     },
     {
       "name": "PC Training Testing",
@@ -528,6 +534,12 @@
       "role_type": "Test-role-update",
       "account_group_count": 80,
       "assigned_user_count": 2
+    },
+    {
+      "name": "TestAccount_Madhu",
+      "role_type": "System Admin",
+      "account_group_count": 0,
+      "assigned_user_count": 0
     },
     {
       "name": "TestMiguel",
@@ -5309,7 +5321,7 @@
       "id": "c2907349881f",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
-      "role_count": 4
+      "role_count": 3
     },
     {
       "id": "c29ff817808c",
