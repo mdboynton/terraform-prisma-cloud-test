@@ -20,6 +20,15 @@
 
 locals {
   enabled = var.enabled && var.collection_name != null
+
+  # For use in error_message strings ONLY.
+  #
+  # A `check` block's error_message is evaluated even when the assertion passes
+  # and even when this module is disabled. Interpolating a null variable there
+  # raises "Invalid template interpolation value" and fails the ENTIRE plan -
+  # every module, not just this one. Found by running an untargeted
+  # `terraform plan`; all six workflows use -target, which hid it completely.
+  collection_label = coalesce(var.collection_name, "(none specified)")
 }
 
 # ------------------------------------------------------------
@@ -60,7 +69,7 @@ data "prismacloud_collection" "this" {
   lifecycle {
     precondition {
       condition     = length(local.matched_ids) == 1
-      error_message = "Collection name '${var.collection_name}' did not resolve to exactly one collection (matched ${length(local.matched_ids)}). Refusing to continue: an unresolved name would silently produce TENANT-WIDE alert counts instead of an error."
+      error_message = "Collection name '${local.collection_label}' did not resolve to exactly one collection (matched ${length(local.matched_ids)}). Refusing to continue: an unresolved name would silently produce TENANT-WIDE alert counts instead of an error."
     }
   }
 }
@@ -69,10 +78,17 @@ data "prismacloud_collection" "this" {
 # runs - so the failure has to be raised somewhere that is always evaluated.
 # `check` is the right tool: it is evaluated unconditionally and, unlike a
 # resource, adds nothing to the plan.
+# NOTE the coalesce() on var.collection_name here and in the check below.
+#
+# A `check` block's error_message is evaluated even when the assertion passes
+# and even when the module is disabled, so interpolating a null variable fails
+# the whole plan with "Invalid template interpolation value" - not just for this
+# module, but for any `terraform plan` over the whole config. Caught by running
+# an untargeted plan; the workflows all use -target, which hid it.
 check "collection_name_resolves" {
   assert {
     condition     = !local.enabled || length(local.matched_ids) == 1
-    error_message = length(local.matched_ids) == 0 ? "No CSPM Collection named '${var.collection_name}' exists in this tenant. Check the spelling in the Prisma Cloud console. No alert counts were produced." : "${length(local.matched_ids)} collections are named '${var.collection_name}'. Cannot tell which was meant."
+    error_message = length(local.matched_ids) == 0 ? "No CSPM Collection named '${local.collection_label}' exists in this tenant. Check the spelling in the Prisma Cloud console. No alert counts were produced." : "${length(local.matched_ids)} collections are named '${local.collection_label}'. Cannot tell which was meant."
   }
 }
 
@@ -294,12 +310,12 @@ check "alert_counts_are_plausible" {
   # GUARD 3: a repository-only collection has no cloud-alert meaning.
   assert {
     condition     = !local.repo_only
-    error_message = "Collection '${var.collection_name}' selects only code repositories (${length(local.repository_ids)} repositoryIds) and no cloud accounts. CSPM alerts are raised against cloud resources, so this collection cannot scope them. No scoped counts were produced."
+    error_message = "Collection '${local.collection_label}' selects only code repositories (${length(local.repository_ids)} repositoryIds) and no cloud accounts. CSPM alerts are raised against cloud resources, so this collection cannot scope them. No scoped counts were produced."
   }
 
   assert {
     condition     = !local.suspect_unfiltered
-    error_message = "Scoped alert count (${coalesce(local.scoped_total, 0)}) exactly equals the tenant-wide count (${coalesce(local.baseline_total, 0)}). The account filter may have been ignored - the alerts API drops unrecognised filters and still returns HTTP 200. This is legitimate only if collection '${var.collection_name}' covers every account that has alerts."
+    error_message = "Scoped alert count (${coalesce(local.scoped_total, 0)}) exactly equals the tenant-wide count (${coalesce(local.baseline_total, 0)}). The account filter may have been ignored - the alerts API drops unrecognised filters and still returns HTTP 200. This is legitimate only if collection '${local.collection_label}' covers every account that has alerts."
   }
 
   assert {
