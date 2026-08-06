@@ -1,7 +1,7 @@
 {
   "counts": {
-    "roles": 169,
-    "roles_unassigned": 74,
+    "roles": 170,
+    "roles_unassigned": 75,
     "users": 846,
     "users_enabled": 846,
     "users_disabled": 0,
@@ -365,13 +365,13 @@
       "name": "PCS Demo - JIT Admin",
       "role_type": "JIT Admin",
       "account_group_count": 0,
-      "assigned_user_count": 490
+      "assigned_user_count": 489
     },
     {
       "name": "PCS Demo - JIT Requester",
       "role_type": "JIT Requester",
       "account_group_count": 0,
-      "assigned_user_count": 490
+      "assigned_user_count": 489
     },
     {
       "name": "PCS-Demo-Developer-Role",
@@ -893,7 +893,7 @@
       "name": "pcs-demo-tanzu-role",
       "role_type": "pcs-demo-tanzu-pgrp",
       "account_group_count": 82,
-      "assigned_user_count": 2
+      "assigned_user_count": 3
     },
     {
       "name": "pcs-lab-role-cspm",
@@ -995,6 +995,12 @@
       "name": "test-stoyko",
       "role_type": "JIT Admin",
       "account_group_count": 0,
+      "assigned_user_count": 0
+    },
+    {
+      "name": "test_rahul_yadav",
+      "role_type": "pcs-demo-tanzu-pgrp",
+      "account_group_count": 236,
       "assigned_user_count": 0
     },
     {
@@ -1535,7 +1541,7 @@
       "id": "01fb67c90252",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
-      "role_count": 3
+      "role_count": 2
     },
     {
       "id": "0203f90b121d",
