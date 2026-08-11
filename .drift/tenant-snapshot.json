@@ -1,11 +1,11 @@
 {
   "counts": {
-    "roles": 167,
-    "roles_unassigned": 72,
-    "users": 846,
-    "users_enabled": 846,
-    "users_disabled": 0,
-    "service_accounts": 207,
+    "roles": 170,
+    "roles_unassigned": 75,
+    "users": 848,
+    "users_enabled": 847,
+    "users_disabled": 1,
+    "service_accounts": 208,
     "permission_groups": 62,
     "integrations": 142,
     "reports": 291,
@@ -314,6 +314,12 @@
       "assigned_user_count": 0
     },
     {
+      "name": "MadhuVAImage",
+      "role_type": "System Admin",
+      "account_group_count": 0,
+      "assigned_user_count": 0
+    },
+    {
       "name": "Marc's Image Analysis Sandbox Role",
       "role_type": "jw-appsec",
       "account_group_count": 0,
@@ -341,7 +347,7 @@
       "name": "NYC-OTI-ruben-test SVC",
       "role_type": "Ruben-PG",
       "account_group_count": 0,
-      "assigned_user_count": 3
+      "assigned_user_count": 2
     },
     {
       "name": "PC Training Testing",
@@ -485,7 +491,7 @@
       "name": "System Admin",
       "role_type": "System Admin",
       "account_group_count": 0,
-      "assigned_user_count": 707
+      "assigned_user_count": 709
     },
     {
       "name": "Temp-Prisma-Cloud-RO",
@@ -528,6 +534,12 @@
       "role_type": "Test-role-update",
       "account_group_count": 80,
       "assigned_user_count": 2
+    },
+    {
+      "name": "TestAccount_Madhu",
+      "role_type": "System Admin",
+      "account_group_count": 0,
+      "assigned_user_count": 0
     },
     {
       "name": "TestMiguel",
@@ -881,7 +893,7 @@
       "name": "pcs-demo-tanzu-role",
       "role_type": "pcs-demo-tanzu-pgrp",
       "account_group_count": 82,
-      "assigned_user_count": 2
+      "assigned_user_count": 3
     },
     {
       "name": "pcs-lab-role-cspm",
@@ -983,6 +995,12 @@
       "name": "test-stoyko",
       "role_type": "JIT Admin",
       "account_group_count": 0,
+      "assigned_user_count": 0
+    },
+    {
+      "name": "test_rahul_yadav",
+      "role_type": "pcs-demo-tanzu-pgrp",
+      "account_group_count": 236,
       "assigned_user_count": 0
     },
     {
@@ -1523,7 +1541,7 @@
       "id": "01fb67c90252",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
-      "role_count": 3
+      "role_count": 2
     },
     {
       "id": "0203f90b121d",
@@ -2960,6 +2978,12 @@
       "role_count": 1
     },
     {
+      "id": "4fcad63758d9",
+      "account_type": "USER_ACCOUNT",
+      "enabled": true,
+      "role_count": 3
+    },
+    {
       "id": "502d248833dc",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
@@ -3832,7 +3856,7 @@
     {
       "id": "73e30ce287c4",
       "account_type": "SYSTEM_ACCOUNT",
-      "enabled": true,
+      "enabled": false,
       "role_count": 1
     },
     {
@@ -5309,7 +5333,7 @@
       "id": "c2907349881f",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
-      "role_count": 4
+      "role_count": 3
     },
     {
       "id": "c29ff817808c",
@@ -6009,6 +6033,12 @@
     },
     {
       "id": "e51806769a14",
+      "account_type": "SERVICE_ACCOUNT",
+      "enabled": true,
+      "role_count": 1
+    },
+    {
+      "id": "e53e6676425f",
       "account_type": "SERVICE_ACCOUNT",
       "enabled": true,
       "role_count": 1
