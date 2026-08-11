@@ -151,6 +151,20 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
     parameter is **`pageToken`**. Sending the former back returns HTTP 200 and
     re-serves page one — a silent infinite loop. Same silent-ignore family as
     the filter bug below.
+- **Scoping by a COMPUTE collection (raised in review).** Workflow 6 resolves a
+  CSPM collection to its cloud accounts, which is unusable for a customer that
+  onboards no cloud accounts — and the Compute "Access Group (RBAC)" collections
+  a Resource List spawns **do not exist on the CSPM side at all** (0 of 46).
+  2,056 of 2,186 Compute collections are `accountIDs: ["*"]`, so the account hop
+  yields no scope by construction.
+  - Good news: the Compute API **does** have a real `?collections=` filter, and
+    unlike CSPM it **fails closed** (a bad name returns 0, not everything).
+  - Fix is a **sibling module**, not a new input: different host, auth, and
+    scoping semantics, and the counts are not comparable to CSPM alerts.
+  - Trap: the parameter is plural. `collection=` is silently ignored and returns
+    the full unfiltered set.
+  - Details in
+    [`compute-collection-scoping-findings.md`](compute-collection-scoping-findings.md).
 - **Alert trends.** Deliberately NOT folded into drift detection: alert counts
   moved 8764 → 8920 within one session, which would drown the drift baseline in
   noise. A trend chart is a separate time-series concern.
@@ -161,6 +175,25 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
   Both were found by measurement, and both produce plausible-looking wrong
   numbers. Details in
   [`alerts-by-collection-findings.md`](alerts-by-collection-findings.md).
+
+### Policy escalation (alert-only → blocking)
+
+Researched, not built. Full findings in
+[`policy-escalation-findings.md`](policy-escalation-findings.md).
+
+- **Vulnerability policies need no state tracker.** `graceDays` is a native
+  per-rule grace timer — set it at rule-creation time and the platform enforces
+  the deadline. Building a cron-driven tracker would be a worse reimplementation.
+- **Runtime policies have no equivalent**, and the gap is semantic: a vuln is
+  *state* (a CVE present until patched), a runtime finding is an *event*. There
+  is no "unresolved" to age. Escalating them means flipping ~15 independent
+  effect knobs — a policy decision, and production-affecting.
+- **Incidents, not audits**, are the only runtime objects with resolvable state.
+- **No durable history required** — server-side age filters answer "still open
+  after N days" directly, which matters given there is no backend (see below).
+- **Any escalation step stays human-gated.** For vulns the platform enforces the
+  timer; for runtime *our runner would be* the enforcement, so a silent failure
+  means either a deadline that never arrives or blocking with no warning sent.
 
 ### Deliberately not recommended
 

@@ -365,15 +365,41 @@ that is a separate time-series concern, not a drift baseline.
 
 ---
 
+## 6. FOLLOW-UP: this covers CSPM collections only
+
+Everything above concerns **CSPM** collections. A later review surfaced that
+Prisma has a **second, unrelated** collection system in Compute, and the
+"Access Group (RBAC)" collections spawned by a Resource List live only there —
+**0 of the 46 CSPM collections are of that kind.**
+
+Two consequences for anyone reusing §4b:
+
+1. **The account hop does not generalise.** 2,056 of 2,186 Compute collections
+   are `accountIDs: ["*"]` and express their real scope through `namespaces` /
+   `clusters`. Resolving them to accounts yields no scope.
+2. **Compute does not need the workaround.** `GET /api/v1/audits/incidents`
+   accepts a real `?collections=` filter, and it **fails closed** — a bad name
+   returns 0 rather than the full set. The silent-drop trap in §1 is a CSPM
+   behaviour, not a universal one.
+
+See
+[`compute-collection-scoping-findings.md`](compute-collection-scoping-findings.md).
+
+---
+
 ## Summary
+
+> **Scope of this document: CSPM only.** Compute has a separate collection
+> system that behaves differently — see §6.
 
 | Question | Answer |
 |---|---|
-| Can the alert API filter by collection directly? | **No** — no such filter exists |
+| Can the **CSPM** alert API filter by collection directly? | **No** — no such filter exists (Compute's *can*, see §6) |
 | Can we do it ourselves by combining calls? | **Yes** — a collection is just `assetGroups`; resolve it, then filter by account (§4b) |
-| Does the API reject an invalid filter? | **No** — silently ignored, returns everything |
+| Does the API reject an invalid filter? | **No** — silently ignored, returns everything (CSPM; Compute fails closed) |
 | Use the `prismacloud_alerts` data source? | **Yes** — filters correctly; use `limit = 1` and read `total` |
 | Do we need scripts? | **No** for counts. Only if per-alert resource detail is required |
 | Do Compute incidents appear here? | **Yes** — `workload_incident`, `workload_vulnerability` |
 | What scopes a team's alerts? | `cloud.accountId` / `account.group`, **not** `alertRule.name` |
+| Does this work for a Compute Access Group collection? | **No** — those are Compute-only objects; see §6 |
 | Include alerts in drift detection? | **No** — too high-churn |
