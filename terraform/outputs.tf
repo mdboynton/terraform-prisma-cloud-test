@@ -281,3 +281,34 @@ output "alert_summary_detail_status" {
   description = "not_requested | no_scope | missing_credentials | ok. An empty row list means nothing was fetched, which is not the same as there being no alerts - branch on this."
   value       = module.alert_summary.detail_status
 }
+
+# ----------------------------------------------------------------
+# Compute alert summary (read-only).
+#
+# These count DIFFERENT OBJECTS from the alert_summary_* outputs above - runtime
+# incidents and image vulnerabilities, not CSPM alerts. They are not comparable
+# and must never be summed together.
+#
+# As above, `compute_alert_summary_status` is the value a workflow must branch
+# on: a failed `check` does not fail the plan and is absent from plan JSON.
+# ----------------------------------------------------------------
+
+output "compute_alert_summary" {
+  description = "Compute finding counts for the configured Compute collection, with the tenant-wide totals that produced them."
+  value       = module.compute_alert_summary.summary
+}
+
+output "compute_alert_summary_status" {
+  description = "ok | disabled | missing_credentials | tenant_wide_scope | partial_image_scan. Branch on this, not on the exit code."
+  value       = module.compute_alert_summary.status
+}
+
+output "compute_alert_summary_status_detail" {
+  description = "Human-readable explanation of compute_alert_summary_status. Null when ok."
+  value       = module.compute_alert_summary.status_detail
+}
+
+output "compute_alert_summary_scope" {
+  description = "How the Compute collection was applied, for troubleshooting an unexpected count."
+  value       = module.compute_alert_summary.scope
+}

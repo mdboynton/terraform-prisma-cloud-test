@@ -167,6 +167,34 @@ module "alert_summary" {
   secret_key = var.prisma_cloud_secret_key
 }
 
+# ----------------------------------------------------------------
+# Compute alert summary (read-only) - finding counts scoped to a COMPUTE
+# collection.
+#
+# The sibling of alert_summary above, NOT a replacement. That module answers
+# "how many CSPM alerts for this CSPM collection"; this one answers "how many
+# runtime incidents and image vulnerabilities for this COMPUTE collection".
+#
+# Both exist because Prisma has two unrelated collection systems, and the
+# "<name> - Access Group (RBAC)" collections a Resource List spawns live only on
+# the Compute side. A tenant that onboards no cloud accounts cannot be scoped by
+# the CSPM module at all. The counts are NOT comparable - different objects.
+# ----------------------------------------------------------------
+module "compute_alert_summary" {
+  source = "./modules/compute-alert-summary"
+
+  enabled         = var.compute_alert_summary_enabled
+  collection_name = var.compute_alert_summary_collection_name
+  max_images      = var.compute_alert_summary_max_images
+
+  # The script calls the Compute REST API directly, so it needs credentials
+  # explicitly - it cannot read the prismacloudcompute provider block.
+  console_url     = var.prisma_compute_console_url
+  access_key      = var.prisma_cloud_access_key
+  secret_key      = var.prisma_cloud_secret_key
+  skip_cert_check = coalesce(var.prisma_compute_skip_cert_verification, false)
+}
+
 module "tenant_inventory" {
   source = "./modules/tenant-inventory"
 

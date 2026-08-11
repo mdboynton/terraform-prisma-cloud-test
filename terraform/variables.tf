@@ -341,3 +341,33 @@ variable "alert_summary_detail_limit" {
   default     = 500
   nullable    = false
 }
+
+# ----------------------------------------------------------------
+# Compute alert summary (read-only).
+#
+# Deliberately separate from the alert_summary_* variables above: these scope a
+# COMPUTE collection, which is a different object in a different system. Reusing
+# one variable for both would invite passing a CSPM collection name here, which
+# fails rather than silently mis-scoping - but the confusion is worth avoiding
+# in the first place.
+# ----------------------------------------------------------------
+
+variable "compute_alert_summary_enabled" {
+  description = "(Optional) Read Compute finding counts (runtime incidents + image vulnerabilities) for a Compute collection. Default false so other workflows pay nothing for it."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "compute_alert_summary_collection_name" {
+  description = "(Optional) Name of the COMPUTE collection to scope to, e.g. \"team-alpha-resource-list - Access Group (RBAC)\". Required when compute_alert_summary_enabled is true. Exact-match and case-sensitive; this is not a CSPM Collection name."
+  type        = string
+  default     = null
+}
+
+variable "compute_alert_summary_max_images" {
+  description = "(Optional) Cap on images fetched for the CVE severity rollup. Incident and image COUNTS are unaffected; only the severity totals are summed from the images fetched."
+  type        = number
+  default     = 1000
+  nullable    = false
+}
