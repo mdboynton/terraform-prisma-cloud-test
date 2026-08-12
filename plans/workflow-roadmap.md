@@ -151,18 +151,26 @@ The CSPM provider exposes **56 data sources**; we use 7. The gap below is mostly
     parameter is **`pageToken`**. Sending the former back returns HTTP 200 and
     re-serves page one — a silent infinite loop. Same silent-ignore family as
     the filter bug below.
-- **Scoping by a COMPUTE collection (raised in review).** Workflow 6 resolves a
-  CSPM collection to its cloud accounts, which is unusable for a customer that
+- ~~**Scoping by a COMPUTE collection (raised in review).**~~ **DONE** —
+  shipped as **workflow 7** + the `compute-alert-summary` module, a sibling of
+  workflow 6 rather than a parameter on it. Workflow 6 resolves a CSPM
+  collection to its cloud accounts, which is unusable for a customer that
   onboards no cloud accounts — and the Compute "Access Group (RBAC)" collections
   a Resource List spawns **do not exist on the CSPM side at all** (0 of 46).
   2,056 of 2,186 Compute collections are `accountIDs: ["*"]`, so the account hop
   yields no scope by construction.
-  - Good news: the Compute API **does** have a real `?collections=` filter, and
-    unlike CSPM it **fails closed** (a bad name returns 0, not everything).
-  - Fix is a **sibling module**, not a new input: different host, auth, and
-    scoping semantics, and the counts are not comparable to CSPM alerts.
+  - The Compute API **does** have a real `?collections=` filter, and unlike CSPM
+    it **fails closed** (a bad name returns 0, not everything).
+  - Compute collections have **no id** — the name IS the identifier, and the
+    filter is exact-match and case-sensitive. The module resolves the name
+    against `/api/v1/collections` first and fails with a suggestion on a case
+    mismatch.
   - Trap: the parameter is plural. `collection=` is silently ignored and returns
     the full unfiltered set.
+  - `/stats/vulnerabilities` was rejected on measurement: stale by a month, and
+    it returned **all zeros** for a collection with 38 genuine critical CVEs.
+    The module pages `/images` (capped at 100/page, ~48 MB reduced to ~14 KB per
+    page) and sums instead.
   - Details in
     [`compute-collection-scoping-findings.md`](compute-collection-scoping-findings.md).
 - **Alert trends.** Deliberately NOT folded into drift detection: alert counts

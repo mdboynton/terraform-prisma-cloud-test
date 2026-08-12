@@ -129,3 +129,47 @@ flowchart LR
 - On the gated `apply`, the module `GET`s the policy, appends the collection to the matched
   rule's `collections` (idempotent, preserving all existing collections and fields), and
   `PUT`s the exact object back — so only the targeted scoping changes.
+
+## [`compute-alert-summary`](terraform/modules/compute-alert-summary)
+
+Counts runtime incidents and image CVEs for one **Compute** collection. Read-only by
+construction: `data` blocks only, so a plan has zero resource changes.
+
+It is the **sibling** of [`alert-summary`](terraform/modules/alert-summary), which counts
+**CSPM alerts** in a **CSPM Collection**. Prisma has two unrelated collection systems, and
+these two modules read one each — the Compute `- Access Group (RBAC)` collections an RBAC
+Resource List spawns do not exist on the CSPM side at all. **Their counts describe
+different objects and must never be added together.**
+
+```mermaid
+flowchart LR
+    RBAC["RBAC module"] -.->|"auto-spawns"| COL["Compute collection<br/>&lt;team&gt; - Access Group (RBAC)"]
+    NAME["workflow input<br/>collection_name"] --> M["compute-alert-summary<br/>(data.external → summary.sh)"]
+    COL -.->|"name, copied by hand"| NAME
+
+    subgraph ComputeConsole["Compute Console (Twistlock)"]
+        LIST["GET /api/v1/collections"]
+        INC["GET /api/v1/audits/incidents<br/>?collections=&lt;name&gt;"]
+        IMG["GET /api/v1/images<br/>?collections=&lt;name&gt; (100/page)"]
+    end
+
+    M -->|"1 · resolve name, else FAIL"| LIST
+    M -->|"2 · count (+ unacked)"| INC
+    M -->|"3 · page & reduce, sum CVEs"| IMG
+    M --> OUT["status + counts<br/>ok / disabled / missing_credentials /<br/>tenant_wide_scope / partial_image_scan"]
+```
+
+### Flow
+
+- The admin copies the collection name from the Compute console — Compute collections have
+  **no id**, the name is the identifier, and the filter is exact-match and case-sensitive.
+- The script resolves that name against the collection list **first** and fails with a
+  suggestion on a case mismatch, rather than querying and returning a plausible wrong
+  number. An empty name is refused: an absent filter returns the whole tenant.
+- Incident and image counts come from server-side totals. The CVE severity rollup pages
+  `/images` and reduces each page before fetching the next (~48 MB → ~14 KB), capped by
+  `max_images`; when the cap is hit the run reports `partial_image_scan` and says the
+  severity numbers are a sample.
+- The workflow branches on the `status` output, never on the exit code: a failing `check`
+  does not fail a plan, and `terraform show -json` omits check results from a plan file
+  entirely.

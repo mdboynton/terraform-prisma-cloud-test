@@ -22,7 +22,7 @@ name: 7. Compute Alert Summary (read-only)
 # Docs: .github/workflows/compute-alert-summary/README.md
 #
 # Required repository secrets:
-#   PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD, PRISMACLOUD_COMPUTE_CONSOLE_URL
+#   PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD, PRISMA_COMPUTE_CONSOLE_URL
 
 on:
   workflow_dispatch:
@@ -59,7 +59,7 @@ env:
   # The Compute Console URL must include any path segment the tenant requires
   # (e.g. https://<region>.cloud.twistlock.com/<id>). Stripping it yields a
   # successful-looking auth call that returns an empty token.
-  TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMACLOUD_COMPUTE_CONSOLE_URL }}
+  TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
 
@@ -309,7 +309,7 @@ jobs:
             echo "|---|---|"
             echo "| \`no Compute collection named ...\` | The name must match the Compute console exactly. The filter is **case-sensitive** - the error suggests the correct casing when it can find one. |"
             echo "| \`did you mean ...\` | Copy the suggested name verbatim. |"
-            echo "| \`authentication returned no token\` | \`PRISMACLOUD_COMPUTE_CONSOLE_URL\` must include the path segment (e.g. \`/us-2-158320372\`), not just the hostname. |"
+            echo "| \`authentication returned no token\` | \`PRISMA_COMPUTE_CONSOLE_URL\` must include the path segment (e.g. \`/us-2-158320372\`), not just the hostname. |"
             echo "| Authentication errors | The \`PRISMACLOUD_*\` repository secrets may be missing or expired. |"
             echo "| Timed out | Lower \`max_images\`, or re-run if the tenant is rate limiting. |"
             echo "| Looking for a CSPM Collection? | This workflow reads **Compute** collections. Use workflow 6 for CSPM Collections - they are different objects. |"

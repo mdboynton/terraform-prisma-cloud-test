@@ -12,6 +12,13 @@ Raised by a colleague reviewing workflow 5 (`alert-summary`, read-only):
 He is right. This document records what was verified against the live tenant,
 and why the fix is a sibling module rather than a new input.
 
+> **STATUS: SHIPPED.** Built as the
+> [`compute-alert-summary`](../terraform/modules/compute-alert-summary/README.md)
+> module and **workflow 7**
+> ([guide](../.github/workflows/compute-alert-summary/README.md)). The findings
+> below are what the implementation is built on; two of them changed the design
+> during the build and are recorded in §3 and §5.
+
 All figures below were measured, not assumed. They come from one tenant and are
 a mix of **product behaviour** (portable) and **tenant contents** (not
 portable); each section says which.
@@ -177,6 +184,60 @@ scope. Worth saying plainly rather than letting "alerts" imply both.
 
 ---
 
+## 5. What changed during the build
+
+Two findings emerged only once the module was written, and both altered the
+design from what §4 recommended. Recorded here because either one would
+otherwise be rediscovered the hard way.
+
+### Compute collections have no id — the name IS the identifier [product]
+
+Every CSPM object in this repo is addressed by an `id`. Compute collections have
+no such field: `name` is the primary key. In the reference tenant all 2,186
+names are unique, and the API filter is **exact-match and case-sensitive**.
+
+Consequences, all implemented:
+
+- The module takes `collection_name`, not an id — there is nothing else to take.
+- It resolves the name against `/api/v1/collections` **before** querying, and
+  hard-fails when there is no exact match, suggesting the right casing when a
+  case-insensitive match exists.
+- An empty name is refused outright. An absent filter does not return "nothing",
+  it returns the whole tenant — reporting 14,409 tenant-wide incidents as one
+  team's number is worse than any failure.
+
+### `/stats/vulnerabilities` is unusable — do not reach for it [product]
+
+It is the obvious endpoint for a severity rollup and it is wrong in two
+independent ways:
+
+| Check | Result |
+|---|---|
+| Freshness | Served a document stamped `_id: 2026-07-13` on **2026-08-11** |
+| Correctness when scoped | Returned **all zeros** for a collection with 38 genuine critical CVEs (unfiltered: 166) |
+
+A summary endpoint that reports zero findings for a collection that has real
+ones is worse than no endpoint, because the answer looks like good news. It was
+caught only by cross-checking against `/images`.
+
+The module pages `/images` and sums per page instead. Supporting measurements:
+
+- `limit` caps at 100; `limit=500` returns HTTP 400 with no partial data.
+- A page of 100 is ~48 MB on the wire, so each page is reduced with `jq` before
+  the next is fetched: 47,965,863 → 14,260 bytes measured.
+- The `fields=` parameter is **not** supported here — it returns
+  `{"err":"unknown filtering field _id"}`, a 37-byte response that would
+  otherwise look like a successful empty result.
+
+### Also worth knowing
+
+- Compute runtime incidents carry `category`, **not** `severity` — there is no
+  severity breakdown for incidents, only for image CVEs.
+- CVE counts are **instances, not affected images**: one image with three
+  critical CVEs contributes three.
+
+---
+
 ## Summary
 
 | Question | Answer |
@@ -188,3 +249,6 @@ scope. Worth saying plainly rather than letting "alerts" imply both.
 | Can Compute findings be scoped by collection? | **Yes** — `?collections=` works and fails closed |
 | Fix as a new input to workflow 5? | **No** — different API/auth/semantics; build a sibling module |
 | Biggest trap | `collection=` (singular) is silently ignored; use `collections=` |
+| Runner-up trap | `/stats/vulnerabilities` returns stale data, and zeros for a scoped query with real findings |
+| How is a Compute collection addressed? | By **name** — there is no id, and the match is case-sensitive |
+| Built? | **Yes** — `compute-alert-summary` module + workflow 7 |

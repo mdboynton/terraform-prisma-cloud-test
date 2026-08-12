@@ -1,6 +1,6 @@
 # CI Workflows
 
-Six workflows, one per area of Prisma Cloud configuration. Each has its own
+Seven workflows, one per area of Prisma Cloud configuration. Each has its own
 step-by-step guide in the folder beside it.
 
 | # | Workflow | Purpose | Changes the tenant? | Guide |
@@ -11,6 +11,7 @@ step-by-step guide in the folder beside it.
 | 4 | [`access-audit.yml`](access-audit.yml) | Audit roles, users and permission groups; surface the rows a review acts on | **No** — read-only by construction | [access-audit/README.md](access-audit/README.md) |
 | 5 | [`drift-detection.yml`](drift-detection.yml) | Daily "did anything change in the tenant?" check; opens an issue when it did | **No** — only commits a snapshot to this repo | [drift-detection/README.md](drift-detection/README.md) |
 | 6 | [`alert-summary.yml`](alert-summary.yml) | Count alerts for a CSPM Collection by severity, and list the critical ones | **No** — read-only by construction | [alert-summary/README.md](alert-summary/README.md) |
+| 7 | [`compute-alert-summary.yml`](compute-alert-summary.yml) | Count Compute runtime incidents and image CVEs for a **Compute** collection | **No** — read-only by construction | [compute-alert-summary/README.md](compute-alert-summary/README.md) |
 
 ## Which one do I want?
 
@@ -20,6 +21,19 @@ step-by-step guide in the folder beside it.
 - **Reviewing who has access — stale accounts, unassigned roles** → workflow 4
 - **Finding out what changed since yesterday, including console-made changes** → workflow 5
 - **Seeing how many alerts a team's collection has** → workflow 6
+- **Seeing a team's Compute runtime incidents and image CVEs** → workflow 7
+
+### 6 or 7?
+
+They read **two unrelated collection systems**, and the numbers are not
+comparable — never add one to the other.
+
+- The collection is in **Compute → Manage → Collections**, or its name ends in
+  `- Access Group (RBAC)` → **workflow 7**
+- The collection is in **Settings → Collections** and you want posture alerts →
+  **workflow 6**
+- The tenant has **no cloud accounts onboarded** → workflow 6 has nothing to
+  scope by; use **workflow 7**
 
 ## Rules that apply to all of them
 
@@ -27,8 +41,8 @@ step-by-step guide in the folder beside it.
 - **Pushing never applies.** Pushes and PRs run plan only.
 - **Apply is deliberate.** It requires a manual run with `apply` checked, *plus*
   approval on the `test-tenant` Environment. Two separate actions.
-- **Workflows 3, 4, 5 and 6 have no apply at all** — their modules contain zero
-  `resource` blocks, so there is nothing to gate.
+- **Workflows 3, 4, 5, 6 and 7 have no apply at all** — their modules contain
+  zero `resource` blocks, so there is nothing to gate.
 
 ## Why they're separate
 
@@ -47,7 +61,7 @@ change-capable pipeline.
 | `PRISMACLOUD_API_URL` | all | e.g. `api.prismacloud.io` |
 | `PRISMACLOUD_USERNAME` | all | Access key UUID |
 | `PRISMACLOUD_PASSWORD` | all | Secret key |
-| `PRISMA_COMPUTE_CONSOLE_URL` | 2 | **Include the path prefix**, e.g. `https://us-east1.cloud.twistlock.com/us-2-158320372` |
+| `PRISMA_COMPUTE_CONSOLE_URL` | 1, 2, 7 | **Include the path prefix**, e.g. `https://us-east1.cloud.twistlock.com/us-2-158320372`. Without it, auth "succeeds" and returns an empty token. |
 
 **Environment** — create **`test-tenant`** (Settings → Environments) with a
 **required reviewer**. This is the approval gate for workflows 1 and 2. Without
