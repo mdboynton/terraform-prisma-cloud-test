@@ -197,8 +197,20 @@ Researched, not built. Full findings in
   is no "unresolved" to age. Escalating them means flipping ~15 independent
   effect knobs — a policy decision, and production-affecting.
 - **Incidents, not audits**, are the only runtime objects with resolvable state.
-- **No durable history required** — server-side age filters answer "still open
-  after N days" directly, which matters given there is no backend (see below).
+- **Measure recurrence, not age (decided).** A runtime incident is an event that
+  never closes and never ages out, so "unresolved for N days" trends toward
+  *everything ever recorded* and really only measures whether anyone clicked.
+  The digest instead reports rules **still producing incidents** in a window.
+- **Read the promoted CSPM alert, not the raw Compute incident (decided).** A
+  `workload_incident` alert carries `metadata.auditRuleName` (the runtime rule)
+  and `auditCount` (occurrences) **plus** the full dismissal lifecycle. The raw
+  incident's only state is an unattributed `acknowledged` boolean — no actor, no
+  note, no expiry — and `acknowledge` is the *only* write route that exists.
+  This also keeps the digest on one API and one auth path.
+- **No durable history required** — server-side window filters answer it
+  directly, which matters given there is no backend (see below).
+- ⚠️ **Open, and load-bearing:** does escalating a rule to Prevent/Block stop
+  incident creation? If not, "still firing" never clears after escalation.
 - **Any escalation step stays human-gated.** For vulns the platform enforces the
   timer; for runtime *our runner would be* the enforcement, so a silent failure
   means either a deadline that never arrives or blocking with no warning sent.

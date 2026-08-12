@@ -337,25 +337,74 @@ fallback recipient.
 
 ## 9. Recommended shape (not yet built)
 
+> **Workflow numbering updated 2026-08-12.** Workflow 7 is now the shipped
+> `compute-alert-summary`. The digest below is **workflow 8** and the gated
+> escalator is **workflow 9**.
+
 Separate workflows — workflow 6 stays read-only and safe to run at will; these
 send mail and eventually change enforcement.
 
 ```
 Workflow 6 (alert-summary, unchanged)  --artifact--> context/enrichment only
-Workflow 7 (grace-digest, scheduled)   --> incidents acknowledged=false,
-                                           to = now - grace_days
-                                       --> group by (type, ruleName, accountID)
+Workflow 8 (grace-digest, scheduled)   --> promoted workload_incident alerts
+                                       --> group by auditRuleName + type + account
+                                       --> count occurrences in the window
                                        --> resolve account -> team -> channel
                                        --> emit escalation-candidates.json
-Workflow 8 (runtime-escalate, GATED)   --> read-merge-write, named knobs only
+Workflow 9 (runtime-escalate, GATED)   --> read-merge-write, named knobs only
 ```
 
-**The alert artifact cannot be the trigger.** `workload_incident` CSPM alerts
-exist (112 open) and their `resource.id` is the container ID that joins to
-Compute incidents — but they carry no `acknowledged` and no `ruleName`, the two
-fields the decision needs. Workflow 7 must query Compute directly.
+> ### ⚠️ CORRECTED 2026-08-12 — the claim below was WRONG
+>
+> It previously read: *"The alert artifact cannot be the trigger… they carry no
+> `acknowledged` and no `ruleName`… Workflow 7 must query Compute directly."*
+>
+> **The `ruleName` half is false.** With `detailed=true`, every promoted
+> `workload_incident` alert carries a `metadata` block containing
+> **`auditRuleName`** — the runtime rule — on **50/50** sampled alerts.
+>
+> The error: I searched for Compute's field name (`ruleName`) at the top level.
+> CSPM **renames** it to `auditRuleName` and nests it under `metadata`. Same
+> class of mistake as `nextPageToken` vs `pageToken` — a renamed field read as
+> an absent one. Grep the whole payload before concluding a field is missing.
+
+**The promoted alert is the source of truth** (decided with the requester: the
+customer environment promotes runtime incidents by design, because the policies
+are configured that way).
+
+`metadata` on a promoted `workload_incident` alert — coverage out of 50 sampled:
+
+| field | coverage | use |
+|---|---|---|
+| `auditRuleName` | 50/50 | **the runtime rule** — the escalation target |
+| `auditCount` | 50/50 | **occurrence count** — the recurrence signal |
+| `lastIncidentTime` | 50/50 | advances on recurrence (unlike the inert `lastSeen`) |
+| `auditTime`, `auditType`, `incidentCategory` | 50/50 | when / what kind |
+| `auditMessage` | 50/50 | human-readable detail for the digest |
+| `auditUser`, `auditAttackTechniques` | 44/50, 43/50 | actor, MITRE mapping |
+| `cveCritical/High/Medium/Low` | 50/50 | vulnerability context on the same object |
+
+This gives **one API and one auth path** — the same `/v2/alert` endpoint
+workflow 6 already uses — plus the full CSPM lifecycle (`dismissedBy`,
+`dismissalNote`, `dismissalUntilTs`, `history[]`) that the discharge rule
+depends on. The raw Compute incident has none of that: `acknowledged` is its
+only state field, and it records no actor, no note and no expiry.
+
+### Promotion is one-to-one, not aggregation [product]
+
+`auditCount` is **1 on 99 of 100** sampled alerts (max 2, sum 101). A promoted
+alert corresponds to an incident; it does not roll many into one.
+
+**[tenant]** The sandbox holds 341 promoted alerts against 14,410 Compute
+incidents dating back to Jan 2024, and its newest promoted alert lagged the
+newest incident by ~13 days. Recorded as a lab artifact of an unmaintained
+environment, **not** as product behaviour. But if a customer digest ever looks
+implausibly quiet, re-check this first — it is the assumption whose failure
+would hide a live problem.
 
 ### Discharge rule (decided)
+
+Evaluated against the **promoted alert**, which is what carries these fields.
 
 | signal | effect |
 |---|---|
@@ -372,7 +421,26 @@ does.
 Make this **configurable per team** in `teams.yaml` rather than hard-coded — a
 mature team may earn looser terms; a new one should not get them by default.
 
-### ⚠️ Workflow 8 must stay human-gated (confirmed with requester)
+### Measure RECURRENCE, not age (decided 2026-08-12)
+
+The original ask was "escalate if unresolved for 14 days." For a *vulnerability*
+that is coherent — the CVE is present until patched. For a runtime *event* it is
+not: the event happened, and **no API call makes it un-happen**. There is no
+"resolved" state on a runtime incident to age against.
+
+**[product]** Incidents are timestamped events that never close and never age
+out of the store, so "older than N days" trends toward *everything ever
+recorded* in any long-lived tenant. Age therefore measures **whether anyone
+clicked**, not whether the risk persists. (Observed in the sandbox: 14,398 of
+14,410 incidents were already older than 14 days. The ratio is **[tenant]**; the
+mechanism producing it is **[product]**.)
+
+The digest instead groups by **`auditRuleName` + `type` + account** and reports
+rules **still producing incidents** inside the window, with occurrence counts.
+A fixed workload stops firing, so the signal clears itself — which means the
+report-only stage needs no discharge vocabulary at all.
+
+### ⚠️ Workflow 9 must stay human-gated (confirmed with requester)
 
 For vuln policies, `graceDays` is enforced by the **platform** — if our runner
 dies, blocking still happens on day 14. For runtime, **the runner IS the
@@ -392,6 +460,41 @@ totallyFakeParam=zzz  -> Total-Count 14,409 <- unknown params ignored entirely
 Same silent-ignore class as the CSPM alerts API. Assert the filtered count
 differs from the unfiltered baseline.
 
+### Compute incidents endpoint — mechanics confirmed 2026-08-12 [product]
+
+Recorded even though the digest reads CSPM, because the escalator (workflow 9)
+will need the Compute side.
+
+| Behaviour | Detail |
+|---|---|
+| `limit` | **caps at 100**; `limit=200` → HTTP 400, same as `/images` |
+| `offset` | **works** — walks the full set |
+| `page` | **silently ignored** — returns page one. Another rename trap |
+| `from=` / `to=` | honoured; a 14-day `to=` yielded a set with min age exactly 14d |
+| `type=` | honoured; `type=BOGUS` → 0 (fails closed) |
+| Token lifetime | **short** — both CSPM and Compute tokens expired mid-spike. Long runs must re-authenticate rather than assume an empty result means "no data" |
+
+### Only ONE incident write route exists [product]
+
+Probed with a valid-shaped but nonexistent ObjectId, so nothing real was
+touched. The real route returns a *specific* error; absent routes return an
+empty 404:
+
+```
+PATCH /audits/incidents/acknowledge/{id}  -> {"err":"incident ... not found"}  ROUTE EXISTS
+PATCH /audits/incidents/{unacknowledge|dismiss|resolve|archive|note}/{id} -> 404 empty
+PUT | PATCH | DELETE /audits/incidents/{id}                               -> 404 empty
+```
+
+**There is no dismiss, resolve, archive, note or unacknowledge route for a
+Compute incident.** Acknowledgement is also **unattributed**: a field-by-field
+diff of acked vs unacked incidents shows identical schemas — no `acknowledgedBy`,
+no timestamp, no note. Contrast CSPM dismissal, which always records
+`dismissedBy` + `dismissalNote`.
+
+This is the concrete reason the promoted alert wins: **"who accepted this risk,
+and why?" is unanswerable from the Compute incident object.**
+
 ---
 
 ## Open questions
@@ -407,6 +510,15 @@ differs from the unfiltered baseline.
 5. **Baseline before enforcement** — run the digest report-only for one cycle and
    measure the customer's real dismissal/remediation behaviour. Lab statistics
    are not predictive; this report is itself valuable to an immature customer.
+6. **⚠️ Does Prevent/Block stop incident creation?** **Load-bearing and
+   unverified.** If a blocked action still emits an incident, "still firing"
+   never clears after escalation and the digest keeps nagging about a rule that
+   is already fixed. Every audit sampled had `effect: alert`, which proves
+   nothing in an alert-only tenant. **Settle before building workflow 9.**
+7. **`auditRuleName: "default"`** — 15 of 100 promoted alerts carry it, and it is
+   not one of the 145 named runtime rules (most likely the built-in learned
+   model). It cannot be escalated by name, so it needs separate handling or
+   explicit exclusion from the digest.
 
 ---
 
@@ -417,7 +529,9 @@ differs from the unfiltered baseline.
 | Does a native grace timer exist? | **Yes** for vuln policies (`graceDays`); **no** for runtime |
 | Build a 14-day state tracker for vulns? | **No** — set `graceDays: 14` at creation |
 | Can the provider express the vuln change? | **No** — schema lacks `blockThreshold` |
-| Can CSPM alerts drive escalation? | **No** — wrong grain, no `acknowledged`/`ruleName` |
+| Can CSPM alerts drive escalation? | **Yes — corrected 2026-08-12.** Promoted `workload_incident` alerts carry `metadata.auditRuleName` + `auditCount`; they are the chosen source of truth |
+| Age or recurrence? | **Recurrence** — incidents never close, so age trends toward "everything ever recorded" |
+| Can a Compute incident be dismissed or resolved via API? | **No** — `acknowledge` is the only write route, and it records no actor, note or expiry |
 | Audits or incidents for the countdown? | **Incidents** — audits have no resolvable state |
 | Need durable history? | **No** — server-side age filters answer it directly |
 | Do exception lists exist? | **Yes** in Compute (`cveRules` with expiry); **none** in CSPM |
