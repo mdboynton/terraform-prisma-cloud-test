@@ -2,13 +2,13 @@
   "counts": {
     "roles": 170,
     "roles_unassigned": 75,
-    "users": 850,
-    "users_enabled": 849,
+    "users": 851,
+    "users_enabled": 850,
     "users_disabled": 1,
     "service_accounts": 208,
     "permission_groups": 62,
-    "integrations": 144,
-    "reports": 292,
+    "integrations": 145,
+    "reports": 295,
     "trusted_login_ips": 3,
     "trusted_alert_ips": 27
   },
@@ -365,13 +365,13 @@
       "name": "PCS Demo - JIT Admin",
       "role_type": "JIT Admin",
       "account_group_count": 0,
-      "assigned_user_count": 492
+      "assigned_user_count": 493
     },
     {
       "name": "PCS Demo - JIT Requester",
       "role_type": "JIT Requester",
       "account_group_count": 0,
-      "assigned_user_count": 492
+      "assigned_user_count": 493
     },
     {
       "name": "PCS-Demo-Developer-Role",
@@ -491,7 +491,7 @@
       "name": "System Admin",
       "role_type": "System Admin",
       "account_group_count": 0,
-      "assigned_user_count": 711
+      "assigned_user_count": 712
     },
     {
       "name": "Temp-Prisma-Cloud-RO",
@@ -4524,6 +4524,12 @@
       "account_type": "USER_ACCOUNT",
       "enabled": true,
       "role_count": 1
+    },
+    {
+      "id": "9d87619b1b4e",
+      "account_type": "USER_ACCOUNT",
+      "enabled": true,
+      "role_count": 3
     },
     {
       "id": "9dd2aeb688a7",
