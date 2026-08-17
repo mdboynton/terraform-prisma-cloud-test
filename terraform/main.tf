@@ -195,6 +195,36 @@ module "compute_alert_summary" {
   skip_cert_check = coalesce(var.prisma_compute_skip_cert_verification, false)
 }
 
+# ----------------------------------------------------------------
+# Runtime grace digest (read-only) - which runtime rules are STILL FIRING?
+#
+# Reads promoted `workload_incident` CSPM alerts, so it uses the CSPM
+# credentials above, NOT the Compute Console. The promoted alert carries the
+# runtime rule name and occurrence count as well as the dismissal lifecycle;
+# the raw Compute incident carries only an unattributed `acknowledged` flag.
+#
+# Reports RECURRENCE, not age. A runtime finding is an event that never closes,
+# so "unresolved for N days" would select nearly everything ever recorded and
+# would only measure whether anyone clicked acknowledge.
+#
+# This is the report-only stage of the escalation pipeline. It sends nothing and
+# changes nothing. See plans/policy-escalation-findings.md.
+# ----------------------------------------------------------------
+module "runtime_grace_digest" {
+  source = "./modules/runtime-grace-digest"
+
+  enabled      = var.runtime_grace_digest_enabled
+  window_days  = var.runtime_grace_digest_window_days
+  max_alerts   = var.runtime_grace_digest_max_alerts
+  alert_status = var.runtime_grace_digest_alert_status
+
+  # The script calls the CSPM REST API directly, so it needs credentials
+  # explicitly - it cannot read the prismacloud provider block.
+  cspm_url   = var.prisma_cloud_api_url
+  access_key = var.prisma_cloud_access_key
+  secret_key = var.prisma_cloud_secret_key
+}
+
 module "tenant_inventory" {
   source = "./modules/tenant-inventory"
 

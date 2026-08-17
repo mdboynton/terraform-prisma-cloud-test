@@ -312,3 +312,36 @@ output "compute_alert_summary_scope" {
   description = "How the Compute collection was applied, for troubleshooting an unexpected count."
   value       = module.compute_alert_summary.scope
 }
+
+# ----------------------------------------------------------------
+# Runtime grace digest (read-only).
+#
+# As above, `runtime_grace_digest_status` is the value a workflow must branch
+# on — a failed check does not fail the plan, and check results do not appear
+# in plan JSON at all.
+# ----------------------------------------------------------------
+
+output "runtime_grace_digest" {
+  description = "Counts for the recurrence window, plus the all-time total for proportion. Null when disabled or uncredentialed — which is NOT the same as nothing firing."
+  value       = module.runtime_grace_digest.summary
+}
+
+output "runtime_grace_digest_status" {
+  description = "ok | disabled | missing_credentials | suspect_unfiltered | partial_grouping. Branch on this, not on the exit code."
+  value       = module.runtime_grace_digest.status
+}
+
+output "runtime_grace_digest_status_detail" {
+  description = "Human-readable explanation of runtime_grace_digest_status. Null when ok."
+  value       = module.runtime_grace_digest.status_detail
+}
+
+output "runtime_grace_digest_rules" {
+  description = "Runtime rules that produced incidents inside the window, grouped by rule + scope (container|host) + cloud account, ordered by occurrences. Excludes the built-in `default` model, which cannot be escalated by name."
+  value       = module.runtime_grace_digest.actionable_rules
+}
+
+output "runtime_grace_digest_scope" {
+  description = "How the digest was produced, for troubleshooting an unexpected count."
+  value       = module.runtime_grace_digest.scope
+}

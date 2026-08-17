@@ -371,3 +371,35 @@ variable "compute_alert_summary_max_images" {
   default     = 1000
   nullable    = false
 }
+
+# ----------------------------------------------------------------
+# Runtime grace digest (read-only) — which runtime rules are still firing?
+# ----------------------------------------------------------------
+
+variable "runtime_grace_digest_enabled" {
+  description = "(Optional) Report which runtime rules are still producing incidents. Default false so the module costs nothing in workflows that don't need it."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "runtime_grace_digest_window_days" {
+  description = "(Optional) Recurrence window in days. A rule that produced an incident inside this window is 'still firing'. This is NOT a grace timer: a runtime finding is an event that never closes, so age would select nearly everything ever recorded."
+  type        = number
+  default     = 14
+  nullable    = false
+}
+
+variable "runtime_grace_digest_max_alerts" {
+  description = "(Optional) Cap on alerts fetched for grouping. The window and tenant TOTALS are never capped by this; only the grouped rule table, which reports when it is incomplete."
+  type        = number
+  default     = 2000
+  nullable    = false
+}
+
+variable "runtime_grace_digest_alert_status" {
+  description = "(Optional) Which alert lifecycle state to report on: open | resolved | dismissed | snoozed. `open` is the normal mode; `dismissed` reviews what teams have accepted."
+  type        = string
+  default     = "open"
+  nullable    = false
+}
