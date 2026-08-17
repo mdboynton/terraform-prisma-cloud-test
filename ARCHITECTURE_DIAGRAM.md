@@ -173,3 +173,67 @@ flowchart LR
 - The workflow branches on the `status` output, never on the exit code: a failing `check`
   does not fail a plan, and `terraform show -json` omits check results from a plan file
   entirely.
+
+## [`runtime-grace-digest`](terraform/modules/runtime-grace-digest)
+
+Reports **which runtime rules are still firing**, grouped by rule + workload scope +
+cloud account. Read-only by construction: `data` blocks only, so a plan has zero
+resource changes.
+
+It reads the **CSPM** alerts API, not the Compute Console. Runtime incidents are promoted
+into the CSPM stream as `workload_incident` alerts, and the promoted copy carries the
+runtime rule name (`metadata.auditRuleName`), an occurrence count, and the full dismissal
+lifecycle — none of which the raw Compute incident offers on one call.
+
+**It measures recurrence, not age.** A runtime incident is an event: it happened, nothing
+un-happens it, and incidents never expire. "Older than N days" selects nearly everything
+ever recorded (measured: 14,398 of 14,410) and only really tracks whether somebody clicked
+acknowledge. "Still firing in the last N days" is answerable and self-clearing.
+
+```mermaid
+flowchart LR
+    IN["workflow inputs<br/>window_days · alert_status · max_alerts"] --> M["runtime-grace-digest<br/>(data.external → digest.sh)"]
+    SCHED["schedule<br/>Mon 08:00 UTC"] -.->|"defaults"| IN
+
+    F["every query carries<br/>policy.type = workload_incident<br/>alert.status = alert_status<br/>detailed = true"] -.-> M
+
+    subgraph CSPM["Prisma Cloud CSPM API"]
+        direction TB
+        ALL["POST /v2/alert · limit 1<br/>timeRange: to_now"]
+        WIN["POST /v2/alert · limit 1<br/>timeRange: relative N days"]
+        ROWS["POST /v2/alert · limit max_alerts<br/>timeRange: relative N days"]
+    end
+
+    M -->|"1 · all-time total"| ALL
+    M -->|"2 · window total"| WIN
+    M -->|"3 · fetch & reduce"| ROWS
+    M --> G["group by<br/>rule + scope + account"]
+    G --> OUT["status + rules[]<br/>ok / disabled / missing_credentials /<br/>suspect_unfiltered / partial_grouping"]
+```
+
+### Flow
+
+- All three queries carry the same filters; only `timeRange` and `limit` differ.
+  `detailed=true` is mandatory — without it `totalRows` is `0`, which reads as "no
+  findings".
+- Two count queries run **before** the detail fetch: an all-time baseline and the window.
+  If a short window returns exactly the all-time count, the run reports
+  `suspect_unfiltered` — the alerts API answers HTTP 200 and returns the **whole tenant**
+  for a filter name it does not recognise, so equality is what a silently dropped filter
+  looks like. The threshold is 90 days, because a long window legitimately covers
+  everything.
+- `scope` (container vs host) is derived from `policy.name`, **not** `metadata.auditType`
+  — auditType is the audit kind (Filesystem/Network/Processes). The same rule name can
+  exist in both the container and host policies, so scope is part of the grouping key;
+  merging them would point a later escalation at the wrong policy.
+- `limit` is a cap, not a page size: when it is hit the remainder is simply absent. The
+  module compares the server-side window total against the rows actually fetched and
+  reports `partial_grouping`, and the workflow prints that warning **above** the table
+  with the affected figures tagged `(sampled)` — rules below the cut-off are missing
+  entirely, not undercounted.
+- Alerts attributed to `default` (the built-in learned model) are counted separately: there
+  is no named rule to escalate, so presenting them as an actionable row would send someone
+  looking for a rule that is not in the console.
+- The workflow branches on `status`, never the exit code, on the same basis as its
+  siblings. `disabled` and `missing_credentials` fail the run loudly rather than rendering
+  an empty report, which would be a false all-clear.
