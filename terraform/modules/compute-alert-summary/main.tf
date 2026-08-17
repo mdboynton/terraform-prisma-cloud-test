@@ -17,7 +17,7 @@
 # ============================================================
 
 locals {
-  enabled = var.enabled && var.collection_name != null
+  enabled = var.enabled && var.collection_name != null && var.collection_name != ""
 
   # For use in error_message strings ONLY.
   #
@@ -34,8 +34,21 @@ locals {
   # tell "misconfigured" from "genuinely no findings" - so it is explicitly
   # de-tainted rather than the output being marked sensitive, which would hide
   # exactly the signal the workflow needs.
+  #
+  # TEST FOR EMPTY, NOT JUST NULL. A missing GitHub secret does not arrive as
+  # null - `TF_VAR_x: ${{ secrets.MISSING }}` sets the variable to the EMPTY
+  # STRING. A null-only check passes, the script runs, and the plan hard-fails
+  # with "console_url is empty" instead of reporting missing_credentials - so
+  # the status output a workflow branches on never gets the chance to fire.
+  # This is the exact case missing_credentials exists for, and it was silently
+  # unreachable in CI.
+  # NOT coalesce(): it treats "" as absent and raises "Error in function call"
+  # when every argument is empty, which turns the very case being guarded into
+  # a hard plan failure. `x != null && x != ""` is the safe form.
   creds_present = nonsensitive(
-    var.console_url != null && var.access_key != null && var.secret_key != null
+    var.console_url != null && var.console_url != "" &&
+    var.access_key != null && var.access_key != "" &&
+    var.secret_key != null && var.secret_key != ""
   )
 
   should_query = local.enabled && local.creds_present
