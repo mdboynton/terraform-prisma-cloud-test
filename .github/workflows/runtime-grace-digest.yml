@@ -1,0 +1,396 @@
+name: 8. Runtime Grace Digest (read-only)
+
+# Answers "which runtime rules are STILL FIRING?" — grouped by rule, workload
+# scope and cloud account, with occurrence counts.
+#
+# THIS REPORTS RECURRENCE, NOT AGE.
+#
+# The original ask was "escalate a rule if a finding goes unresolved for 14
+# days". That works for a vulnerability — the CVE is present until patched —
+# but not for a runtime finding. A runtime incident is a timestamped EVENT: it
+# happened, and no API call makes it un-happen. There is no "resolved" state to
+# age against and incidents never expire from the store, so "older than N days"
+# trends toward everything ever recorded (measured: 14,398 of 14,410) and only
+# really reports whether somebody clicked acknowledge.
+#
+# So this workflow asks the answerable question instead. A fixed workload stops
+# firing, so the signal clears itself.
+#
+# IT SENDS NOTHING AND CHANGES NOTHING. This is the report-only stage of the
+# escalation pipeline: it exists to establish a baseline before anyone proposes
+# flipping a rule to Prevent/Block. The gated escalator is a separate workflow
+# that does not exist yet.
+#
+# READ-ONLY BY CONSTRUCTION. The runtime-grace-digest module contains only
+# Terraform `data` blocks — no `resource` blocks — so this workflow cannot
+# change the tenant. There is deliberately no apply job and no environment gate.
+#
+# Docs: .github/workflows/runtime-grace-digest/README.md
+#
+# Required repository secrets:
+#   PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
+
+on:
+  workflow_dispatch:
+    inputs:
+      window_days:
+        # A choice, not free text: a typo like "1O" would only surface as a
+        # Terraform variable-validation error partway through the run.
+        description: "Recurrence window. A rule that produced an incident inside this many days is 'still firing'."
+        type: choice
+        default: "14"
+        options:
+          - "7"
+          - "14"
+          - "30"
+          - "90"
+          - "180"
+      alert_status:
+        description: "Which lifecycle state to report on. 'open' is the normal digest; 'dismissed' reviews what teams have accepted."
+        type: choice
+        default: "open"
+        options:
+          - "open"
+          - "dismissed"
+          - "resolved"
+          - "snoozed"
+      max_alerts:
+        description: "Cap on alerts fetched for grouping. Window and tenant TOTALS are never capped by this."
+        type: choice
+        default: "2000"
+        options:
+          - "500"
+          - "2000"
+          - "5000"
+          - "10000"
+
+  # A digest is only useful if it arrives without being asked for. Monday 08:00
+  # UTC, before the working week starts in most of the covered regions.
+  schedule:
+    - cron: "0 8 * * 1"
+
+concurrency:
+  group: runtime-grace-digest-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.13.3"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
+  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
+  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+
+  TF_VAR_runtime_grace_digest_enabled: "true"
+
+  # `inputs.*` is empty on a scheduled run, so every input needs a fallback or
+  # the schedule would pass "" and fail variable validation.
+  TF_VAR_runtime_grace_digest_window_days: ${{ inputs.window_days || '14' }}
+  TF_VAR_runtime_grace_digest_alert_status: ${{ inputs.alert_status || 'open' }}
+  TF_VAR_runtime_grace_digest_max_alerts: ${{ inputs.max_alerts || '2000' }}
+
+  # Everything else off: this workflow asks one question and should not pay for
+  # unrelated API calls.
+  TF_VAR_alert_summary_enabled: "false"
+  TF_VAR_compute_alert_summary_enabled: "false"
+  TF_VAR_access_audit_enabled: "false"
+  TF_VAR_tenant_inventory_enabled: "false"
+  TF_VAR_compute_runtime_list_enabled: "false"
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  digest:
+    name: Report runtime rules still firing
+    runs-on: ubuntu-latest
+
+    # One paged query against the alerts API. The slowest measured run was a few
+    # seconds; 20 minutes covers a large window on a rate-limited tenant.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Read runtime incident recurrence
+        id: plan
+        # -target keeps this to the digest module, so no other module is
+        # evaluated and no unrelated API calls are made.
+        #
+        # Output is teed to a file so the failure step below can quote the real
+        # error on the summary page rather than leaving it in the raw log.
+        run: |
+          set -o pipefail
+          terraform plan -input=false -no-color \
+            -target=module.runtime_grace_digest -out=tfplan 2>&1 | tee plan-output.txt
+
+      - name: Render report
+        # NOTHING IS INTERPOLATED INTO THIS SCRIPT. There is deliberately no
+        # `${{ }}` in the body: interpolation pastes a raw string in before bash
+        # parses it, so a crafted input could execute. The window and status
+        # shown in the report are read out of the plan data instead, which is
+        # both injection-free and the value that was actually queried.
+        run: |
+          # Reads the PLAN file, not state: state is empty on a plan-only run,
+          # so `terraform output` would return nothing.
+          plan_json="$(terraform show -json tfplan)"
+
+          get() { printf '%s' "$plan_json" | jq -c --arg k "$1" '.output_changes[$k].after'; }
+
+          status="$(get runtime_grace_digest_status | jq -r .)"
+          detail="$(get runtime_grace_digest_status_detail | jq -r '. // ""')"
+          summary="$(get runtime_grace_digest)"
+          rules="$(get runtime_grace_digest_rules)"
+
+          # BRANCH ON status, NOT ON THE EXIT CODE.
+          #
+          # The module's `check` blocks emit warnings but do NOT fail the plan,
+          # and `terraform show -json` omits the `checks` array from a plan file
+          # entirely — so a warning is invisible to any caller trusting the exit
+          # code. Both behaviours verified against the live tenant.
+          #
+          # `missing_credentials` and `disabled` mean we never looked. Rendering
+          # "no rules firing" for those would imply good news, which is a lie.
+          if [ "$status" = "disabled" ] || [ "$status" = "missing_credentials" ]; then
+            {
+              echo "## Runtime grace digest — no report produced"
+              echo
+              echo "**Status:** \`$status\`"
+              echo
+              echo "> $detail"
+              echo
+              echo "**Do not read this as \"nothing is firing\".** Nothing was checked."
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            # Tells the failure step to stay quiet: this case is already
+            # explained above. Without the marker the run shows two stacked
+            # failure blocks saying roughly the same thing.
+            touch handled-failure.marker
+
+            echo "::error title=Runtime grace digest failed::$status - $detail"
+            exit 1
+          fi
+
+          in_window=$(printf   '%s' "$summary" | jq -r '.alerts_in_window')
+          all_time=$(printf    '%s' "$summary" | jq -r '.alerts_all_time')
+          fetched=$(printf     '%s' "$summary" | jq -r '.alerts_fetched')
+          complete=$(printf    '%s' "$summary" | jq -r '.complete')
+          distinct=$(printf    '%s' "$summary" | jq -r '.distinct_rules')
+          groups=$(printf      '%s' "$summary" | jq -r '.distinct_groups')
+          occurrences=$(printf '%s' "$summary" | jq -r '.occurrences')
+          unnamed=$(printf     '%s' "$summary" | jq -r '.unnamed_rule_alerts')
+
+          # What was actually queried, as reported by the module.
+          window_days=$(printf   '%s' "$summary" | jq -r '.window_days')
+          status_filter=$(printf '%s' "$summary" | jq -r '.alert_status')
+
+          rule_count=$(printf '%s' "$rules" | jq -r 'length')
+
+          # WHEN THE FETCH WAS CAPPED, THE GROUPED NUMBERS DESCRIBE THE SAMPLE,
+          # NOT THE TENANT — and the warning has to come BEFORE them.
+          #
+          # `distinct_rules` and `occurrences` are computed from the alerts that
+          # were actually fetched, so a cap makes them undercounts; only
+          # `alerts_in_window` and `alerts_all_time` are server-side totals. A
+          # caveat printed under the table arrives after the reader has already
+          # taken "Rules still firing" as a tenant fact.
+          if [ "$complete" != "true" ]; then
+            {
+              echo "## Runtime grace digest"
+              echo
+              echo "> [!WARNING]"
+              echo "> **Partial result — the rule numbers below are from a sample.**"
+              echo "> Only **$fetched of $in_window** alerts in the window were read"
+              echo "> (capped by \`max_alerts\`). Rules below the cut-off are missing"
+              echo "> ENTIRELY, so a rule absent here may still be firing."
+              echo "> Re-run with a higher \`max_alerts\` for a complete picture."
+            } >> "$GITHUB_STEP_SUMMARY"
+            sampled=" (sampled)"
+          else
+            echo "## Runtime grace digest" >> "$GITHUB_STEP_SUMMARY"
+            sampled=""
+          fi
+
+          # Window and status come from the PLAN DATA, not from the workflow
+          # inputs: the report must state what was actually queried. Echoing the
+          # input back would still print "last 14 days" if the value reaching
+          # Terraform ever diverged from the one reaching this script.
+          {
+            echo
+            echo "**Window:** last ${window_days} days · **Status filter:** \`${status_filter}\`"
+            echo
+            echo "| Metric | Value |"
+            echo "|---|---|"
+            echo "| **Rules still firing**$sampled | **$distinct** |"
+            echo "| Rule/account groups$sampled | $groups |"
+            echo "| Total occurrences$sampled | $occurrences |"
+            echo "| Incidents in window (tenant total) | $in_window |"
+            echo "| Tenant-wide, all time | $all_time |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$rule_count" -eq 0 ]; then
+            {
+              echo
+              echo "> **No named runtime rule produced an incident in this window.**"
+              echo "> That is the desired state — but confirm the window is right before"
+              echo "> reporting it as good news."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo
+              echo "### Rules still producing incidents"
+              echo
+              echo "Ordered by occurrences. A rule high on this list has an unaddressed"
+              echo "condition — the workload keeps doing the thing the rule detects."
+              echo
+              echo "| Occurrences | Rule | Scope | Cloud account | Detected |"
+              echo "|---:|---|---|---|---|"
+              printf '%s' "$rules" | jq -r '
+                .[:40][]
+                | "| \(.occurrences) | `\(.rule)` | \(.scope) | \(.account) | \(.categories) |"
+              '
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$rule_count" -gt 40 ]; then
+              echo "" >> "$GITHUB_STEP_SUMMARY"
+              echo "_Showing the top 40 of $rule_count rule/account groups. The artifact has all of them._" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          fi
+
+          # The built-in learned model is not a named rule and cannot be
+          # escalated by name, so it is excluded from the table above. Saying so
+          # explains a gap between "incidents in window" and the table's total.
+          if [ "$unnamed" -gt 0 ]; then
+            {
+              echo
+              echo "> **$unnamed incident(s) came from the built-in runtime model**, not a named rule."
+              echo "> Those are excluded from the table because there is no named rule to act on."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # Equal windowed and all-time counts is what a silently dropped time
+          # filter looks like. The alerts API returns HTTP 200 and the entire
+          # tenant for a filter name it does not recognise.
+          if [ "$status" = "suspect_unfiltered" ]; then
+            {
+              echo
+              echo "> [!WARNING]"
+              echo "> **The window may not have applied.**"
+              echo "> $detail"
+              echo "> Confirm before treating this as a recurrence signal."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo
+            echo "<details><summary>Why this reports recurrence, not \"unresolved for N days\"</summary>"
+            echo
+            echo "A runtime finding is an **event**, not a state. It happened, and no API"
+            echo "call makes it un-happen — there is no \"resolved\" to age against, and"
+            echo "incidents never expire from the store. So \"older than N days\" selects"
+            echo "almost everything ever recorded and really only measures whether someone"
+            echo "clicked acknowledge."
+            echo
+            echo "\"Still firing\" is the answerable question: a fixed workload stops"
+            echo "producing incidents, so the signal clears itself."
+            echo
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Full result to the artifact, including fields not rendered above.
+          printf '%s' "$plan_json" | jq '{
+            summary: .output_changes.runtime_grace_digest.after,
+            scope:   .output_changes.runtime_grace_digest_scope.after,
+            rules:   .output_changes.runtime_grace_digest_rules.after
+          }' > runtime-grace-digest.json
+
+          echo "===== artifact ====="
+          # `wc -c` pads with spaces on some platforms; strip them so the log
+          # line reads "bytes=1234" rather than "bytes=     1234".
+          echo "bytes=$(wc -c < runtime-grace-digest.json | tr -d ' ')"
+
+      # Runs ONLY when something above failed. Every other step writes to the
+      # summary page on the success path, so without this a failed run produces
+      # a blank summary — a red X and nothing else. That matters more here than
+      # elsewhere: this workflow runs on a schedule, so nobody is watching.
+      - name: Report failure
+        if: failure()
+        run: |
+          # The render step explains a disabled/uncredentialed run better than
+          # this generic block can, and marks it handled.
+          if [ -f handled-failure.marker ]; then
+            echo "Failure already reported on the summary page."
+            exit 0
+          fi
+
+          {
+            echo "## Runtime grace digest — run failed"
+            echo
+            echo "No report was produced. **Do not read this run as \"nothing is firing\".**"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ -f plan-output.txt ] && grep -q "Error:" plan-output.txt; then
+            {
+              echo "### What went wrong"
+              echo
+
+              # The actionable sentence comes from the script, and Terraform
+              # prints it as "Error Message:" roughly fourteen lines below the
+              # "Error:" header — past any fixed -A window. Hoist it, then show
+              # the surrounding context underneath.
+              script_msg="$(grep -m1 '^Error Message:' plan-output.txt || true)"
+              if [ -n "$script_msg" ]; then
+                echo "**${script_msg#Error Message: }**"
+                echo
+              fi
+
+              echo '```'
+              grep -m1 -A8 "Error:" plan-output.txt
+              echo '```'
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "The failure happened before or outside the Terraform plan."
+              echo "See the job log for details."
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          {
+            echo "### Common causes"
+            echo
+            echo "| Symptom | Fix |"
+            echo "|---|---|"
+            echo "| \`authentication returned no token\` | The \`PRISMACLOUD_*\` repository secrets may be missing or expired. |"
+            echo "| \`Invalid value for variable\` | An input is out of range — window_days is 1–3650, max_alerts is 1–10000. |"
+            echo "| Timed out | Lower \`max_alerts\`, or re-run if the tenant is rate limiting. |"
+            echo "| Looking for CSPM alert counts? | Wrong workflow — use workflow 6. This one reports runtime rule recurrence. |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        # NOT always(): the artifact is written by the render step, so on an
+        # earlier failure the path does not exist and upload-artifact prints
+        # "No files were found" — a spurious warning stacked on the real error.
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-grace-digest
+          path: terraform/runtime-grace-digest.json
+          if-no-files-found: error
+          retention-days: 90
