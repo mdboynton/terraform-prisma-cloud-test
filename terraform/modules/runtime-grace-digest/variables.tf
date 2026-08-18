@@ -42,6 +42,45 @@ variable "alert_status" {
 }
 
 # ----------------------------------------------------------------
+# Grace warning (plan only).
+#
+# These drive notify_plan.sh, which works out WHO would be warned that a rule
+# is heading for escalation. It cannot send anything - see the script header.
+# ----------------------------------------------------------------
+
+variable "notify_enabled" {
+  description = "(Optional) Plan the grace warning: resolve recipients, ages and days remaining. Plans only - nothing is ever sent. Requires warning_recipient_override."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "grace_days" {
+  description = "(Optional) Days an alert may stay open before its rule is a candidate for escalation. NOTE: measured from the alert's own alertTime, so on a first run every long-standing alert is already past it - see the module README before wiring a send path."
+  type        = number
+  default     = 14
+  nullable    = false
+
+  validation {
+    condition     = var.grace_days >= 1 && var.grace_days <= 3650
+    error_message = "grace_days must be between 1 and 3650."
+  }
+}
+
+variable "warning_recipient_override" {
+  description = "(Required when notify_enabled) Single address every planned warning is addressed to. The real owner addresses are reported as would_notify but never used as recipients. This is not a dry-run toggle: it is the only addressing mode that exists, because the alert data contains live mailboxes of real people and a sent email cannot be recalled."
+  type        = string
+  default     = null
+
+  validation {
+    condition = var.warning_recipient_override == null ? true : can(
+      regex("^[^@[:space:]]+@[^@[:space:]]+\\.[^@[:space:]]+$", var.warning_recipient_override)
+    )
+    error_message = "warning_recipient_override must be a single email address."
+  }
+}
+
+# ----------------------------------------------------------------
 # CSPM credentials.
 #
 # This module reads the CSPM alerts API - the same host and auth as the

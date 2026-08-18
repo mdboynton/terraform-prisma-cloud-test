@@ -218,6 +218,14 @@ module "runtime_grace_digest" {
   max_alerts   = var.runtime_grace_digest_max_alerts
   alert_status = var.runtime_grace_digest_alert_status
 
+  # Grace warning: PLANNED ONLY. Works out who would be told a rule is heading
+  # for escalation. The module has no send path, and every planned message is
+  # addressed to the override, never to the owner addresses read from the
+  # alerts. See the module README.
+  notify_enabled             = var.runtime_grace_digest_notify_enabled
+  grace_days                 = var.runtime_grace_digest_grace_days
+  warning_recipient_override = var.runtime_grace_digest_warning_recipient
+
   # The script calls the CSPM REST API directly, so it needs credentials
   # explicitly - it cannot read the prismacloud provider block.
   cspm_url   = var.prisma_cloud_api_url

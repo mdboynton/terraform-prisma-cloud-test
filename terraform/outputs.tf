@@ -341,6 +341,35 @@ output "runtime_grace_digest_rules" {
   value       = module.runtime_grace_digest.actionable_rules
 }
 
+# ----------------------------------------------------------------
+# Grace warning (PLAN ONLY - nothing is sent).
+#
+# `runtime_grace_digest_warning_messages` contains would_notify: the REAL owner
+# mailboxes read from the alerts, including external addresses. It is exposed
+# so the addressing can be reviewed before any send path exists. Do not paste
+# it into a public log or a PR comment.
+# ----------------------------------------------------------------
+
+output "runtime_grace_digest_notify_status" {
+  description = "ok | disabled | no_override | not_queried | all_overdue | has_unroutable. Branch on this, not the exit code."
+  value       = module.runtime_grace_digest.notify_status
+}
+
+output "runtime_grace_digest_notify_status_detail" {
+  description = "Human-readable explanation of runtime_grace_digest_notify_status. Null when ok."
+  value       = module.runtime_grace_digest.notify_status_detail
+}
+
+output "runtime_grace_digest_warning_plan" {
+  description = "Counts for the planned grace warning: planned, overdue, unroutable, not_escalatable, sendable, distinct_owners, max_recipients. `sendable` is the only set a send path could honestly mail. Null when planning is disabled."
+  value       = module.runtime_grace_digest.warning_plan
+}
+
+output "runtime_grace_digest_warning_messages" {
+  description = "Per-rule-group warning plan, including would_notify (real owner addresses, for review only) and recipient (always the override). Contains live personal email addresses."
+  value       = module.runtime_grace_digest.warning_messages
+}
+
 output "runtime_grace_digest_scope" {
   description = "How the digest was produced, for troubleshooting an unexpected count."
   value       = module.runtime_grace_digest.scope

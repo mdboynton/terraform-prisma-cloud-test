@@ -117,6 +117,72 @@ locals {
 }
 
 # ------------------------------------------------------------
+# The grace warning plan.
+#
+# Also a `data` block, so the zero-resource guarantee still holds. It consumes
+# the grouped table from above rather than re-querying, so it costs no extra
+# API calls.
+#
+# It runs only when an override recipient is present. The script enforces this
+# too, but failing here gives a readable Terraform error instead of a script
+# abort. The override is what makes planning safe against live owner data.
+# ------------------------------------------------------------
+locals {
+  can_notify = var.notify_enabled && local.should_query && local.raw != null && (
+    var.warning_recipient_override != null && var.warning_recipient_override != ""
+  )
+}
+
+data "external" "notify" {
+  count = local.can_notify ? 1 : 0
+
+  program = ["bash", "${path.module}/scripts/notify_plan.sh"]
+
+  query = {
+    rules_json         = local.raw.rules_json
+    grace_days         = tostring(var.grace_days)
+    override_recipient = var.warning_recipient_override
+  }
+}
+
+locals {
+  notify_raw = local.can_notify ? data.external.notify[0].result : null
+
+  warning_plan = local.notify_raw == null ? null : {
+    grace_days = tonumber(local.notify_raw.grace_days)
+
+    # Rule groups with at least one open alert.
+    planned = tonumber(local.notify_raw.planned)
+
+    # Past the grace threshold.
+    overdue = tonumber(local.notify_raw.overdue)
+
+    # No owner on the alert - cannot be addressed to a human. Surfaced rather
+    # than dropped: silently skipping these is how a workload gets blocked
+    # with nobody warned.
+    unroutable = tonumber(local.notify_raw.unroutable)
+
+    # The `default` learned model, which cannot be escalated by name, so a
+    # warning about it threatens a consequence that cannot be delivered.
+    not_escalatable = tonumber(local.notify_raw.not_escalatable)
+
+    # Overdue AND addressable AND pointing at a real rule. The only set a send
+    # path could honestly mail.
+    sendable = tonumber(local.notify_raw.sendable)
+
+    distinct_owners = tonumber(local.notify_raw.distinct_owners)
+    max_recipients  = tonumber(local.notify_raw.max_recipients)
+
+    override_recipient = local.notify_raw.override_recipient
+
+    # Always false in this module. There is no send path yet.
+    send_capable = local.notify_raw.send_capable == "true"
+  }
+
+  warning_messages = local.notify_raw == null ? [] : jsondecode(local.notify_raw.messages_json)
+}
+
+# ------------------------------------------------------------
 # Guards.
 #
 # These emit warnings; they do NOT fail the plan. A caller must branch on the
@@ -150,6 +216,39 @@ check "grouping_is_complete" {
       "The rule table was built from %s of %s alerts in the window (capped by max_alerts). Rules below the cut-off are missing entirely - raise max_alerts for a complete picture. The window and tenant totals are unaffected.",
       try(tostring(local.result.alerts_fetched), "?"),
       try(tostring(local.result.alerts_in_window), "?")
+    )
+  }
+}
+
+# The grace clock runs from each alert's own alertTime, so on a tenant with a
+# backlog EVERY candidate is already past the threshold on the first run. That
+# is not a warning, it is a "your grace period ended long ago" notice - and
+# sending it would be an ambush. Measured here: 19 of 19 planned groups were
+# already overdue, the oldest by 368 days.
+check "grace_window_is_meaningful" {
+  assert {
+    condition = local.warning_plan == null ? true : !(
+      local.warning_plan.planned > 0 &&
+      local.warning_plan.overdue == local.warning_plan.planned
+    )
+
+    error_message = format(
+      "Every one of the %s planned warnings is ALREADY past the %s-day grace window. The countdown is measured from each alert's own alertTime, so a first run against an existing backlog warns nobody in advance - it announces an expiry that already happened. Set a campaign start date and measure the grace period from first contact before any send path is wired.",
+      try(tostring(local.warning_plan.planned), "?"),
+      try(tostring(local.warning_plan.grace_days), "?")
+    )
+  }
+}
+
+# A warning nobody receives is not a warning. These groups carry no owner on
+# the alert, so they would be blocked with no notice at all.
+check "warnings_are_routable" {
+  assert {
+    condition = local.warning_plan == null ? true : local.warning_plan.unroutable == 0
+    error_message = format(
+      "%s of %s planned warnings have no owner on the alert and cannot be addressed to anyone. They are reported, never silently dropped - but until a fallback recipient is declared, escalating those rules would block a workload with nobody warned.",
+      try(tostring(local.warning_plan.unroutable), "?"),
+      try(tostring(local.warning_plan.planned), "?")
     )
   }
 }

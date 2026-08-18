@@ -56,6 +56,51 @@ output "actionable_rules" {
   value       = local.actionable_rules
 }
 
+# ----------------------------------------------------------------
+# The grace warning plan.
+#
+# PLAN ONLY. Nothing here sends anything, and `send_capable` is always false.
+# `warning_messages[].would_notify` holds the REAL owner addresses from the
+# alert; `recipient` is always the override. Treat would_notify as personal
+# data: it is live mailboxes of real people, including external ones.
+# ----------------------------------------------------------------
+
+output "notify_status" {
+  description = "ok | disabled | no_override | not_queried | all_overdue | has_unroutable. Callers must branch on this rather than the exit code - a failed check does not fail the plan."
+  value = (
+    !var.notify_enabled ? "disabled" :
+    !local.should_query ? "not_queried" :
+    (var.warning_recipient_override == null || var.warning_recipient_override == "") ? "no_override" :
+    local.warning_plan == null ? "not_queried" :
+    (local.warning_plan.planned > 0 && local.warning_plan.overdue == local.warning_plan.planned) ? "all_overdue" :
+    local.warning_plan.unroutable > 0 ? "has_unroutable" :
+    "ok"
+  )
+}
+
+output "notify_status_detail" {
+  description = "Human-readable explanation of `notify_status`. Null when ok."
+  value = (
+    !var.notify_enabled ? "Grace warning planning is disabled." :
+    !local.should_query ? "The digest did not run, so there is nothing to plan warnings from." :
+    (var.warning_recipient_override == null || var.warning_recipient_override == "") ? "warning_recipient_override is required. Planning reads live owner mailboxes from the alert data; it will not resolve real recipients until a reviewed send path exists." :
+    local.warning_plan == null ? "The digest did not run, so there is nothing to plan warnings from." :
+    (local.warning_plan.planned > 0 && local.warning_plan.overdue == local.warning_plan.planned) ? "All ${local.warning_plan.planned} planned warnings are already past the ${local.warning_plan.grace_days}-day window. The clock runs from each alert's alertTime, so a first run against a backlog announces an expiry that already happened rather than giving notice." :
+    local.warning_plan.unroutable > 0 ? "${local.warning_plan.unroutable} of ${local.warning_plan.planned} planned warnings have no owner on the alert and cannot be addressed. They are reported, not dropped - but those rules would be escalated with nobody warned." :
+    null
+  )
+}
+
+output "warning_plan" {
+  description = "Counts for the planned grace warning: planned, overdue, unroutable, not_escalatable, sendable, distinct_owners, max_recipients. Null when planning is disabled. `sendable` is the only set a send path could honestly mail: overdue AND addressable AND pointing at an escalatable rule."
+  value       = local.warning_plan
+}
+
+output "warning_messages" {
+  description = "Per-rule-group warning plan: age_days, days_remaining, overdue, escalatable, routable, would_notify (the REAL owner addresses, for review only) and recipient (always the override). Empty list when planning is disabled. Contains live personal email addresses - do not publish this verbatim."
+  value       = local.warning_messages
+}
+
 output "top_rule" {
   description = "The single actionable rule with the most occurrences in the window, or null when nothing is firing. Convenience for a one-line notification."
   value       = length(local.actionable_rules) > 0 ? local.actionable_rules[0] : null

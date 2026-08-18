@@ -405,6 +405,41 @@ variable "runtime_grace_digest_alert_status" {
 }
 
 # ----------------------------------------------------------------
+# Grace warning (PLAN ONLY).
+#
+# Works out who would be warned that a runtime rule is heading for escalation.
+# Nothing is sent: there is no SMTP client, webhook or mail command anywhere in
+# the module, and every planned message is addressed to the override.
+#
+# WHY THE OVERRIDE IS NOT OPTIONAL: the recipients are read from the promoted
+# alert's `cloudAccountOwners`, which holds live mailboxes of real people,
+# including addresses outside the company. Every other workflow here has a
+# blast radius that stops at the tenant, and the tenant is a sandbox - a wrong
+# write is undone by another write. A sent email cannot be recalled. So the
+# addressing is reviewed first, in a form that cannot contact anyone.
+# ----------------------------------------------------------------
+
+variable "runtime_grace_digest_notify_enabled" {
+  description = "(Optional) Plan the grace warning: resolve recipients, ages and days remaining, and report them. Plans only - nothing is sent. Requires runtime_grace_digest_warning_recipient."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "runtime_grace_digest_grace_days" {
+  description = "(Optional) Days an alert may stay open before its rule becomes an escalation candidate. Measured from the alert's own alertTime, so against an existing backlog every candidate is already overdue on the first run - the module reports that rather than pretending it gave notice."
+  type        = number
+  default     = 14
+  nullable    = false
+}
+
+variable "runtime_grace_digest_warning_recipient" {
+  description = "(Required when runtime_grace_digest_notify_enabled) The single address every planned warning is addressed to. Real owner addresses are reported as would_notify for review but never used as recipients."
+  type        = string
+  default     = null
+}
+
+# ----------------------------------------------------------------
 # runtime-rule-effects (workflow 9, read-only stage)
 #
 # Reports whether a firing runtime rule is still only alerting or has already
