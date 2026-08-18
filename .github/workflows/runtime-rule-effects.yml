@@ -34,7 +34,16 @@ on:
       window_days:
         # A choice, not free text: a typo like "1O" would only surface as a
         # Terraform variable-validation error partway through the run.
-        description: "How far back to look for promoted runtime alerts."
+        # MEASURED on the reference tenant: 0 open workload_incident alerts in
+        # 14 days, 111 across all time. A range that stopped at 180 made the
+        # existing backlog UNREACHABLE from this form - so the longer options
+        # are not a convenience, they are what makes the workflow usable
+        # against a tenant whose alerts are older than six months.
+        #
+        # The default stays at 14 deliberately: it is the honest "what is
+        # happening now" question. When it returns nothing, the run says how
+        # many alerts a wider window would reach rather than implying all-clear.
+        description: "How far back to look for promoted runtime alerts. If a short window looks empty, the summary says how many exist overall."
         type: choice
         default: "14"
         options:
@@ -43,6 +52,9 @@ on:
           - "30"
           - "90"
           - "180"
+          - "365"
+          - "730"
+          - "1825"
       alert_status:
         description: "Which alert lifecycle state to report on. Rules whose alerts are all resolved are invisible under 'open'."
         type: choice
@@ -235,6 +247,23 @@ jobs:
               echo "> $detail"
             fi
             echo
+
+            # An empty candidate list has two very different causes, and the
+            # dangerous reading - "nothing is firing, all clear" - is the
+            # likelier one. Say which it is BEFORE showing the empty table.
+            wstatus="$(jq -r '.planned_values.outputs.runtime_rule_effects_window_status.value // "unknown"' plan.json)"
+            wdetail="$(jq -r '.planned_values.outputs.runtime_rule_effects_window_detail.value // ""' plan.json)"
+            if [ "$wstatus" = "empty_window_but_alerts_exist" ]; then
+              echo "> [!WARNING]"
+              echo "> **The window is too narrow — this is not an all-clear.**"
+              echo ">"
+              echo "> $wdetail"
+              echo
+            elif [ "$wstatus" = "genuinely_empty" ]; then
+              echo "> [!NOTE]"
+              echo "> $wdetail"
+              echo
+            fi
 
             echo "### Escalation candidates (still only alerting)"
             echo

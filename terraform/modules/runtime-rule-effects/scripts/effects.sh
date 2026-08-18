@@ -220,6 +220,31 @@ jq -n \
 # TRAP: `detailed=true` is REQUIRED for totalRows; without it the field is 0,
 # which reads as "no findings".
 # ---------------------------------------------------------------------------
+# An ALL-TIME baseline, fetched before the window so an empty window can be
+# explained rather than just reported.
+#
+# WHY THIS EXISTS: measured on the reference tenant, the default 14-day window
+# returns 0 open workload_incident alerts while all-time returns 111. Without
+# this number, a first run shows an empty candidate list that is
+# indistinguishable from "nothing is firing, all clear" - the worst reading a
+# security report can invite. With it, the caller can say "0 in the last 14
+# days, but 111 exist overall; widen the window".
+#
+# `limit: 1` because only totalRows is wanted; the rows themselves are not.
+jq -nc --arg status "$ALERT_STATUS" '
+  { timeRange: { type: "to_now", value: "epoch" },
+    filters: [
+      { name: "policy.type",  operator: "=", value: "workload_incident" },
+      { name: "alert.status", operator: "=", value: $status }
+    ],
+    limit: 1,
+    detailed: true }' \
+  | curl "${CURL_OPTS[@]}" -H @"$TMP/cspm.hdr" -H 'Content-Type: application/json' \
+      -X POST "$CSPM_BASE/v2/alert" --data @- > "$TMP/alltime.json" \
+  || fail "all-time alert count failed"
+
+ALERTS_ALLTIME="$(jq -r '.totalRows // 0' "$TMP/alltime.json")"
+
 jq -nc \
   --argjson days "$WINDOW_DAYS" \
   --argjson limit "$MAX_ALERTS" \
@@ -234,6 +259,8 @@ jq -nc \
   | curl "${CURL_OPTS[@]}" -H @"$TMP/cspm.hdr" -H 'Content-Type: application/json' \
       -X POST "$CSPM_BASE/v2/alert" --data @- > "$TMP/alerts.json" \
   || fail "alert search failed"
+
+ALERTS_WINDOW="$(jq -r '.totalRows // 0' "$TMP/alerts.json")"
 
 # ---------------------------------------------------------------------------
 # 3. Join alerts to rules by name, and classify every outcome.
@@ -330,6 +357,8 @@ jq -nc \
   --arg window_days   "$WINDOW_DAYS" \
   --arg alert_status  "$ALERT_STATUS" \
   --arg alerts_total  "$(jq -r '(.items // []) | length' "$TMP/alerts.json")" \
+  --arg alerts_window "$ALERTS_WINDOW" \
+  --arg alerts_alltime "$ALERTS_ALLTIME" \
   --arg container_rules "$(jq -r '[.[] | select(.kind == "container")] | length' <<<"$ALL_RULES")" \
   --arg host_rules      "$(jq -r '[.[] | select(.kind == "host")] | length' <<<"$ALL_RULES")" \
   --arg firing_rules  "$(jq -r 'length' <<<"$JOINED")" \

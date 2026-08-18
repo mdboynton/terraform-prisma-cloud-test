@@ -394,6 +394,16 @@ output "runtime_rule_effects" {
   value       = module.runtime_rule_effects.summary
 }
 
+output "runtime_rule_effects_window_status" {
+  description = "ok | not_queried | empty_window_but_alerts_exist | genuinely_empty. An empty candidate list is NOT an all-clear until this says genuinely_empty."
+  value       = module.runtime_rule_effects.window_status
+}
+
+output "runtime_rule_effects_window_detail" {
+  description = "Explains an empty window, naming how many alerts a wider window_days would reach."
+  value       = module.runtime_rule_effects.window_detail
+}
+
 output "runtime_rule_effects_alerting_sites" {
   description = "THE ESCALATION CANDIDATE LIST. Effect sites still set to `alert` on rules that keep firing, addressed as (kind, rule, site) so an escalation names its target exactly."
   value       = module.runtime_rule_effects.alerting_sites

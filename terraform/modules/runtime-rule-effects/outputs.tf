@@ -76,12 +76,48 @@ output "planned_escalations" {
 
 # ----------------------------------------------------------------
 
+# ----------------------------------------------------------------
+# "Nothing here" vs "you asked the wrong question".
+#
+# MEASURED on the reference tenant: the 14-day default returns 0 open
+# workload_incident alerts while all-time returns 111. An empty candidate list
+# is therefore ambiguous, and the dangerous reading - "nothing is firing, all
+# clear" - is the likelier one. These two outputs make the distinction explicit
+# so a caller never has to infer it.
+# ----------------------------------------------------------------
+output "window_status" {
+  description = "ok | not_queried | empty_window_but_alerts_exist | genuinely_empty. Branch on this before reporting an empty candidate list as an all-clear."
+  value = (
+    local.raw == null ? "not_queried" :
+    tonumber(local.raw.alerts_window) > 0 ? "ok" :
+    tonumber(local.raw.alerts_alltime) > 0 ? "empty_window_but_alerts_exist" :
+    "genuinely_empty"
+  )
+}
+
+output "window_detail" {
+  description = "Human-readable explanation of window_status, naming how many alerts a wider window would reach."
+  value = (
+    local.raw == null ? null :
+    tonumber(local.raw.alerts_window) > 0 ? null :
+    tonumber(local.raw.alerts_alltime) > 0 ? format(
+      "No %s workload_incident alerts in the last %s day(s), but %s exist across all time. This is a WINDOW TOO NARROW result, not an all-clear - re-run with a larger window_days to see them.",
+      local.raw.alert_status, local.raw.window_days, local.raw.alerts_alltime
+    ) : format(
+      "No %s workload_incident alerts in the last %s day(s), and none across all time either. Nothing is firing.",
+      local.raw.alert_status, local.raw.window_days
+    )
+  )
+}
+
 output "summary" {
   description = "Counts for the run. Null when nothing was queried."
   value = local.raw == null ? null : {
     window_days     = tonumber(local.raw.window_days)
     alert_status    = local.raw.alert_status
     alerts_total    = tonumber(local.raw.alerts_total)
+    alerts_window   = tonumber(local.raw.alerts_window)
+    alerts_alltime  = tonumber(local.raw.alerts_alltime)
     container_rules = tonumber(local.raw.container_rules)
     host_rules      = tonumber(local.raw.host_rules)
     firing_rules    = tonumber(local.raw.firing_rules)

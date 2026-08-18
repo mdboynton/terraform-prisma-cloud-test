@@ -36,6 +36,11 @@ on:
       window_days:
         # A choice, not free text: a typo like "1O" would only surface as a
         # Terraform variable-validation error partway through the run.
+        #
+        # The long options exist because a tenant's backlog can be older than
+        # six months - measured on the reference tenant, 0 open alerts in 14
+        # days but 111 across all time. Capping at 180 made that backlog
+        # unreachable from this form.
         description: "Recurrence window. A rule that produced an incident inside this many days is 'still firing'."
         type: choice
         default: "14"
@@ -45,6 +50,9 @@ on:
           - "30"
           - "90"
           - "180"
+          - "365"
+          - "730"
+          - "1825"
       alert_status:
         description: "Which lifecycle state to report on. 'open' is the normal digest; 'dismissed' reviews what teams have accepted."
         type: choice

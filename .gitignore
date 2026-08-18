@@ -27,6 +27,16 @@ scripts-local/
 # that everything a task touches stays within the workspace.
 .testtmp/
 
+# Test-data seeder for workflow 9 (never committed).
+#
+# `.testdata/` creates and deletes REAL objects in the Prisma Cloud tenant.
+# That tenant is SHARED - 145 container rules owned by 18 different engineers,
+# several named after real customers - so the seeder is namespaced `tf9-test-`
+# and refuses to touch anything else. It is gitignored because it holds live
+# console URLs and captured API responses, and because a copy of it running
+# with someone else's prefix is exactly the accident to avoid.
+.testdata/
+
 # Cached vendor documentation (never committed).
 #
 # `docs/` holds Markdown pulled from docs.prismacloud.io for offline reference
