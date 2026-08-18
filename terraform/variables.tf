@@ -403,3 +403,40 @@ variable "runtime_grace_digest_alert_status" {
   default     = "open"
   nullable    = false
 }
+
+# ----------------------------------------------------------------
+# runtime-rule-effects (workflow 9, read-only stage)
+#
+# Reports whether a firing runtime rule is still only alerting or has already
+# been escalated to prevent/block - which workflow 8 cannot tell, because the
+# promoted CSPM alert carries no effect field. Needs the Compute Console URL in
+# addition to the CSPM credentials.
+# ----------------------------------------------------------------
+
+variable "runtime_rule_effects_enabled" {
+  description = "(Optional) Report the enforcement effect of runtime rules that are producing alerts. Off by default."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "runtime_rule_effects_window_days" {
+  description = "(Optional) How far back to look for promoted runtime alerts, 1-3650."
+  type        = number
+  default     = 14
+  nullable    = false
+}
+
+variable "runtime_rule_effects_alert_status" {
+  description = "(Optional) Which alert lifecycle state to report on: open | resolved | dismissed | snoozed. NOTE: this materially changes which rules appear - a rule whose alerts are all resolved is invisible under `open`."
+  type        = string
+  default     = "open"
+  nullable    = false
+}
+
+variable "runtime_rule_effects_max_alerts" {
+  description = "(Optional) Cap on how many alerts are fetched before grouping by rule, 1-10000."
+  type        = number
+  default     = 2000
+  nullable    = false
+}

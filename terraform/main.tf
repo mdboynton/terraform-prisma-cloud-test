@@ -225,6 +225,30 @@ module "runtime_grace_digest" {
   secret_key = var.prisma_cloud_secret_key
 }
 
+# Reports the CURRENT ENFORCEMENT EFFECT of runtime rules that are producing
+# alerts - the question workflow 8 cannot answer.
+#
+# It needs BOTH APIs. VERIFIED: the promoted CSPM alert carries no effect field
+# at any depth, so enforcement state has to be read from the Compute Console
+# policy objects and joined to the alert stream by rule name.
+#
+# Read-only: `data` blocks only, and the script has no write route.
+module "runtime_rule_effects" {
+  source = "./modules/runtime-rule-effects"
+
+  enabled      = var.runtime_rule_effects_enabled
+  window_days  = var.runtime_rule_effects_window_days
+  alert_status = var.runtime_rule_effects_alert_status
+  max_alerts   = var.runtime_rule_effects_max_alerts
+
+  cspm_url    = var.prisma_cloud_api_url
+  compute_url = var.prisma_compute_console_url
+  access_key  = var.prisma_cloud_access_key
+  secret_key  = var.prisma_cloud_secret_key
+
+  skip_cert_verification = var.prisma_compute_skip_cert_verification
+}
+
 module "tenant_inventory" {
   source = "./modules/tenant-inventory"
 

@@ -345,3 +345,47 @@ output "runtime_grace_digest_scope" {
   description = "How the digest was produced, for troubleshooting an unexpected count."
   value       = module.runtime_grace_digest.scope
 }
+
+# ----------------------------------------------------------------
+# runtime-rule-effects (workflow 9, read-only stage)
+# ----------------------------------------------------------------
+
+output "runtime_rule_effects_status" {
+  description = "ok | disabled | missing_credentials | ambiguous_rules | unmatched_rules. Branch on this, not the exit code: a failed check does not fail the plan and check results are absent from plan JSON."
+  value       = module.runtime_rule_effects.status
+}
+
+output "runtime_rule_effects_status_detail" {
+  description = "Human-readable explanation of the status. Null when ok."
+  value       = module.runtime_rule_effects.status_detail
+}
+
+output "runtime_rule_effects" {
+  description = "Counts for the run: rules firing, how many matched a live rule, and how many effect sites are alerting, enforced or disabled."
+  value       = module.runtime_rule_effects.summary
+}
+
+output "runtime_rule_effects_alerting_sites" {
+  description = "THE ESCALATION CANDIDATE LIST. Effect sites still set to `alert` on rules that keep firing, addressed as (kind, rule, site) so an escalation names its target exactly."
+  value       = module.runtime_rule_effects.alerting_sites
+}
+
+output "runtime_rule_effects_enforced_sites" {
+  description = "Sites already at `prevent` or `block` whose rules are STILL firing. Expected, not broken: effect controls enforcement, not telemetry. This is what workflow 8 cannot distinguish."
+  value       = module.runtime_rule_effects.enforced_sites
+}
+
+output "runtime_rule_effects_disabled_sites" {
+  description = "Sites set to `disable` - the detection is off. Separate from the candidate list because enabling one is a larger decision than raising an existing detection."
+  value       = module.runtime_rule_effects.disabled_sites
+}
+
+output "runtime_rule_effects_ambiguous_rules" {
+  description = "Firing rules whose name exists in BOTH policies. Not resolvable from alert data, so an escalation must name the policy explicitly."
+  value       = module.runtime_rule_effects.ambiguous_rules
+}
+
+output "runtime_rule_effects_rules" {
+  description = "Every firing rule with its match_status and full effect-site inventory."
+  value       = module.runtime_rule_effects.rules
+}
