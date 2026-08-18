@@ -1,0 +1,359 @@
+name: 9. Runtime Rule Effects (escalation)
+
+# Answers "which firing rules are still only ALERTING?" — and, behind a manual
+# gate, raises one of them to prevent/block.
+#
+# THIS IS THE ONLY WORKFLOW IN THE REPOSITORY THAT CHANGES ENFORCEMENT ON A
+# LIVE RUNTIME SECURITY POLICY. Everything it does by default is read-only;
+# writing requires a deliberate dispatch, a typed confirmation word, and an
+# environment approval.
+#
+# WHY IT READS TWO APIS. VERIFIED against 100 promoted alerts: the CSPM alert
+# carries no `effect` field at any depth. Enforcement state lives only in the
+# Compute Console policy objects, so "is this firing rule still only alerting?"
+# needs the alert stream from CSPM joined to the rule state from Compute.
+#
+# WHAT AN ESCALATION TARGETS. Not a rule — an EFFECT SITE. A container rule
+# carries nine independent effect sites and a host rule a smaller, different
+# set, so "escalate this rule" is ambiguous. The plan lists sites as
+# (kind, rule, site); an escalation names one of them exactly.
+#
+# ESCALATION DOES NOT SILENCE WORKFLOW 8. Effect controls enforcement, not
+# telemetry: a blocked action still records an incident by design. A rule that
+# keeps appearing in the digest after escalation is working, not broken.
+#
+# Docs: .github/workflows/runtime-rule-effects/README.md
+#
+# Required repository secrets:
+#   PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD,
+#   PRISMA_COMPUTE_CONSOLE_URL
+
+on:
+  workflow_dispatch:
+    inputs:
+      window_days:
+        # A choice, not free text: a typo like "1O" would only surface as a
+        # Terraform variable-validation error partway through the run.
+        description: "How far back to look for promoted runtime alerts."
+        type: choice
+        default: "14"
+        options:
+          - "7"
+          - "14"
+          - "30"
+          - "90"
+          - "180"
+      alert_status:
+        description: "Which alert lifecycle state to report on. Rules whose alerts are all resolved are invisible under 'open'."
+        type: choice
+        default: "open"
+        options:
+          - "open"
+          - "dismissed"
+          - "resolved"
+          - "snoozed"
+
+      # ---------------------------------------------------------------
+      # The write path. Leave all four blank for a read-only run.
+      #
+      # These are four separate fields rather than one pasted JSON blob on
+      # purpose: a mistyped blob is a bad way to choose which rule starts
+      # blocking traffic, and a dropdown cannot be typo'd at all.
+      # ---------------------------------------------------------------
+      escalate_kind:
+        description: "ESCALATE: which policy the rule lives in. Leave blank for a read-only run."
+        type: choice
+        default: ""
+        options:
+          - ""
+          - "container"
+          - "host"
+      escalate_rule:
+        description: "ESCALATE: exact rule name, copied from the plan output."
+        type: string
+        default: ""
+      escalate_site:
+        description: "ESCALATE: the effect site path, copied VERBATIM from the plan (e.g. processes.deniedList.effect)."
+        type: string
+        default: ""
+      escalate_effect:
+        description: "ESCALATE: the new effect. `block` is container-only; a host rule must use `prevent`."
+        type: choice
+        default: ""
+        options:
+          - ""
+          - "prevent"
+          - "block"
+      confirm:
+        description: "ESCALATE: type APPLY (exactly, uppercase) to permit the write. Anything else keeps the run read-only."
+        type: string
+        default: ""
+
+concurrency:
+  group: runtime-rule-effects-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.13.3"
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
+  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
+  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
+  TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
+
+  TF_VAR_runtime_rule_effects_enabled: "true"
+  TF_VAR_runtime_rule_effects_window_days: ${{ inputs.window_days }}
+  TF_VAR_runtime_rule_effects_alert_status: ${{ inputs.alert_status }}
+
+  # Every other module stays off: this workflow targets one module, and a
+  # sibling left enabled would make unrelated API calls on every run.
+  TF_VAR_tenant_inventory_enabled: "false"
+  TF_VAR_runtime_grace_digest_enabled: "false"
+
+  # -target keeps an apply from sweeping in unrelated resources that happen to
+  # be pending in the shared root state. VERIFIED: without it a confirmed run
+  # plans 4 resource changes; with it, exactly 1.
+  TF_TARGETS: "-target=module.runtime_rule_effects"
+
+defaults:
+  run:
+    working-directory: terraform
+
+jobs:
+  plan:
+    name: Plan (read-only)
+    runs-on: ubuntu-latest
+    outputs:
+      escalation_status: ${{ steps.status.outputs.escalation_status }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform fmt (check)
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      # Built here rather than in the apply job so the plan output shows
+      # exactly what a subsequent apply would write.
+      - name: Encode the requested escalation
+        # `escalations` is a list(object), so its TF_VAR_ must be JSON. All
+        # four fields blank yields [] and the module writes nothing.
+        #
+        # The confirmation word is passed through UNCHANGED. It is deliberately
+        # not normalised: accepting "apply" or "Apply" would defeat the point
+        # of requiring a specific typed string.
+        run: |
+          json="$(jq -n -c \
+            --arg kind   "${{ inputs.escalate_kind }}" \
+            --arg rule   "${{ inputs.escalate_rule }}" \
+            --arg site   "${{ inputs.escalate_site }}" \
+            --arg effect "${{ inputs.escalate_effect }}" '
+              if ($kind|length) > 0 and ($rule|length) > 0
+                 and ($site|length) > 0 and ($effect|length) > 0
+              then [{kind:$kind, rule:$rule, site:$site, effect:$effect}]
+              else [] end')"
+          echo "TF_VAR_runtime_rule_effects_escalations=${json}" >> "$GITHUB_ENV"
+          echo "Requested escalations: ${json}"
+
+          # A half-filled form is a mistake, not a read-only run. Failing here
+          # is much kinder than silently reporting "nothing_requested" on a run
+          # the operator believed would escalate something.
+          filled=0
+          for v in "${{ inputs.escalate_kind }}" "${{ inputs.escalate_rule }}" \
+                   "${{ inputs.escalate_site }}" "${{ inputs.escalate_effect }}"; do
+            [ -n "$v" ] && filled=$((filled+1))
+          done
+          if [ "$filled" -ne 0 ] && [ "$filled" -ne 4 ]; then
+            echo "::error::$filled of 4 escalation fields were filled in. Provide all four, or none."
+            exit 1
+          fi
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        id: plan
+        env:
+          TF_VAR_runtime_rule_effects_apply: ${{ inputs.confirm }}
+        run: |
+          terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan
+          terraform show -json tfplan > plan.json
+
+      - name: Read the escalation status
+        id: status
+        run: |
+          s="$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value // "unknown"' plan.json)"
+          echo "escalation_status=$s" >> "$GITHUB_OUTPUT"
+          echo "escalation_status=$s"
+
+      # PROVES the plan is read-only. A `data` source runs at plan time, so if
+      # the write had been built as one, this count would be irrelevant and the
+      # tenant would already have changed. It is a null_resource provisioner,
+      # so a planned create here means "an apply would write", not "we wrote".
+      - name: Assert the plan changed nothing
+        run: |
+          n="$(jq '[.resource_changes[]? | select(.change.actions != ["no-op"])] | length' plan.json)"
+          echo "Resources an apply would change: $n"
+          jq -r '.resource_changes[]? | select(.change.actions != ["no-op"])
+                 | "  \(.address): \(.change.actions|join(","))"' plan.json
+
+          # Anything other than the escalation resource means -target is not
+          # holding and an apply would touch something unrelated.
+          stray="$(jq -r '[.resource_changes[]?
+                   | select(.change.actions != ["no-op"])
+                   | select(.address | test("null_resource\\.escalate") | not)
+                   | .address] | join(", ")' plan.json)"
+          if [ -n "$stray" ]; then
+            echo "::error::The plan would change resources outside this module: $stray"
+            exit 1
+          fi
+
+      - name: Render the summary
+        run: |
+          {
+            echo "## Runtime rule effects"
+            echo
+            jq -r '.planned_values.outputs.runtime_rule_effects.value
+                   | to_entries[] | "- **\(.key)**: \(.value)"' plan.json 2>/dev/null \
+              || echo "_No summary available._"
+            echo
+            status="$(jq -r '.planned_values.outputs.runtime_rule_effects_status.value // "unknown"' plan.json)"
+            detail="$(jq -r '.planned_values.outputs.runtime_rule_effects_status_detail.value // ""' plan.json)"
+            echo "**Read status:** \`$status\`"
+            if [ -n "$detail" ] && [ "$detail" != "null" ]; then
+              echo
+              echo "> $detail"
+            fi
+            echo
+
+            echo "### Escalation candidates (still only alerting)"
+            echo
+            n="$(jq '.planned_values.outputs.runtime_rule_effects_alerting_sites.value | length' plan.json)"
+            if [ "$n" = "0" ]; then
+              echo "_None._"
+            else
+              echo "| kind | rule | site | occurrences |"
+              echo "|---|---|---|---|"
+              jq -r '.planned_values.outputs.runtime_rule_effects_alerting_sites.value[]
+                     | "| \(.kind) | \(.rule) | `\(.site)` | \(.occurrences) |"' plan.json
+            fi
+            echo
+
+            echo "### Write status"
+            echo
+            echo "\`$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value' plan.json)\`"
+            echo
+            jq -r '.planned_values.outputs.runtime_rule_effects_escalation_detail.value // ""' plan.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-rule-effects-plan
+          path: terraform/plan.json
+          retention-days: 14
+
+  apply:
+    name: Apply the escalation (gated)
+    needs: plan
+    runs-on: ubuntu-latest
+    # Three independent conditions. The environment approval below is a
+    # fourth, and the script's own APPLY check is a fifth.
+    if: needs.plan.outputs.escalation_status == 'will_apply'
+    environment:
+      name: test-tenant
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Encode the requested escalation
+        run: |
+          json="$(jq -n -c \
+            --arg kind   "${{ inputs.escalate_kind }}" \
+            --arg rule   "${{ inputs.escalate_rule }}" \
+            --arg site   "${{ inputs.escalate_site }}" \
+            --arg effect "${{ inputs.escalate_effect }}" \
+            '[{kind:$kind, rule:$rule, site:$site, effect:$effect}]')"
+          echo "TF_VAR_runtime_rule_effects_escalations=${json}" >> "$GITHUB_ENV"
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      # Approving the environment gate does NOT re-run the plan's checks, so
+      # without this an approver can green-light a run whose target stopped
+      # existing, or which was never confirmed in the first place.
+      #
+      # This re-reads live state and refuses BEFORE any write.
+      - name: Preflight — refuse an escalation that cannot succeed
+        env:
+          TF_VAR_runtime_rule_effects_apply: ${{ inputs.confirm }}
+        run: |
+          terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan >/dev/null
+          terraform show -json tfplan > preflight.json
+
+          status="$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value' preflight.json)"
+          if [ "$status" != "will_apply" ]; then
+            echo "::error::Escalation status is '$status', not 'will_apply'. Nothing was changed."
+            jq -r '.planned_values.outputs.runtime_rule_effects_escalation_detail.value' preflight.json
+            exit 1
+          fi
+
+          # The rule must still exist and must still be at `alert`. If someone
+          # escalated it by hand since the plan, the write is redundant; if the
+          # rule was renamed or deleted, the script would fail mid-flight.
+          want_kind='${{ inputs.escalate_kind }}'
+          want_rule='${{ inputs.escalate_rule }}'
+          want_site='${{ inputs.escalate_site }}'
+
+          match="$(jq -r --arg k "$want_kind" --arg r "$want_rule" --arg s "$want_site" '
+            [ .planned_values.outputs.runtime_rule_effects_alerting_sites.value[]?
+              | select(.kind == $k and .rule == $r and .site == $s) ] | length' preflight.json)"
+
+          if [ "$match" = "0" ]; then
+            echo "::error::($want_kind) rule '$want_rule' site '$want_site' is no longer an alerting site."
+            echo "It may have been renamed, deleted, or already escalated. Nothing was changed."
+            echo "Current candidates:"
+            jq -r '.planned_values.outputs.runtime_rule_effects_alerting_sites.value[]?
+                   | "  \(.kind) | \(.rule) | \(.site)"' preflight.json
+            exit 1
+          fi
+
+          echo "Preflight OK — the target is still an alerting site."
+
+      - name: Terraform apply
+        env:
+          TF_VAR_runtime_rule_effects_apply: ${{ inputs.confirm }}
+        run: terraform apply -input=false -no-color -auto-approve ${TF_TARGETS}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Escalation applied"
+            echo
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| kind | ${{ inputs.escalate_kind }} |"
+            echo "| rule | ${{ inputs.escalate_rule }} |"
+            echo "| site | \`${{ inputs.escalate_site }}\` |"
+            echo "| effect | ${{ inputs.escalate_effect }} |"
+            echo
+            echo "This rule will keep appearing in workflow 8. Effect controls"
+            echo "enforcement, not telemetry — a blocked action still records an"
+            echo "incident by design."
+          } >> "$GITHUB_STEP_SUMMARY"
