@@ -635,29 +635,50 @@ larger change than `alert → prevent`: it turns on a detection that was never
 running. WF9 must treat it as a distinct, louder case, not "just another
 upgrade".
 
-### ⚠️ BLOCKER: the join key is unreliable [tenant-shaped, but structural]
+### The join key: names DO resolve, but they are not unique
 
-Joining `metadata.auditRuleName` to `rules[].name`, over the 13 distinct rule
-names present in 100 promoted alerts:
+> **⚠️ CORRECTION.** An earlier revision of this section claimed *"only 5 of 13
+> alert rule names resolve"* and called the join key unreliable. **That was
+> wrong — it was my measurement error, not a product behaviour.** I piped
+> `jq unique` (codepoint order) into `comm`, which requires both inputs sorted
+> in the same collation and silently emits garbage otherwise. Re-run with
+> `LC_ALL=C sort`, **13 of 13 names resolve.** Recorded because the mistake is
+> easy to repeat: `comm` does not validate its input ordering.
 
-- **5 matched** — Block Dangerous Container Settings, OT-WildFire-Demo-Rule,
-  PHASE1, ranti-nc-rule-test, rp-lab
-- **8 did not** — `default` (the built-in model, expected) plus 7 real-looking
-  names (`aron test rule`, `pavila-runtime-test`, …)
+Joining `metadata.auditRuleName` → `rules[].name`, over 13 distinct names in 100
+promoted alerts: **all 13 resolve**, including `default`, which turns out to be
+a real rule in the policy and not only the built-in learned model.
 
-Deleted or renamed rules keep producing alerts that reference the old name (the
-rule object carries `previousName`, which is a hint at the mechanism). **An
-alert naming a rule is not evidence the rule still exists.**
+**But names are NOT unique across policies.** Three exist in both container and
+host — `OT-WildFire-Demo-Rule`, `mb-demo`, `pc-rul-host-gcp-semartinez` — and
+two of them are actively producing alerts. The promoted alert carries no field
+saying which Compute policy it came from, so those matches are genuinely
+ambiguous and cannot be resolved from alert data.
 
-- **3 names exist in BOTH policies** — `mb-demo`, `OT-WildFire-Demo-Rule`,
-  `pc-rul-host-gcp-semartinez`. The promoted alert has no field identifying
-  which Compute policy it came from, so a name match can be genuinely ambiguous.
-- Rule names are **not unique across policies**, though no duplicates were found
-  *within* a single policy.
+Why that matters concretely — `OT-WildFire-Demo-Rule` in both policies:
 
-**WF9 cannot silently skip an unresolvable rule** — that would under-report the
-very thing it exists to surface. It must report unmatched and ambiguous names as
-first-class outcomes.
+| Policy | Sites | Effects |
+|---|---|---|
+| container | 8 | 3 × `alert`, 5 × `disable` |
+| host | 1 (`antiMalware.deniedProcesses`) | `alert` |
+
+Picking the wrong one would change an unrelated control. **Ambiguity is
+therefore a first-class reported outcome, never a coin flip.**
+
+### Verified classification (live)
+
+`effects.sh` classifies every firing rule as `matched` | `ambiguous` |
+`unmatched` | `builtin`. Confirmed against the tenant:
+
+| Query | Result |
+|---|---|
+| 90d, open | 4 firing, all matched |
+| 3650d, open | 9 firing — 8 matched, 1 builtin (`default`) |
+| 3650d, resolved | 7 firing — 6 matched, **1 ambiguous** (`OT-WildFire-Demo-Rule`, container + host) |
+
+The colliding rules surface only under `resolved`/`dismissed` because that is
+the state their alerts are in — a reminder that `alert_status` materially
+changes which rules appear.
 
 ---
 
