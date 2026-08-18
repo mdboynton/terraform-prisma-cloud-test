@@ -418,3 +418,22 @@ output "runtime_rule_effects_rules" {
   description = "Every firing rule with its match_status and full effect-site inventory."
   value       = module.runtime_rule_effects.rules
 }
+
+# ----------------------------------------------------------------
+# Write path. Read these BEFORE running an apply.
+# ----------------------------------------------------------------
+
+output "runtime_rule_effects_escalation_status" {
+  description = "disabled | nothing_requested | not_confirmed | will_apply. Only will_apply changes the tenant."
+  value       = module.runtime_rule_effects.escalation_status
+}
+
+output "runtime_rule_effects_escalation_detail" {
+  description = "Human-readable explanation of the escalation status."
+  value       = module.runtime_rule_effects.escalation_detail
+}
+
+output "runtime_rule_effects_planned_escalations" {
+  description = "Exactly what an apply would write to live runtime policies. Empty unless the status is will_apply."
+  value       = module.runtime_rule_effects.planned_escalations
+}

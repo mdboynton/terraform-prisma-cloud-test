@@ -240,7 +240,10 @@ module "runtime_grace_digest" {
 # at any depth, so enforcement state has to be read from the Compute Console
 # policy objects and joined to the alert stream by rule name.
 #
-# Read-only: `data` blocks only, and the script has no write route.
+# Reading is unconditional; WRITING needs two separate deliberate acts:
+# a non-empty `escalations` list AND apply_escalations set to exactly "APPLY".
+# The write runs in a null_resource provisioner, so `terraform plan` stays
+# read-only no matter how those variables are set.
 module "runtime_rule_effects" {
   source = "./modules/runtime-rule-effects"
 
@@ -248,6 +251,9 @@ module "runtime_rule_effects" {
   window_days  = var.runtime_rule_effects_window_days
   alert_status = var.runtime_rule_effects_alert_status
   max_alerts   = var.runtime_rule_effects_max_alerts
+
+  escalations       = var.runtime_rule_effects_escalations
+  apply_escalations = var.runtime_rule_effects_apply
 
   cspm_url    = var.prisma_cloud_api_url
   compute_url = var.prisma_compute_console_url

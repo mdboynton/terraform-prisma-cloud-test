@@ -40,6 +40,41 @@ output "status_detail" {
 # ----------------------------------------------------------------
 # The report.
 # ----------------------------------------------------------------
+# The write path.
+#
+# `terraform plan` never writes, so this output is how an operator confirms
+# what an apply WOULD do before running it.
+# ----------------------------------------------------------------
+output "escalation_status" {
+  description = "disabled | not_confirmed | nothing_requested | will_apply. Anything other than will_apply means an apply writes nothing."
+  value = (
+    !var.enabled ? "disabled" :
+    !local.creds_present ? "disabled" :
+    length(var.escalations) == 0 ? "nothing_requested" :
+    !local.write_confirmed ? "not_confirmed" :
+    "will_apply"
+  )
+}
+
+output "escalation_detail" {
+  description = "Human-readable explanation of escalation_status."
+  value = (
+    !var.enabled || !local.creds_present ? "Module disabled or credentials absent - nothing will be written." :
+    length(var.escalations) == 0 ? "No escalations were requested. The `alerting_sites` output lists candidates; escalations must be named explicitly." :
+    !local.write_confirmed ? format(
+      "%d escalation(s) are staged but apply_escalations is not \"APPLY\" (got \"%s\"), so an apply writes nothing.",
+      length(var.escalations), var.apply_escalations
+    ) :
+    format("%d escalation(s) WILL be written to live runtime policies on apply.", length(var.escalations))
+  )
+}
+
+output "planned_escalations" {
+  description = "The escalations that an apply would write. Empty unless escalation_status is will_apply."
+  value       = local.write_requested ? var.escalations : []
+}
+
+# ----------------------------------------------------------------
 
 output "summary" {
   description = "Counts for the run. Null when nothing was queried."

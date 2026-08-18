@@ -136,3 +136,67 @@ check "rules_still_exist" {
     )
   }
 }
+
+# ----------------------------------------------------------------
+# THE WRITE PATH - the only part of this module that changes the tenant.
+#
+# WHY null_resource AND NOT data.external:
+#   A `data` source runs during PLAN. Using one here would mean `terraform
+#   plan` - the command every operator treats as safe to run - silently
+#   escalates live security policies. A `null_resource` provisioner runs
+#   during APPLY only, so plan stays read-only and the change is reviewable
+#   before it happens.
+#
+# TWO INDEPENDENT CONDITIONS must both hold before anything is written:
+#   1. `apply_escalations` is exactly "APPLY" (checked here, and again in the
+#      script, which refuses on its own).
+#   2. `escalations` is non-empty and explicitly supplied by a human.
+#
+# CREDENTIALS ARE NOT IN `triggers`. Trigger values are stored verbatim in
+# state; the access key and secret are passed through `environment` instead,
+# which is not persisted. `escalations_digest` is a sha256 of the request
+# list, so a changed request re-runs the write without state holding secrets.
+# ----------------------------------------------------------------
+
+locals {
+  write_confirmed = var.apply_escalations == "APPLY"
+
+  write_requested = (
+    var.enabled
+    && local.creds_present
+    && local.write_confirmed
+    && length(var.escalations) > 0
+  )
+
+  escalation_payload = jsonencode({
+    compute_url            = var.compute_url
+    access_key             = var.access_key
+    secret_key             = var.secret_key
+    confirm                = var.apply_escalations
+    skip_cert_verification = var.skip_cert_verification
+    requests               = var.escalations
+  })
+
+  # Digest of the REQUESTS only - deliberately excludes credentials so that
+  # rotating a key does not re-trigger a policy write.
+  escalations_digest = sha256(jsonencode(var.escalations))
+}
+
+resource "null_resource" "escalate" {
+  count = local.write_requested ? 1 : 0
+
+  triggers = {
+    escalations = local.escalations_digest
+    compute_url = var.compute_url
+    script      = filesha256("${path.module}/scripts/apply_escalation.sh")
+  }
+
+  provisioner "local-exec" {
+    interpreter = ["bash", "-c"]
+    command     = "printf '%s' \"$PCC_PAYLOAD\" | ${path.module}/scripts/apply_escalation.sh"
+
+    environment = {
+      PCC_PAYLOAD = local.escalation_payload
+    }
+  }
+}

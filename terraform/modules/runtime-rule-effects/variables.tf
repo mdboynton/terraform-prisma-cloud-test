@@ -49,6 +49,60 @@ variable "skip_cert_verification" {
 }
 
 # ----------------------------------------------------------------
+# The write path.
+#
+# Everything above this line is read-only. Everything below can change
+# enforcement on a live runtime policy.
+#
+# Escalations are NEVER derived automatically from `alerting_sites`. The
+# module reports candidates; a human names the ones to change. Auto-deriving
+# would mean a wider alert window silently escalates more rules, which is
+# exactly the kind of surprise a blocking change must not have.
+# ----------------------------------------------------------------
+
+variable "escalations" {
+  description = "(Optional) Explicit list of effect sites to escalate. Each entry is {kind, rule, site, effect}, where `site` is the literal jq path reported in the `sites` output. Empty means nothing is written."
+  type = list(object({
+    kind   = string
+    rule   = string
+    site   = string
+    effect = string
+  }))
+  default  = []
+  nullable = false
+
+  validation {
+    condition     = alltrue([for e in var.escalations : contains(["container", "host"], e.kind)])
+    error_message = "Each escalation kind must be either \"container\" or \"host\"."
+  }
+
+  validation {
+    condition     = alltrue([for e in var.escalations : contains(["alert", "prevent", "block"], e.effect)])
+    error_message = "Each escalation effect must be one of: alert, prevent, block. `disable` is refused - turning a detection off is not an escalation."
+  }
+
+  # VERIFIED: the effect vocabulary differs by workload type. `block` is a
+  # container-only value; a host rule rejects it. Catching this in the plan is
+  # far better than catching it in a PUT that half-succeeded.
+  validation {
+    condition     = alltrue([for e in var.escalations : !(e.kind == "host" && e.effect == "block")])
+    error_message = "`block` is not a valid effect for a host rule - use `prevent`. The effect vocabulary differs by workload type."
+  }
+
+  validation {
+    condition     = alltrue([for e in var.escalations : trimspace(e.rule) != "" && trimspace(e.site) != ""])
+    error_message = "Each escalation must name a non-empty rule and site."
+  }
+}
+
+variable "apply_escalations" {
+  description = "(Optional) Must be the exact string \"APPLY\" for any write to occur. Anything else - including true, yes, or apply - leaves this module read-only. A word rather than a boolean, because booleans accumulate in CI defaults."
+  type        = string
+  default     = ""
+  nullable    = false
+}
+
+# ----------------------------------------------------------------
 # Credentials.
 #
 # THIS MODULE NEEDS BOTH APIS, and that is not an accident of design.

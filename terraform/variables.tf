@@ -475,3 +475,34 @@ variable "runtime_rule_effects_max_alerts" {
   default     = 2000
   nullable    = false
 }
+
+# ----------------------------------------------------------------
+# Workflow 9 write path.
+#
+# These two are the ONLY way this repository changes enforcement on a live
+# runtime security policy. Both must be set, and neither has a default that
+# does anything: an empty list writes nothing, and an empty confirm string
+# writes nothing.
+#
+# `terraform plan` is unaffected by both - the write happens in a provisioner
+# that only runs on apply.
+# ----------------------------------------------------------------
+
+variable "runtime_rule_effects_escalations" {
+  description = "(Optional) Effect sites to escalate, each {kind, rule, site, effect}. Take `site` verbatim from the runtime_rule_effects_alerting_sites output. Empty (the default) writes nothing."
+  type = list(object({
+    kind   = string
+    rule   = string
+    site   = string
+    effect = string
+  }))
+  default  = []
+  nullable = false
+}
+
+variable "runtime_rule_effects_apply" {
+  description = "(Optional) Must be exactly \"APPLY\" to permit a write. Any other value - including true or yes - keeps the module read-only."
+  type        = string
+  default     = ""
+  nullable    = false
+}
