@@ -777,7 +777,11 @@ Measured against 100 promoted `workload_incident` alerts (`detailed=true`):
 **Consequence: the two-API design is forced.** Enforcement state exists only in
 the Compute Console policy objects and must be joined on.
 
-### The live rule shape — 8 effect sites, not one [product]
+### The live rule shape — 9 effect sites, not one [product]
+
+> **Corrected 2026-08-18:** this heading previously said 8, contradicting its
+> own table below, which lists nine container sites. Nine is right, and it is
+> the figure `effects.sh` and the module README use.
 
 `GET /api/v1/policies/runtime/container` — **145 rules**. There is **no
 rule-level `effect`**. Instead:

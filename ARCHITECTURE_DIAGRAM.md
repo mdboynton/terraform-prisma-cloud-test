@@ -271,3 +271,92 @@ sent email cannot be recalled.
   blocked with nobody warned.
 - Only **counts** reach the job summary, which is readable by anyone with repo access; the
   addresses stay in the artifact, and `terraform/runtime-grace-digest.json` is git-ignored.
+
+---
+
+## [`runtime-rule-effects`](terraform/modules/runtime-rule-effects)
+
+Reports **which firing rules are still only alerting**, and — behind a typed confirmation
+and an environment approval — raises one of them to `prevent`/`block`. This is the only
+module in the repository that changes enforcement on a live runtime security policy.
+
+It needs **both** APIs. VERIFIED across 100 promoted alerts: the CSPM alert carries no
+`effect` field at any depth. Enforcement state exists only inside the Compute Console
+policy objects, so the question is answerable only by joining the two by rule name.
+
+**An escalation targets an effect SITE, not a rule.** A container rule carries nine
+independent effect sites and a host rule a smaller, different set, so there is no single
+switch to flip. Every request is `(kind, rule, site, effect)` where `site` is a literal
+jq path copied verbatim from the report.
+
+```mermaid
+flowchart LR
+    IN["workflow inputs<br/>window_days · alert_status"] --> M["runtime-rule-effects<br/>(data.external → effects.sh)"]
+
+    subgraph READ["read path — runs at PLAN"]
+        direction TB
+        CSPM["CSPM · POST /v2/alert<br/>policy.type = workload_incident"]
+        CC["Compute · GET /policies/runtime/{container,host}"]
+    end
+
+    M --> CSPM
+    M --> CC
+    M --> J["join on rule name<br/>flatten to effect sites"]
+
+    J --> A["alerting_sites<br/>THE CANDIDATES"]
+    J --> E["enforced_sites<br/>already blocking, still firing"]
+    J --> D["disabled_sites<br/>detection is OFF"]
+
+    A -.->|"a human picks one"| REQ["escalations = [{kind, rule, site, effect}]<br/>+ apply_escalations = APPLY"]
+    REQ --> NR["null_resource.escalate<br/>runs at APPLY only"]
+    NR --> W["apply_escalation.sh<br/>GET → setpath → deep-diff → PUT"]
+```
+
+**`terraform plan` cannot write, structurally.** The escalation is a `null_resource`
+provisioner, not a `data` source. That distinction is the whole design: a `data` source
+executes during **plan**, so building it that way would mean the command every operator
+treats as safe silently escalates live security policies. Verified on the live tenant —
+with an escalation staged *and* confirmed, a plan reports one resource to create and
+changes nothing.
+
+### Flow
+
+- Two independent conditions arm the write, and neither has a useful default. `escalations`
+  must be non-empty and is **never derived** from `alerting_sites` — auto-deriving would
+  mean widening the alert window silently escalates more rules. `apply_escalations` must be
+  the exact word `APPLY`; verified that `""`, `true`, `yes` and `apply` all leave the module
+  read-only.
+- Credentials are passed through the provisioner `environment`, never `triggers`, because
+  trigger values are stored verbatim in state. The trigger holds a sha256 of the requests
+  only, so rotating a key does not re-trigger a policy write.
+- **Validation precedes every network call.** An earlier version authenticated first, so a
+  `block`-on-host request against an unreachable console reported "could not reach the
+  Compute Console" and never mentioned the invalid request. The batch is also
+  all-or-nothing: one bad entry rejects every entry, because a partially applied
+  enforcement change is worse than none.
+- `block` is container-only and `disable` is refused outright. `disable` is a fourth,
+  undocumented effect value and the most common one in practice (611 of 805 container
+  values measured); it means the detection is **off**, so `disable → prevent` switches on a
+  detection that was never running — a far larger decision than `alert → prevent`.
+- The writer re-derives from **current** state: GET the policy, `setpath` on the literal jq
+  path, error if the rule is missing, ambiguous, or the site absent. It never replays a
+  stale plan.
+- Idempotency uses **deep JSON equality, not `cmp`**. The pre-image is the server's raw
+  body and the post-image is jq's re-serialisation, which differ in whitespace even when
+  nothing changed — a byte comparison reports "changed" every time, so the guard never
+  fires and a re-run PUTs an identical document. (`compute-runtime-policies/scripts/
+  merge_apply.sh` has the same latent bug, recorded and lower-impact.)
+- The apply job re-validates **after** approval: approving an environment gate does not
+  re-run a plan, so a preflight re-reads live state and refuses if the status is no longer
+  `will_apply` or the target is no longer an alerting site — renamed, deleted, or already
+  escalated by someone else.
+- `-target=module.runtime_rule_effects` scopes the apply. Measured: without it a confirmed
+  run planned 4 resource changes in the shared root state; with it, exactly 1. The plan job
+  fails the run if anything outside the module would change.
+- **Escalation never silences workflow 8.** Effect and logging are orthogonal — a blocked
+  action still records an incident by design. A rule that keeps appearing in the digest
+  after escalation is working, and reading that as failure is the most likely
+  misinterpretation of this module's output.
+- The built-in `default` model has no rule object and cannot be escalated at all. It is
+  also, in some tenants, a real rule name, so an alert naming it cannot be assumed to come
+  from the built-in model.

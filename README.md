@@ -7,7 +7,7 @@ review the plan, approve the apply.
 
 ## Workflows — start here
 
-Most people interact with this repo through the **Actions** tab. There are eight
+Most people interact with this repo through the **Actions** tab. There are nine
 workflows, each with its own step-by-step guide:
 
 | # | Workflow | Use it to | Changes the tenant? |
@@ -20,8 +20,9 @@ workflows, each with its own step-by-step guide:
 | 6 | [**Alert Summary**](.github/workflows/alert-summary/README.md) | Count alerts for a CSPM Collection by severity, and list the critical ones | **No** — read-only by construction |
 | 7 | [**Compute Alert Summary**](.github/workflows/compute-alert-summary/README.md) | Count Compute runtime incidents and image CVEs for a **Compute** collection | **No** — read-only by construction |
 | 8 | [**Runtime Grace Digest**](.github/workflows/runtime-grace-digest/README.md) | See which runtime rules are **still firing**, to decide what is worth escalating | **No** — read-only by construction |
+| 9 | [**Runtime Rule Effects**](.github/workflows/runtime-rule-effects/README.md) | See which firing rules are **still only watching**; turn one into a blocking rule | Yes — approval gated |
 
-Ground rules across all eight: **plan is always safe**, **pushing never
+Ground rules across all nine: **plan is always safe**, **pushing never
 applies**, and an apply needs both a manual run *and* an approval. Workflows 3,
 4, 5, 6, 7 and 8 have no apply step at all.
 
@@ -35,8 +36,14 @@ counting findings, and it runs on a schedule as well as on demand. It measures
 incident is an event that never closes, so "unresolved for N days" would select
 almost everything forever.
 
+Workflows 8 and 9 are a pair, read first then act: 8 tells you which rules keep
+firing, 9 tells you which of those are still only watching and can turn one into
+a blocking rule. **Workflow 9 is the only one that changes enforcement on a live
+security policy** — and escalating a rule does not remove it from workflow 8,
+because effect controls enforcement, not telemetry.
+
 New to Terraform? Each guide above starts from first principles — no prior
-experience assumed. Overview of all eight:
+experience assumed. Overview of all nine:
 [`.github/workflows/README.md`](.github/workflows/README.md).
 
 ## Modules
@@ -86,6 +93,7 @@ the tenant daily and opens an issue when something changes.
 | [`terraform/modules/alert-summary/`](terraform/modules/alert-summary/) | **Read-only** alert counts scoped to a CSPM Collection, resolved to its cloud accounts, plus opt-in per-alert detail. [README](terraform/modules/alert-summary/README.md) |
 | [`terraform/modules/compute-alert-summary/`](terraform/modules/compute-alert-summary/) | **Read-only** Compute runtime incident and image CVE counts scoped to a **Compute** collection (filtered by name — Compute collections have no id). [README](terraform/modules/compute-alert-summary/README.md) |
 | [`terraform/modules/runtime-grace-digest/`](terraform/modules/runtime-grace-digest/) | **Read-only** digest of runtime rules still producing incidents, grouped by rule + scope + account. Reads promoted `workload_incident` alerts on the CSPM API. [README](terraform/modules/runtime-grace-digest/README.md) |
+| [`terraform/modules/runtime-rule-effects/`](terraform/modules/runtime-rule-effects/) | Reports the **enforcement effect** of firing runtime rules by joining CSPM alerts to Compute policy objects, and — behind a typed confirmation and an approval — raises one effect site from `alert` to `prevent`/`block`. **The only module that changes enforcement**; `terraform plan` never writes. [README](terraform/modules/runtime-rule-effects/README.md) |
 | [`scripts/drift/`](scripts/drift/) | `snapshot.sh` (plan JSON → privacy-safe fingerprint) and `diff.sh` (baseline vs current → markdown + exit code). Used by workflow 5. |
 | [`terraform/config/teams.yaml`](terraform/config/teams.yaml) | The config file. One entry per team defines its RBAC artifacts. Gitignored; not loaded when absent (a clean plan with zero resources). |
 | [`terraform/config/teams.example.yaml`](terraform/config/teams.example.yaml) | Annotated example config. Copy it to `teams.yaml` and edit. |

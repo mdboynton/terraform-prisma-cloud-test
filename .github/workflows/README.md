@@ -1,6 +1,6 @@
 # CI Workflows
 
-Eight workflows, one per area of Prisma Cloud configuration. Each has its own
+Nine workflows, one per area of Prisma Cloud configuration. Each has its own
 step-by-step guide in the folder beside it.
 
 | # | Workflow | Purpose | Changes the tenant? | Guide |
@@ -13,6 +13,7 @@ step-by-step guide in the folder beside it.
 | 6 | [`alert-summary.yml`](alert-summary.yml) | Count alerts for a CSPM Collection by severity, and list the critical ones | **No** — read-only by construction | [alert-summary/README.md](alert-summary/README.md) |
 | 7 | [`compute-alert-summary.yml`](compute-alert-summary.yml) | Count Compute runtime incidents and image CVEs for a **Compute** collection | **No** — read-only by construction | [compute-alert-summary/README.md](compute-alert-summary/README.md) |
 | 8 | [`runtime-grace-digest.yml`](runtime-grace-digest.yml) | Which runtime rules are **still firing**, grouped by rule, scope and account | **No** — read-only by construction | [runtime-grace-digest/README.md](runtime-grace-digest/README.md) |
+| 9 | [`runtime-rule-effects.yml`](runtime-rule-effects.yml) | Which firing rules are **still only watching**; raise one effect site to prevent/block | Yes — approval gated | [runtime-rule-effects/README.md](runtime-rule-effects/README.md) |
 
 ## Which one do I want?
 
@@ -24,6 +25,7 @@ step-by-step guide in the folder beside it.
 - **Seeing how many alerts a team's collection has** → workflow 6
 - **Seeing a team's Compute runtime incidents and image CVEs** → workflow 7
 - **Finding which runtime rules keep firing, to decide what to escalate** → workflow 8
+- **Seeing which firing rules are still only alerting, and blocking one** → workflow 9
 
 ### 6 or 7?
 
@@ -41,10 +43,15 @@ comparable — never add one to the other.
 
 - **Plan is always safe.** It shows what *would* change and writes nothing.
 - **Pushing never applies.** Pushes and PRs run plan only.
-- **Apply is deliberate.** It requires a manual run with `apply` checked, *plus*
-  approval on the `test-tenant` Environment. Two separate actions.
+- **Apply is deliberate.** It requires a manual run with `apply` checked (in
+  workflow 9, the word `APPLY` typed in full), *plus* approval on the
+  `test-tenant` Environment. Two separate actions.
 - **Workflows 3, 4, 5, 6, 7 and 8 have no apply at all** — their modules contain
   zero `resource` blocks, so there is nothing to gate.
+- **Workflow 9 is the only one that changes enforcement on a live security
+  policy.** Its write runs in a provisioner, so `terraform plan` cannot trigger
+  it, and its apply job re-validates against live state after approval —
+  approving a gate does not re-check a plan.
 
 ## Why they're separate
 
