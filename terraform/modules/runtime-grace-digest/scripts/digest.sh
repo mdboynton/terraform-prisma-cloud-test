@@ -206,7 +206,13 @@ REDUCED="$(jq -c '[ .items[]? | {
 
     # `first` is where the grace countdown starts. See the block below.
     first:    (.alertTime // 0),
-    status:   (.status // "unknown")
+    status:   (.status // "unknown"),
+
+    # Recipient signals for the grace warning. `// []` matters: 20 of the 52
+    # open alerts carry no owner at all, and a null here would propagate into
+    # the notifier as an unroutable recipient rather than an empty list.
+    owners:   (.resource.cloudAccountOwners      // []),
+    clusters: (.resource.additionalInfo.clusters // [])
   } ]' <<<"$ROWS_JSON")"
 
 # ---------------------------------------------------------------------------
@@ -269,7 +275,13 @@ GROUPED="$(jq -c '
       last:       (map(.last) | max),
       first:      (map(.first) | min),
       open_alerts: (map(select(.status == "open")) | length),
-      open_first: ((map(select(.status == "open") | .first) | min) // 0)
+      open_first: ((map(select(.status == "open") | .first) | min) // 0),
+
+      # Union across the group. A group is one rule in one account, so the
+      # owners are usually identical across members; unique keeps the address
+      # list from repeating per alert.
+      owners:     ([.[].owners[]]   | unique),
+      clusters:   ([.[].clusters[]] | unique)
     })
   | sort_by(-.occurrences, -.alerts)
 ' <<<"$REDUCED")"
