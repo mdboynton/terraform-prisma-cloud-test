@@ -47,6 +47,14 @@ terraform/alert-summary.json
 terraform/access-audit.json
 terraform/tenant-inventory.json
 
+# The digest artifact. This one is not merely "live resource names": when the
+# grace warning is planned it embeds `would_notify`, the cloudAccountOwners
+# read off the alerts - real, live mailboxes of real people, including
+# addresses outside the company. It must never be committed.
+terraform/runtime-grace-digest.json
+terraform/compute-alert-summary.json
+terraform/runtime-rule-effects.json
+
 # macOS
 .DS_Store
 

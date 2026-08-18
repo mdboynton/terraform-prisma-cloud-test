@@ -63,6 +63,20 @@ on:
           - "2000"
           - "5000"
           - "10000"
+      plan_warnings:
+        description: "Also PLAN the grace warning: who would be told a rule is heading for escalation. Nothing is sent - there is no send path in this repo."
+        type: boolean
+        default: false
+      grace_days:
+        description: "Days an alert may stay open before its rule becomes an escalation candidate. Only used when plan_warnings is on."
+        type: choice
+        default: "14"
+        options:
+          - "7"
+          - "14"
+          - "30"
+          - "60"
+          - "90"
 
   # A digest is only useful if it arrives without being asked for. Monday 08:00
   # UTC, before the working week starts in most of the covered regions.
@@ -92,6 +106,22 @@ env:
   TF_VAR_runtime_grace_digest_window_days: ${{ inputs.window_days || '14' }}
   TF_VAR_runtime_grace_digest_alert_status: ${{ inputs.alert_status || 'open' }}
   TF_VAR_runtime_grace_digest_max_alerts: ${{ inputs.max_alerts || '2000' }}
+
+  # Grace warning planning. OFF on the schedule: a weekly cron does not need to
+  # re-derive a recipient list nobody asked for, and the plan output contains
+  # live personal email addresses.
+  TF_VAR_runtime_grace_digest_notify_enabled: ${{ inputs.plan_warnings || 'false' }}
+  TF_VAR_runtime_grace_digest_grace_days: ${{ inputs.grace_days || '14' }}
+
+  # EVERY PLANNED WARNING IS ADDRESSED HERE, always, no exceptions.
+  #
+  # This is not a dry-run toggle that someone can flip. The module has no send
+  # path at all - no SMTP client, no webhook, no mail command - so this value is
+  # only ever rendered into a report. It exists so the addressing can be
+  # reviewed before a send path is written, because the owner addresses read
+  # from the alerts are live mailboxes of real people, including external ones,
+  # and a sent email cannot be recalled.
+  TF_VAR_runtime_grace_digest_warning_recipient: "tule@paloaltonetworks.com"
 
   # Everything else off: this workflow asks one question and should not pay for
   # unrelated API calls.
@@ -155,6 +185,11 @@ jobs:
           detail="$(get runtime_grace_digest_status_detail | jq -r '. // ""')"
           summary="$(get runtime_grace_digest)"
           rules="$(get runtime_grace_digest_rules)"
+
+          notify_status="$(get runtime_grace_digest_notify_status | jq -r '. // "disabled"')"
+          notify_detail="$(get runtime_grace_digest_notify_status_detail | jq -r '. // ""')"
+          warning_plan="$(get runtime_grace_digest_warning_plan)"
+          warning_msgs="$(get runtime_grace_digest_warning_messages)"
 
           # BRANCH ON status, NOT ON THE EXIT CODE.
           #
@@ -280,6 +315,124 @@ jobs:
               echo "> **$unnamed incident(s) came from the built-in runtime model**, not a named rule."
               echo "> Those are excluded from the table because there is no named rule to act on."
             } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          # ------------------------------------------------------------------
+          # The grace warning PLAN.
+          #
+          # NOTHING IS SENT. This renders who WOULD be told that a rule is
+          # heading for escalation, so the addressing can be reviewed before a
+          # send path exists.
+          #
+          # Owner addresses are deliberately NOT printed here. They are live
+          # mailboxes of real people, including external ones, and a job summary
+          # is visible to everyone with repo read access. The COUNT is what a
+          # reviewer needs; the addresses live in the artifact.
+          # ------------------------------------------------------------------
+          if [ "$notify_status" != "disabled" ]; then
+            {
+              echo
+              echo "## Grace warning — planned, not sent"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+
+            if [ "$warning_plan" = "null" ] || [ -z "$warning_plan" ]; then
+              {
+                echo "> [!NOTE]"
+                echo "> No warning plan was produced."
+                [ -n "$notify_detail" ] && echo "> $notify_detail"
+              } >> "$GITHUB_STEP_SUMMARY"
+            else
+              w_grace=$(printf   '%s' "$warning_plan" | jq -r '.grace_days')
+              w_planned=$(printf '%s' "$warning_plan" | jq -r '.planned')
+              w_overdue=$(printf '%s' "$warning_plan" | jq -r '.overdue')
+              w_unroute=$(printf '%s' "$warning_plan" | jq -r '.unroutable')
+              w_notesc=$(printf  '%s' "$warning_plan" | jq -r '.not_escalatable')
+              w_send=$(printf    '%s' "$warning_plan" | jq -r '.sendable')
+              w_people=$(printf  '%s' "$warning_plan" | jq -r '.distinct_owners')
+              w_maxrcpt=$(printf '%s' "$warning_plan" | jq -r '.max_recipients')
+
+              {
+                echo "> [!IMPORTANT]"
+                echo "> **This workflow cannot send mail.** There is no SMTP client,"
+                echo "> webhook or mail command anywhere in the module. Every planned"
+                echo "> message is addressed to a single override recipient, and the"
+                echo "> real owner addresses are recorded for review only."
+                echo
+                echo "**Grace window:** ${w_grace} days"
+                echo
+                echo "| Metric | Value |"
+                echo "|---|---|"
+                echo "| Rule groups with an open alert | $w_planned |"
+                echo "| Past the grace window | $w_overdue |"
+                echo "| No owner on the alert (unroutable) | $w_unroute |"
+                echo "| Not escalatable (built-in model) | $w_notesc |"
+                echo "| **Could honestly be warned today** | **$w_send** |"
+                echo "| Distinct people who would be contacted | $w_people |"
+                echo "| Most recipients on a single group | $w_maxrcpt |"
+              } >> "$GITHUB_STEP_SUMMARY"
+
+              # The clock runs from each alert's own alertTime. Against an
+              # existing backlog that means the deadline passed long ago, so a
+              # first send would announce an expiry rather than give notice.
+              if [ "$notify_status" = "all_overdue" ]; then
+                {
+                  echo
+                  echo "> [!WARNING]"
+                  echo "> **Every planned warning is already past the deadline.**"
+                  echo "> $notify_detail"
+                  echo ">"
+                  echo "> Set a campaign start date and measure the grace period from"
+                  echo "> FIRST CONTACT before wiring any send path. Sending this as-is"
+                  echo "> would not be a warning."
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              # A warning nobody receives is not a warning.
+              if [ "$w_unroute" -gt 0 ]; then
+                {
+                  echo
+                  echo "> [!WARNING]"
+                  echo "> **$w_unroute of $w_planned groups cannot be addressed to anyone.**"
+                  echo "> The alert carries no owner. They are reported here rather than"
+                  echo "> dropped: escalating those rules would block a workload with"
+                  echo "> nobody warned. A fallback recipient needs to be declared."
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              if [ "$w_notesc" -gt 0 ]; then
+                {
+                  echo
+                  echo "> **$w_notesc group(s) point at the built-in runtime model**, which"
+                  echo "> cannot be escalated by name. Warning about those would threaten a"
+                  echo "> consequence that cannot be carried out, so they are excluded from"
+                  echo "> the sendable count."
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              # Age distribution, not a bare over/under: on a tenant with a
+              # backlog every candidate is overdue, so a single count says
+              # nothing about urgency.
+              msg_count=$(printf '%s' "$warning_msgs" | jq -r 'length')
+              if [ "$msg_count" -gt 0 ]; then
+                {
+                  echo
+                  echo "### Age of the oldest open alert per rule"
+                  echo
+                  echo "| Age (days) | Rule | Scope | Cloud account | Open | Escalatable | Routable |"
+                  echo "|---:|---|---|---|---:|---|---|"
+                  printf '%s' "$warning_msgs" | jq -r '
+                    .[:40][]
+                    | "| \(.age_days) | `\(.rule)` | \(.scope) | \(.account) | \(.open_alerts) | \(if .escalatable then "yes" else "no" end) | \(if .routable then "yes" else "**no**" end) |"
+                  '
+                } >> "$GITHUB_STEP_SUMMARY"
+
+                if [ "$msg_count" -gt 40 ]; then
+                  echo "" >> "$GITHUB_STEP_SUMMARY"
+                  echo "_Showing the 40 oldest of $msg_count. The artifact has all of them, with recipients._" >> "$GITHUB_STEP_SUMMARY"
+                fi
+              fi
+            fi
           fi
 
           # Equal windowed and all-time counts is what a silently dropped time
