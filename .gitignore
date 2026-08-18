@@ -19,6 +19,14 @@ terraform/config/*.yaml
 # Local diagnostic scripts (never committed)
 scripts-local/
 
+# Local test scratch (never committed).
+#
+# `.testtmp/` holds throwaway harness scripts and JSON fixtures derived from
+# live tenant responses. Fixtures can contain live resource and account names,
+# so they must not be committed. It lives inside the repo rather than /tmp so
+# that everything a task touches stays within the workspace.
+.testtmp/
+
 # Cached vendor documentation (never committed).
 #
 # `docs/` holds Markdown pulled from docs.prismacloud.io for offline reference

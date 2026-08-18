@@ -278,7 +278,27 @@ jq -n \
               occurrences: ([.[].metadata.auditCount // 1] | add),
               kinds: ([.[].metadata.auditType // "unknown"] | unique),
               accounts: ([.[].resource.account // "(no account)"] | unique),
-              last: ([.[].metadata.lastIncidentTime // .[].alertTime // 0] | max) })
+              last: ([.[].metadata.lastIncidentTime // .[].alertTime // 0] | max),
+
+              # The grace countdown starts HERE. `alertTime` is when the alert
+              # was raised; it is the only field that ages monotonically.
+              #
+              # NOT lastIncidentTime: that is the wrong end of the interval,
+              # and it is not even reliably the LATE end. Measured on 100 live
+              # promoted alerts, it PRECEDES alertTime in 67 of them (median
+              # 343s, max 2.3h) because the incident fires and CSPM promotes it
+              # minutes later. In the other 33 it follows, by up to 202 days.
+              #
+              # NOT firstSeen either, though it is usually identical (98/100).
+              # Where they differ, firstSeen is EARLIER (by 55 and 153 days in
+              # the two sampled cases), which would report an OLDER age and
+              # escalate sooner. alertTime is the conservative choice.
+              first: ([.[].alertTime // 0] | min),
+
+              # Only `open` alerts run the clock. resolved/dismissed/snoozed
+              # all stop it -- see plans/policy-escalation-findings.md.
+              open_alerts: ([.[] | select(.status == "open")] | length),
+              open_first: (([.[] | select(.status == "open") | .alertTime] | min) // 0) })
     ) as $byrule
 
   | [ $byrule[]

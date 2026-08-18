@@ -421,6 +421,85 @@ does.
 Make this **configurable per team** in `teams.yaml` rather than hard-coded — a
 mature team may earn looser terms; a new one should not get them by default.
 
+### Grace countdown: `status=open` + `firstSeen` age (decided 2026-08-18)
+
+**The countdown state is `alert.status = open`.** Live distribution over 100
+promoted alerts: `open` 52, `resolved` 28, `dismissed` 20. The other three all
+stop the clock, for different reasons:
+
+| Status | Why it stops |
+|---|---|
+| `resolved` | the condition is gone |
+| `dismissed` | a human accepted the risk (`dismissedBy` + `dismissalNote`) |
+| `snoozed` | deferred to `dismissalUntilTs`; resumes after |
+
+**The clock starts at `alertTime`, not `lastIncidentTime`.** Requester's call:
+"first seen by our wf8 is a good start", then refined to "let's just use
+`alertTime` actually".
+
+⚠️ **CORRECTION.** An earlier version of this section said the clock starts at
+"`firstSeen` (== `alertTime`)". **The equivalence is false.** Re-measured over
+the same 100 promoted alerts:
+
+| Comparison | Result |
+|---|---|
+| `firstSeen` == `alertTime` | 98 of 100 |
+| `firstSeen` < `alertTime` | 2 (by 55.2 and 153.4 days) |
+| `firstSeen` > `alertTime` | 0 — never later |
+
+Both divergent alerts (`C-31585816` resolved, `C-16747100` dismissed) are
+outside the countdown population: **0 of the 52 `open` alerts diverge**, so the
+two fields currently agree exactly where it matters. But the equality is not
+guaranteed, and `firstSeen` being the earlier field means it reports an OLDER
+age and escalates SOONER. `alertTime` is the conservative choice.
+
+A promoted alert carries these timestamps:
+
+```
+alertTime                    when the alert was raised  <- THE CLOCK
+firstSeen                    usually == alertTime, occasionally earlier
+lastSeen / lastUpdated       most recent update (>= alertTime on 100/100)
+metadata.lastIncidentTime    most recent incident (see below)
+```
+
+⚠️ **`lastIncidentTime` is not reliably the LATE end of the interval.** It
+*precedes* `alertTime` in **67 of 100** alerts — median 343s, max 2.3h — which
+is promotion latency: the incident fires, and CSPM promotes it minutes later.
+In the other 33 it follows, by up to **202 days** (genuine recurrence).
+
+Consequence for the code: `first > last` is **normal and expected**, not a bug.
+A test asserting `first <= last` encodes a false model and will fail on
+two-thirds of real data. The true late end is `lastSeen`.
+
+- `firstSeen` answers *"how long has nobody dealt with this?"* — the original
+  grace-period ask. Ages monotonically; does not self-clear.
+- `lastIncidentTime` answers *"is this still happening?"* — already reported by
+  workflow 8 as recurrence.
+
+⚠️ **A dismissed alert that re-fires arrives as a NEW alert with a fresh
+`firstSeen`, resetting its clock.** Defensible — the dismissal judged the alert
+that existed then — but it means the countdown measures the age of the current
+alert, not of the underlying problem.
+
+✅ **GAP CLOSED.** Both scripts now carry the countdown fields alongside the
+existing `last`, which is unchanged (verified byte-identical against the
+committed version for every pre-existing key):
+
+| Field | Meaning |
+|---|---|
+| `first` | `min(alertTime)` across the group — the countdown start |
+| `open_alerts` | count of members with `status == "open"` |
+| `open_first` | `min(alertTime)` over the open members only; `0` when none |
+
+`open_first` exists because `first` spans every status. A rule whose only old
+alerts were dismissed, plus one fresh open alert, must not read as aged — the
+countdown has to see the open subset.
+
+Live figures for the open population at time of writing: **52 open**, and all
+52 already exceed 14 days (50 exceed 30, 41 exceed 90). Any threshold in that
+range fires on essentially the whole open set on day one, so the digest should
+present the age distribution rather than a bare over/under count.
+
 ### Measure RECURRENCE, not age (decided 2026-08-12)
 
 The original ask was "escalate if unresolved for 14 days." For a *vulnerability*

@@ -202,8 +202,37 @@ REDUCED="$(jq -c '[ .items[]? | {
     category: (.metadata.incidentCategory // "unknown"),
     account:  (.resource.account       // "(no account)"),
     count:    (.metadata.auditCount    // 1),
-    last:     (.metadata.lastIncidentTime // .alertTime // 0)
+    last:     (.metadata.lastIncidentTime // .alertTime // 0),
+
+    # `first` is where the grace countdown starts. See the block below.
+    first:    (.alertTime // 0),
+    status:   (.status // "unknown")
   } ]' <<<"$ROWS_JSON")"
+
+# ---------------------------------------------------------------------------
+# WHICH TIMESTAMP STARTS THE CLOCK
+# ---------------------------------------------------------------------------
+# `alertTime` - when the alert was raised. It is the only field here that ages
+# monotonically, and it is present and non-zero on 100/100 sampled alerts.
+#
+# NOT `lastIncidentTime` (the `last` field above). That is the wrong end of the
+# interval, and it is not even reliably the LATE end: measured on 100 live
+# promoted alerts it PRECEDES alertTime in 67 of them, by a median of 343s and
+# a max of 2.3h -- the incident fires, and CSPM promotes it minutes later. In
+# the remaining 33 it follows, by up to 202 days (genuine recurrence). So
+# `first > last` is normal and expected, not a bug.
+#
+# NOT `firstSeen`, though it is identical on 98/100. Where the two diverge,
+# firstSeen is EARLIER (by 55 and 153 days in the two sampled cases), which
+# would report an older age and escalate sooner. alertTime is conservative.
+# Neither of the divergent alerts was `open`, so for the countdown population
+# the two currently agree exactly -- but that is not guaranteed.
+#
+# Only `open` alerts run the clock; resolved / dismissed / snoozed all stop it.
+# A dismissed alert that re-fires arrives as a NEW alert with a fresh
+# alertTime, so the countdown measures the age of the current alert, not of the
+# underlying problem.
+# ---------------------------------------------------------------------------
 
 FETCHED="$(jq -r 'length' <<<"$REDUCED")"
 
@@ -237,7 +266,10 @@ GROUPED="$(jq -c '
       occurrences: (map(.count) | add),
       kinds:      (map(.kind)     | unique | join(", ")),
       categories: (map(.category) | unique | join(", ")),
-      last:       (map(.last) | max)
+      last:       (map(.last) | max),
+      first:      (map(.first) | min),
+      open_alerts: (map(select(.status == "open")) | length),
+      open_first: ((map(select(.status == "open") | .first) | min) // 0)
     })
   | sort_by(-.occurrences, -.alerts)
 ' <<<"$REDUCED")"
