@@ -510,15 +510,95 @@ and why?" is unanswerable from the Compute incident object.**
 5. **Baseline before enforcement** — run the digest report-only for one cycle and
    measure the customer's real dismissal/remediation behaviour. Lab statistics
    are not predictive; this report is itself valuable to an immature customer.
-6. **⚠️ Does Prevent/Block stop incident creation?** **Load-bearing and
-   unverified.** If a blocked action still emits an incident, "still firing"
-   never clears after escalation and the digest keeps nagging about a rule that
-   is already fixed. Every audit sampled had `effect: alert`, which proves
-   nothing in an alert-only tenant. **Settle before building workflow 9.**
+6. ~~**Does Prevent/Block stop incident creation?**~~ **ANSWERED 2026-08-18 —
+   see §10 below. It does NOT.** Escalation does not silence the telemetry, so
+   recurrence cannot discharge an escalation.
 7. **`auditRuleName: "default"`** — 15 of 100 promoted alerts carry it, and it is
    not one of the 145 named runtime rules (most likely the built-in learned
    model). It cannot be escalated by name, so it needs separate handling or
    explicit exclusion from the digest.
+
+---
+
+## 10. Effect vs logging — why escalation never silences the digest
+
+**Answered 2026-08-18.** Requester confirmed from the customer environment that
+a rule escalated to Prevent/Block **still produces incidents**. The vendor docs
+explain the mechanism, and it is not a quirk — it is the designed behaviour.
+
+### Effect and logging are ORTHOGONAL settings [product]
+
+> "Depending on the event type, the following range of actions are supported:
+> allow, alert, prevent, or block. **Also, you can determine whether you want to
+> log the raised event as an audit or as an incident.**"
+> — [Custom Runtime Rules](https://docs.prismacloud.io/content-collections/runtime-security/runtime-defense/custom-runtime-rules), §Activating custom rules
+
+The rule authoring flow makes the split explicit: step 7 "Specify an **Effect**
+for each rule", step 8 "Specify **how to log** the event for each rule".
+
+So `effect` controls **enforcement** and the log setting controls **telemetry**.
+Changing Alert → Prevent changes only the former. The incident keeps arriving,
+and it *should* — you still want to know the attack was attempted.
+
+**Consequence: "still firing" is a valid signal for choosing WHAT to escalate,
+and an invalid signal for confirming what has ALREADY been handled.** Those are
+different questions; the original design conflated them.
+
+### Effect is per EVENT TYPE, not per rule [product]
+
+Effect is scoped to the sensor/event type — processes, filesystem,
+network-outgoing — so one rule can be Prevent on processes and Alert on
+filesystem simultaneously. The syslog records confirm the same dimension as
+`log_type` (`filesystem`, `processes`, `syscalls`, `network`).
+
+**Therefore WF9 escalates a `(rule, event type)` pair, never "a rule".** This
+promotes the digest's `kind` column (from `metadata.auditType`) from decorative
+to load-bearing: it is the escalation target.
+
+### ⚠️ The effect vocabulary DIFFERS by workload type [product]
+
+From [Incident Explorer](https://docs.prismacloud.io/admin-guide/32/runtime-defense/incident-explorer.md),
+forensics "Runtime audit" fields:
+
+| Workload | Documented effect values |
+|---|---|
+| Container | `alert` or **`block`** |
+| Host | `alert` or **`prevent`** |
+| App-Embedded | `alert` or `block` |
+
+A naive `effect == "block"` test silently misses every host rule. Same trap
+class as `nextPageToken` vs `pageToken`: the concept is shared, the spelling is
+not.
+
+Also documented: **Prevent is not universally available.** Not supported with
+`proc.cmdline` or `file.type`; App-Embedded supports Prevent but **not Block**.
+WF9 must expect the API to reject some escalations rather than assume success.
+
+### `effect` exists on the runtime audit record [product]
+
+Confirmed in the Defender syslog samples — under **Container runtime audit** and
+**Host runtime audit**, not only the WAAS section:
+
+```
+type="container_runtime_audit"  effect="alert"  log_type="filesystem"
+type="host_runtime_audit"       effect="alert"  log_type="network"
+```
+
+### ⚠️ STILL OPEN: does `effect` survive promotion into the CSPM alert?
+
+**Unverified — this is the remaining blocker for WF9's design.** The docs do not
+say. Asked directly, the vendor doc assistant returned *"I cannot find
+information about this in the docs"*, and noted that the webhook payload macro
+list documents no `effect` macro — weak evidence against propagation.
+
+The two outcomes lead to different designs:
+
+| If | Then |
+|---|---|
+| The promoted alert carries `effect` | The digest gains enforcement state for free; one API, one auth path |
+| It does not | WF9 must read rule state from the Compute Console and join on `(rule, event type)` — a second API and auth path |
+
+Settle against the tenant before designing WF9.
 
 ---
 

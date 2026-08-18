@@ -19,6 +19,15 @@ terraform/config/*.yaml
 # Local diagnostic scripts (never committed)
 scripts-local/
 
+# Cached vendor documentation (never committed).
+#
+# `docs/` holds Markdown pulled from docs.prismacloud.io for offline reference
+# while designing against the product's behaviour. It is third-party content, it
+# goes stale, and it would otherwise dwarf the repo's own docs in any diff.
+# The distilled, durable findings live in plans/ and are committed; this is the
+# raw source material behind them.
+docs/
+
 # Workflow run artifacts. These are produced inside terraform/ by the read-only
 # workflows and must never be committed - alert-summary.json in particular
 # contains live resource names. The nested terraform/.gitignore that used to
