@@ -314,6 +314,38 @@ but send the digest from the runner.
 `credentialId` referencing a `basic` credential. **[tenant]** Proven working by
 `jbrox-vulnerability-smtp-email-notification` → `smtp.web.de:587`.
 
+### What the dry-run notifier exposed (2026-08-18)
+
+`notify_plan.sh` plans the warning without any ability to send it. Run against
+the reference tenant at a 14-day grace, with a fixed clock:
+
+| metric | value |
+|---|---|
+| groups planned | 19 |
+| **already overdue** | **19 (all of them)** |
+| unroutable (no owner) | 9 |
+| not escalatable (`default`) | 6 |
+| **legitimately sendable** | **7** |
+| distinct people | 8 |
+| max recipients on one group | 5 |
+
+Two problems that a send path must solve BEFORE it mails anyone:
+
+**1. The clock has already expired for every candidate.** The oldest is 368
+days. A first run would not be a warning — it would be a "your grace period
+ended a year ago" notice to 8 people simultaneously. **A grace period has to
+start when it is ANNOUNCED, not backdated to the alert.** The send path needs a
+campaign start date, and the countdown must run from first contact.
+
+**2. `default` dominates the overdue list but cannot be escalated.** 6 of 19
+planned groups are the built-in learned model. `digest.sh` already excludes it
+from `actionable_rules` for exactly this reason. Warning about it threatens a
+consequence that cannot be delivered and asks the recipient to fix something
+they cannot reach. They are planned (dropping them silently would hide 6 aged
+findings) but flagged `escalatable: false` and excluded from `sendable`.
+
+Netting both out: of 19 aged groups, only **7** could honestly be warned today.
+
 ### Owner resolution
 
 **[tenant]** Sampled 300 images:
