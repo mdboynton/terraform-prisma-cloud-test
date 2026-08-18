@@ -642,6 +642,41 @@ and why?" is unanswerable from the Compute incident object.**
 
 ---
 
+### ⚠️ `cmp` cannot detect a no-op write — use deep JSON equality
+
+The read-merge-write pattern compares the pre-image against the merged
+document to skip a pointless PUT. Doing that with `cmp` **does not work**, and
+fails in the silent direction: the guard reports "changed" every single time,
+so a re-run always PUTs.
+
+The two sides are not comparable as bytes. The pre-image is the server's
+response verbatim; the merged document is jq's re-serialisation. jq pretty-
+prints and may reorder keys, so an *identity* transform already differs:
+
+```
+server body        : 73 bytes
+jq identity output : 129 bytes    -> cmp says CHANGED, nothing was modified
+```
+
+`apply_escalation.sh` therefore uses a jq deep comparison, which ignores key
+order but respects array order (rule order is meaningful):
+
+```
+jq -e -n --slurpfile b before.json --slurpfile a after.json '$b[0] == $a[0]'
+```
+
+Verified in both directions — an identity transform, a key reorder, and a
+change-then-revert all read as unchanged; an effect flip and an appended rule
+both read as changed. A guard stuck on "unchanged" would be worse than a
+missing guard, because it would skip every legitimate write.
+
+**`compute-runtime-policies/scripts/merge_apply.sh:103` has the same latent
+bug.** Lower impact there — it computes a separate semantic `CHANGED` flag and
+the redundant PUT is idempotent server-side — so it is recorded, not fixed, to
+keep this slice reviewable.
+
+---
+
 ## Open questions
 
 1. **`graceDays` start-clock** — counts from CVE detection, or from fix
