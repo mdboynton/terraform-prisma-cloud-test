@@ -325,10 +325,44 @@ but send the digest from the runner.
 | has namespace | 131 / 300 |
 | **has any owner/team/contact label** | **0 / 300** |
 
-**No owner is derivable from image metadata.** The recipient mapping must be
-declared by us — `teams.yaml` already maps teams to `account_ids`; add a
-`notification_email` / channel per team. `Non-onboarded cloud accounts` needs a
-fallback recipient.
+**No owner is derivable from IMAGE metadata.**
+
+⚠️ **CORRECTION (2026-08-18): the PROMOTED ALERT is a different story.** The
+"0 / 300" above was measured on `/api/v1/images`, and I generalised it to "no
+owner is derivable" full stop. That was too broad. The promoted CSPM alert
+carries owner and cluster fields the image record does not. Measured over the
+**52 open** alerts:
+
+| field | coverage (of 52 open) |
+|---|---|
+| `resource.cloudAccountOwners[]` | **32** |
+| `resource.additionalInfo.clusters[]` | 40 |
+| `resource.additionalInfo.namespaces[]` | 40 |
+| `resource.account` | 52 (10 distinct) |
+| **neither owner nor cluster** | **10** |
+
+🚨 **`cloudAccountOwners` contains REAL, LIVE email addresses of actual people**
+— `@paloaltonetworks.com` staff plus at least one external
+(`@mpivpartners.com`) and two service accounts. This is the first data in this
+project that can reach a human inbox.
+
+**Consequence: the "sandbox tenant, experiment freely" rule does NOT extend to
+notifications.** Every other workflow's blast radius stops at the tenant. A
+notifier's blast radius is other people's inboxes, and a mistake there cannot be
+rolled back with a PUT. Treat send as a separate, explicitly-gated capability,
+defaulting to a dry-run that renders recipients without contacting them.
+
+Open design questions this raises:
+
+- **Is `cloudAccountOwners` the right recipient at all?** It is the *cloud
+  account* owner, not the workload/cluster owner. For a shared lab account
+  (`AzurePCSLab` carries 15 of the 52) that is plausibly one person receiving
+  mail about 15 unrelated teams' workloads.
+- **10 of 52 are unroutable** by any signal on the alert. They need a declared
+  fallback, not a silent drop.
+- A declared `teams.yaml` mapping remains the auditable option; the alert fields
+  are best used to *propose* a mapping for human review, not to address mail
+  automatically.
 
 **[product]** `GET /api/v1/images` **caps `limit` at 100** (`limit=500` → HTTP
 400, no partial data). Must page.
