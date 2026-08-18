@@ -209,7 +209,23 @@ flowchart LR
     M -->|"3 · fetch & reduce"| ROWS
     M --> G["group by<br/>rule + scope + account"]
     G --> OUT["status + rules[]<br/>ok / disabled / missing_credentials /<br/>suspect_unfiltered / partial_grouping"]
+
+    G -.->|"opt-in: notify_enabled"| N["notify_plan.sh<br/>(data.external · no API calls)"]
+    N --> NOUT["notify_status + warning_plan[]<br/>ok / disabled / no_override /<br/>all_overdue / has_unroutable"]
 ```
+
+**The grace warning is planned, never sent.** With `notify_enabled` the module also
+reports *who would be told* a rule is heading for escalation. It makes no further API
+calls — it consumes the grouped table above — and it contains no SMTP client, webhook or
+mail command. Every planned message is addressed to a required
+`warning_recipient_override`; the owner addresses read from the alert travel alongside as
+`would_notify`, for review only.
+
+That is a required field rather than a dry-run boolean on purpose. A flag can be flipped
+by accident; a required field that *replaces* the address means the unreviewed path does
+not exist yet. Unlike every other module here, whose blast radius stops at a sandbox
+tenant and is undone by another write, these are **live mailboxes of real people** and a
+sent email cannot be recalled.
 
 ### Flow
 
@@ -237,3 +253,21 @@ flowchart LR
 - The workflow branches on `status`, never the exit code, on the same basis as its
   siblings. `disabled` and `missing_credentials` fail the run loudly rather than rendering
   an empty report, which would be a false all-clear.
+- The countdown starts at the alert's own `alertTime` — the only timestamp that ages
+  monotonically. **Not** `lastIncidentTime`: measured over 100 promoted alerts that
+  *precedes* `alertTime` in 67 of them (median 343s — the incident fires and CSPM promotes
+  it minutes later), so it is not even reliably the late end of the interval. **Not**
+  `firstSeen` either: identical on 98 of 100, but earlier where it differs, which would
+  escalate sooner.
+- Only `open` alerts run the clock, and `open_first` is tracked separately from `first`.
+  A rule whose old alerts were all dismissed plus one fresh open alert must not read as
+  aged.
+- Two conditions are reported rather than tolerated, because both would make a warning
+  dishonest. **Everything already overdue:** the clock runs from the alert, so against an
+  existing backlog the deadline passed long ago — sending that announces an expiry rather
+  than giving notice, so a send path needs a campaign start date measured from first
+  contact. **Unroutable groups:** alerts with no owner cannot be addressed to anyone, and
+  are surfaced rather than dropped, because quietly skipping them is how a workload gets
+  blocked with nobody warned.
+- Only **counts** reach the job summary, which is readable by anyone with repo access; the
+  addresses stay in the artifact, and `terraform/runtime-grace-digest.json` is git-ignored.

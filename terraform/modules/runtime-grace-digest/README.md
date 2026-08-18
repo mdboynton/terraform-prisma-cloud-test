@@ -95,6 +95,9 @@ module "runtime_grace_digest" {
 | `cspm_url` | string | `null` | CSPM API host, e.g. `api2.prismacloud.io`. Required when enabled. |
 | `access_key` | string | `null` | Access key id. Sensitive. |
 | `secret_key` | string | `null` | Secret key. Sensitive. |
+| `notify_enabled` | bool | `false` | Also PLAN the grace warning. Nothing is ever sent. |
+| `grace_days` | number | `14` | Days an alert may stay open before its rule is a candidate, 1–3650. |
+| `warning_recipient_override` | string | `null` | **Required when `notify_enabled`.** Every planned message is addressed here. Not a dry-run toggle — see below. |
 
 ## Outputs
 
@@ -109,6 +112,10 @@ module "runtime_grace_digest" {
 | `alerts_in_window` | Server-side total for the window. Never capped by `max_alerts`. |
 | `distinct_rules` | How many distinct rules fired. |
 | `scope` | What was actually queried, for troubleshooting. |
+| `notify_status` | `ok` \| `disabled` \| `no_override` \| `not_queried` \| `all_overdue` \| `has_unroutable`. **Branch on this.** |
+| `notify_status_detail` | Human-readable explanation. Null when `ok`. |
+| `warning_plan` | Counts for the planned warning. Null when planning is disabled. |
+| `warning_messages` | Per-group plan. **Contains live personal email addresses** in `would_notify`. |
 
 **Null means "not asked".** Zero means "asked, nothing firing". Collapsing the
 two would let a misconfiguration read as a clean bill of health, which for a
@@ -196,6 +203,91 @@ Anything on a command line is visible in `ps` to every user on the host. The
 script passes the auth body on **stdin** (`curl --data @-`) and the token via
 `-H @file` from a `0700` temp directory, removed on exit. Verified: 0 of 32
 sampled `argv` snapshots during a live run contained credential material.
+
+## The grace warning (plan only)
+
+Set `notify_enabled = true` and the module also works out **who would be told**
+that a rule is heading for escalation — how old the oldest open alert is, how
+many days of grace remain, and which mailbox the message would go to.
+
+**It cannot send anything.** There is no SMTP client, no webhook, no `mail`
+command anywhere in the module. `notify_plan.sh` produces JSON on stdout and
+nothing else.
+
+### Why the override recipient is required, not a "dry run" flag
+
+`warning_recipient_override` has no default, and planning refuses to run
+without it. Every planned message is addressed to that one value, and the
+addresses read from the alerts travel alongside as `would_notify` — visible for
+review, never used as a recipient.
+
+A dry-run boolean can be flipped by accident. A required field that *replaces*
+the address means the unreviewed path does not exist yet: removing it is a code
+change, not a configuration change.
+
+This matters more here than anywhere else in the repo. Every other module's
+blast radius stops at the tenant, and the tenant is a sandbox — a wrong write
+is undone by another write. `cloudAccountOwners` holds **live mailboxes of real
+people, including addresses outside the company**, and a sent email cannot be
+recalled.
+
+### Recipients come from the alert, and only sometimes
+
+Measured over the open alerts in the reference tenant:
+
+| Signal | Coverage |
+|---|---|
+| `resource.cloudAccountOwners[]` | 32 / 52 |
+| `resource.additionalInfo.clusters[]` | 40 / 52 |
+| `resource.account` | 52 / 52 |
+| **neither owner nor cluster** | **10 / 52** |
+
+⚠️ Do not confuse this with the image API. `/api/v1/images` carries **no owner
+label at all** (0 of 300 sampled). The promoted CSPM alert is a different
+record and does carry one.
+
+⚠️ `cloudAccountOwners` is the **cloud account** owner, not the workload owner.
+One shared lab account produced 15 of the 52 open alerts, and a single rule
+group addressed 5 people — so some recipients would get mail about workloads
+that are not theirs. A declared `teams.yaml` mapping would be more precise;
+that decision is open.
+
+### Outputs
+
+| Output | Meaning |
+|---|---|
+| `notify_status` | `ok` \| `disabled` \| `no_override` \| `not_queried` \| `all_overdue` \| `has_unroutable` |
+| `warning_plan` | counts: planned, overdue, unroutable, not_escalatable, sendable, distinct_owners, max_recipients |
+| `warning_messages` | per group: `age_days`, `days_remaining`, `overdue`, `escalatable`, `routable`, `would_notify`, `recipient` |
+
+`sendable` is the only set a send path could honestly mail: **overdue AND
+addressable AND pointing at a rule escalation can act on.**
+
+### Two things that must be settled before anything is sent
+
+Both are reported as `check` warnings rather than being silently tolerated.
+
+**1. The clock starts at the alert, so a backlog is already expired.** The
+countdown runs from each alert's `alertTime`. On the reference tenant *every*
+candidate was already past a 14-day window — the oldest by 368 days. A first
+run would not warn anyone; it would announce an expiry that happened a year
+ago. **A grace period has to start when it is announced.** A send path needs a
+campaign start date and must measure from first contact.
+
+**2. Some candidates cannot be warned at all.** Groups with no owner on the
+alert are reported, never dropped — silently skipping them is how a workload
+gets blocked with nobody warned. They need a declared fallback recipient.
+
+Separately, groups pointing at the built-in `default` model are flagged
+`escalatable: false`: no escalation can be aimed at them, so warning about them
+would threaten a consequence that cannot be carried out.
+
+### The artifact holds personal data
+
+`warning_messages[].would_notify` contains real addresses. The workflow prints
+only **counts** to the job summary — which is visible to everyone with repo
+read access — and leaves the addresses in the run artifact.
+`terraform/runtime-grace-digest.json` is git-ignored for the same reason.
 
 ## Verified against the live tenant
 

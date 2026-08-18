@@ -47,15 +47,71 @@ Actions → **8. Runtime Grace Digest (read-only)** → Run workflow.
 | `window_days` | `14` | The recurrence window. A rule with an incident inside it counts as still firing. |
 | `alert_status` | `open` | Which lifecycle state to report. `dismissed` reviews what teams have accepted. |
 | `max_alerts` | `2000` | Cap on alerts read for grouping. Totals are never capped by this. |
+| `plan_warnings` | off | Also work out **who would be warned** that a rule is heading for escalation. Sends nothing. |
+| `grace_days` | `14` | Days an alert may stay open before its rule becomes a candidate. Only used with `plan_warnings`. |
 
-It also runs **automatically every Monday at 08:00 UTC** with the defaults. A
-digest is only useful if it turns up without being asked for.
+It also runs **automatically every Monday at 08:00 UTC** with the defaults.
+`plan_warnings` is **off** on that schedule: a weekly cron does not need to
+re-derive a recipient list nobody asked for.
 
 ## Where the results appear
 
 - **Summary page** — the report. Start here.
 - **Artifact** `runtime-grace-digest` — full JSON, 90-day retention, including
   every group when the table on the summary page is truncated to the top 40.
+
+## The grace warning — planned, never sent
+
+Turn on `plan_warnings` and the report gains a second section: who *would* be
+told that a rule is heading for escalation, how old the oldest open alert is,
+and how many of those messages could honestly be sent.
+
+**Nothing is sent, and nothing here can send.** There is no SMTP client, no
+webhook and no mail command anywhere in this workflow or the module behind it.
+Every planned message is addressed to one fixed override recipient; the real
+owner addresses are recorded for review only.
+
+That is deliberate. Every other workflow in this repo can only affect the
+tenant, and a wrong write is undone by another write. These recipients are
+**live mailboxes of real people**, read from the alert's `cloudAccountOwners`,
+and a sent email cannot be recalled. So the addressing gets reviewed first, in
+a form that physically cannot contact anyone.
+
+### Reading it
+
+| Row | Meaning |
+|---|---|
+| Rule groups with an open alert | Candidates. Only `open` alerts run the clock. |
+| Past the grace window | Already over the threshold. |
+| No owner on the alert (unroutable) | Cannot be addressed to anyone. |
+| Not escalatable (built-in model) | The `default` learned model — no escalation can target it. |
+| **Could honestly be warned today** | Overdue **and** addressable **and** escalatable. |
+| Distinct people who would be contacted | Fan-out, before any message is written. |
+| Most recipients on a single group | How many people one rule would notify. |
+
+Only the **counts** appear on the summary page — it is visible to everyone with
+repo read access. The addresses are in the artifact.
+
+### Two warnings you will probably see on a first run
+
+**"Every planned warning is already past the deadline."** The countdown runs
+from each alert's own `alertTime`, so against an existing backlog the deadline
+passed long ago — in the reference tenant, every candidate was overdue and the
+oldest by 368 days. Sending that would not be a warning; it would announce an
+expiry that already happened. A grace period has to start when it is
+**announced**, so a send path needs a campaign start date measured from first
+contact.
+
+**"N groups cannot be addressed to anyone."** Those alerts carry no owner. They
+are shown rather than dropped: quietly skipping them is how a workload ends up
+blocked with nobody warned. They need a declared fallback recipient.
+
+### A caveat worth knowing
+
+`cloudAccountOwners` is the owner of the **cloud account**, not of the
+workload. One shared lab account produced 15 of the 52 open alerts in the
+reference tenant, and one rule group addressed 5 people — so some recipients
+would get mail about workloads that are not theirs.
 
 ## Reading the output
 
