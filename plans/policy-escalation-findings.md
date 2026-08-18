@@ -584,21 +584,80 @@ type="container_runtime_audit"  effect="alert"  log_type="filesystem"
 type="host_runtime_audit"       effect="alert"  log_type="network"
 ```
 
-### ⚠️ STILL OPEN: does `effect` survive promotion into the CSPM alert?
+### ANSWERED 2026-08-18: `effect` does NOT survive promotion [product]
 
-**Unverified — this is the remaining blocker for WF9's design.** The docs do not
-say. Asked directly, the vendor doc assistant returned *"I cannot find
-information about this in the docs"*, and noted that the webhook payload macro
-list documents no `effect` macro — weak evidence against propagation.
+Measured against 100 promoted `workload_incident` alerts (`detailed=true`):
 
-The two outcomes lead to different designs:
+- **Zero** keys matching `/effect/i` at any depth
+- **Zero** values equal to `prevent`, `block` or `disable`
+- `metadata` carries: `auditRuleName`, `auditCount`, `auditMessage`, `auditTime`,
+  `auditType`, `auditUser`, `auditAttackTechniques`, `incidentCategory`,
+  `incidentCountUri`, `lastIncidentTime`, `source`, `cve{Critical,High,Medium,Low}`
 
-| If | Then |
+**Consequence: the two-API design is forced.** Enforcement state exists only in
+the Compute Console policy objects and must be joined on.
+
+### The live rule shape — 8 effect sites, not one [product]
+
+`GET /api/v1/policies/runtime/container` — **145 rules**. There is **no
+rule-level `effect`**. Instead:
+
+| Site | Rules having it |
 |---|---|
-| The promoted alert carries `effect` | The digest gains enforcement state for free; one API, one auth path |
-| It does not | WF9 must read rule state from the Compute Console and join on `(rule, event type)` — a second API and auth path |
+| `processes.deniedList.effect` | 145 |
+| `filesystem.deniedList.effect` | 145 |
+| `network.listeningPorts.effect` | 145 |
+| `network.outboundPorts.effect` | 145 |
+| `dns.domainList.effect` | 145 |
+| `customRules[].effect` | 80 |
+| `advancedProtectionEffect` (rule level) | 145 |
+| `kubernetesEnforcementEffect` (rule level) | 145 |
+| `cloudMetadataEnforcementEffect` (rule level) | 145 |
 
-Settle against the tenant before designing WF9.
+`GET /api/v1/policies/runtime/host` — **79 rules, a DIFFERENT SHAPE**: no
+`processes`/`filesystem` sections and no rule-level `*Effect` keys at all. Only
+`antiMalware.deniedProcesses.effect` (79) and `customRules[].effect` (54).
+
+**"Escalate a rule" is therefore meaningless without naming the site.** WF9 must
+target `(policy kind, rule name, effect site)`.
+
+### ⚠️ `disable` is a FOURTH effect value, undocumented in the pages read [product]
+
+Observed values — note `disable` dominates, and `block` never appears on host:
+
+| Policy | Values |
+|---|---|
+| Container | `disable`=611, `alert`=138, `prevent`=32, `allow`=14, `block`=10 |
+| Host | `alert`=106, `prevent`=21, `allow`=6 (**no `block`, no `disable`**) |
+
+`disable` means the detection is OFF. Escalating `disable → prevent` is a much
+larger change than `alert → prevent`: it turns on a detection that was never
+running. WF9 must treat it as a distinct, louder case, not "just another
+upgrade".
+
+### ⚠️ BLOCKER: the join key is unreliable [tenant-shaped, but structural]
+
+Joining `metadata.auditRuleName` to `rules[].name`, over the 13 distinct rule
+names present in 100 promoted alerts:
+
+- **5 matched** — Block Dangerous Container Settings, OT-WildFire-Demo-Rule,
+  PHASE1, ranti-nc-rule-test, rp-lab
+- **8 did not** — `default` (the built-in model, expected) plus 7 real-looking
+  names (`aron test rule`, `pavila-runtime-test`, …)
+
+Deleted or renamed rules keep producing alerts that reference the old name (the
+rule object carries `previousName`, which is a hint at the mechanism). **An
+alert naming a rule is not evidence the rule still exists.**
+
+- **3 names exist in BOTH policies** — `mb-demo`, `OT-WildFire-Demo-Rule`,
+  `pc-rul-host-gcp-semartinez`. The promoted alert has no field identifying
+  which Compute policy it came from, so a name match can be genuinely ambiguous.
+- Rule names are **not unique across policies**, though no duplicates were found
+  *within* a single policy.
+
+**WF9 cannot silently skip an unresolvable rule** — that would under-report the
+very thing it exists to surface. It must report unmatched and ambiguous names as
+first-class outcomes.
 
 ---
 
