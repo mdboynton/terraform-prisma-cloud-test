@@ -777,30 +777,65 @@ Measured against 100 promoted `workload_incident` alerts (`detailed=true`):
 **Consequence: the two-API design is forced.** Enforcement state exists only in
 the Compute Console policy objects and must be joined on.
 
-### The live rule shape — 9 effect sites, not one [product]
+### The live rule shape — 27 container / 19 host effect sites, not one [product]
 
-> **Corrected 2026-08-18:** this heading previously said 8, contradicting its
-> own table below, which lists nine container sites. Nine is right, and it is
-> the figure `effects.sh` and the module README use.
+> **⚠️ CORRECTED AGAIN 2026-08-18. The count here has now been wrong twice.**
+> It first said 8, was "corrected" to 9 — and 9 was still wrong. The real
+> figures are **27 container** and **19 host**.
+>
+> Both earlier numbers came from reading the fields I already knew the names of
+> and counting them. The correct method is to ask the data: enumerate every
+> string field whose VALUE is in the effect vocabulary. Doing that across all
+> 224 live rules yields 27 and 19.
+>
+> **This was not merely a doc error — `effects.sh` shipped with the same wrong
+> list** and hid 2490 container / 1313 host settings that sit at `alert` or
+> `disable`. See "The enumeration must be value-based" below.
 
 `GET /api/v1/policies/runtime/container` — **145 rules**. There is **no
-rule-level `effect`**. Instead:
+rule-level `effect`**. The 27 sites, grouped:
 
-| Site | Rules having it |
+| Group | Sites |
 |---|---|
-| `processes.deniedList.effect` | 145 |
-| `filesystem.deniedList.effect` | 145 |
-| `network.listeningPorts.effect` | 145 |
-| `network.outboundPorts.effect` | 145 |
-| `dns.domainList.effect` | 145 |
-| `customRules[].effect` | 80 |
-| `advancedProtectionEffect` (rule level) | 145 |
-| `kubernetesEnforcementEffect` (rule level) | 145 |
-| `cloudMetadataEnforcementEffect` (rule level) | 145 |
+| rule level | `advancedProtectionEffect`, `kubernetesEnforcementEffect`, `cloudMetadataEnforcementEffect`, **`wildFireAnalysis`** |
+| `processes.*` | `deniedList.effect`, `defaultEffect`, `modifiedProcessEffect`, `cryptoMinersEffect`, `lateralMovementEffect`, `reverseShellEffect`, `suidBinariesEffect` |
+| `network.*` | `listeningPorts.effect`, `outboundPorts.effect`, `defaultEffect`, `deniedIPsEffect`, `modifiedProcEffect`, `portScanEffect`, `rawSocketsEffect` |
+| `dns.*` | `domainList.effect`, `defaultEffect` |
+| `filesystem.*` | `deniedList.effect`, `defaultEffect`, `newFilesEffect`, `backdoorFilesEffect`, `encryptedBinariesEffect`, `suspiciousELFHeadersEffect` |
+| indexed | `customRules[].effect` (80 rules) |
 
 `GET /api/v1/policies/runtime/host` — **79 rules, a DIFFERENT SHAPE**: no
-`processes`/`filesystem` sections and no rule-level `*Effect` keys at all. Only
-`antiMalware.deniedProcesses.effect` (79) and `customRules[].effect` (54).
+`processes`/`filesystem` sections. 19 sites:
+
+| Group | Sites |
+|---|---|
+| `antiMalware.*` | `deniedProcesses.effect`, plus 12 named detections: `cryptoMiner`, `serviceUnknownOriginBinary`, `userUnknownOriginBinary`, `encryptedBinaries`, `suspiciousELFHeaders`, `tempFSProc`, `reverseShell`, `webShell`, `executionFlowHijack`, `customFeed`, `intelligenceFeed`, `wildFireAnalysis` |
+| `network.*` | `denyListEffect`, `customFeed`, `intelligenceFeed` |
+| `dns.*` | `denyListEffect`, `intelligenceFeed` |
+| indexed | `customRules[].effect` (54 rules) |
+
+### ⚠️ The enumeration must be value-based, not name-based [product]
+
+**Most effect fields do not have "effect" in the key name.** The entire host
+anti-malware section is spelled `cryptoMiner`, `reverseShell`, `webShell`; the
+container policy has `wildFireAnalysis`. A `test("Effect$")` filter finds none
+of them.
+
+This is the same trap as `block` vs `prevent` and `nextPageToken` vs
+`pageToken`, one level up: **the concept is shared, the spelling is not.** A
+name-based list also cannot be made correct going forward, because the vendor
+can add `somethingNew: "alert"` in any release and it would be silently missed.
+
+So invert it — find every string field whose value is one of
+`alert|prevent|block|disable|allow`. Measured across all 224 live rules, all 46
+fields found this way hold **only** vocabulary values; there is no field that
+sometimes holds an effect and sometimes free text.
+
+**One guard is required.** A rule may legitimately be *named* `alert`, so
+`name`, `previousName`, `notes`, `owner`, `modified`, `_id` and `description`
+must be excluded — otherwise the tool offers to "escalate" a rule's name, which
+would rename the rule rather than change enforcement. Verified against a
+constructed rule with `name="alert"`, `notes="prevent"`.
 
 **"Escalate a rule" is therefore meaningless without naming the site.** WF9 must
 target `(policy kind, rule name, effect site)`.

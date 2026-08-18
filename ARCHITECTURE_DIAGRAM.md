@@ -284,10 +284,14 @@ It needs **both** APIs. VERIFIED across 100 promoted alerts: the CSPM alert carr
 `effect` field at any depth. Enforcement state exists only inside the Compute Console
 policy objects, so the question is answerable only by joining the two by rule name.
 
-**An escalation targets an effect SITE, not a rule.** A container rule carries nine
-independent effect sites and a host rule a smaller, different set, so there is no single
+**An escalation targets an effect SITE, not a rule.** A container rule carries 27
+independent effect sites and a host rule 19, a different set, so there is no single
 switch to flip. Every request is `(kind, rule, site, effect)` where `site` is a literal
 jq path copied verbatim from the report.
+
+Sites are discovered by VALUE (any string field holding `alert`/`prevent`/`block`/
+`disable`/`allow`, excluding free-text metadata), not by key name — most effect fields
+are not spelled `*Effect`, and a name-based list silently hides them.
 
 ```mermaid
 flowchart LR

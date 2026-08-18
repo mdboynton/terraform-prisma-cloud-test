@@ -16,9 +16,16 @@ deliberate acts and never happens during `terraform plan`.
 ## The headline: an escalation targets a SITE, not a rule
 
 "Escalate this rule" is not a well-formed instruction. VERIFIED against the
-live tenant: a container runtime rule carries **nine independent effect sites**
-and a host rule a smaller, different set. There is no single `effect` field to
+live tenant: a container runtime rule carries **27 independent effect sites**
+and a host rule **19**, a different set. There is no single `effect` field to
 flip.
+
+> **Corrected 2026-08-18.** This said "nine", and so did the code — the site
+> list was built from key names matching `Effect$` plus six hardcoded paths.
+> Most effect fields are not spelled that way (`antiMalware.cryptoMiner`,
+> `dns.intelligenceFeed`, `wildFireAnalysis`), so the report hid 2490 container
+> and 1313 host settings sitting at `alert` or `disable`. Sites are now found by
+> VALUE, which also picks up fields the vendor adds later.
 
 So every escalation is addressed as four values:
 
@@ -279,7 +286,7 @@ listing.
 - the CSPM alert carries no `effect` field at any depth (100 alerts)
 - `block` is container-only; a host rule rejects it
 - `disable` is a fourth, undocumented value — 611 of 805 container values
-- a container rule has 9 effect sites; a host rule has a different, smaller set
+- a container rule has 27 effect sites; a host rule has 19, a different set
 - rule names DO resolve across the two APIs, but are not unique
 - only `APPLY` arms the write; `""`, `true`, `yes`, `apply` do not
 - `-target=module.runtime_rule_effects` isolates an apply to exactly 1 resource

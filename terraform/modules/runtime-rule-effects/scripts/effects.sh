@@ -21,7 +21,7 @@
 # THERE IS NO SUCH THING AS "THE RULE'S EFFECT"
 #
 # VERIFIED against the live API: a runtime rule has no rule-level `effect`. A
-# container rule carries NINE independent effect sites and a host rule carries a
+# container rule carries 27 independent effect sites and a host rule carries a
 # different, smaller set. Escalating "a rule" is therefore not a well-formed
 # operation — a caller must name the SITE.
 #
@@ -174,37 +174,64 @@ curl "${CURL_OPTS[@]}" -H @"$TMP/cc.hdr" \
 jq -n \
   --slurpfile c "$TMP/container.json" \
   --slurpfile h "$TMP/host.json" '
-  def sites($kind):
+  # -------------------------------------------------------------------------
+  # Effect sites are discovered BY VALUE, not by key name.
+  #
+  # ⚠️ THIS WAS A REAL DEFECT, MEASURED 2026-08-18. The previous version keyed
+  # off `test("Effect$")` plus six hardcoded section paths, and so reported 9
+  # container / 2 host sites. The live tenant actually has 27 and 19. It was
+  # hiding 2490 container and 1313 host settings that sit at alert/disable —
+  # including the host anti-malware section in its entirety (crypto-mining,
+  # reverse shell, web shell), because those keys are spelled `cryptoMiner`,
+  # `reverseShell`, `webShell` with no "effect" anywhere in the name.
+  #
+  # That is the same trap already recorded for `block` vs `prevent`: the concept
+  # is shared, the spelling is not. Enumerating by NAME cannot be made correct,
+  # because the vendor is free to add `somethingElse: "alert"` at any time. So
+  # the enumeration is inverted: find every string field whose VALUE is in the
+  # effect vocabulary. New sites are then picked up automatically.
+  #
+  # Measured across all 224 live rules: every one of the 46 fields found this
+  # way holds only vocabulary values — there is no field that sometimes holds
+  # "alert" and sometimes holds free text. Verified independently.
+  # -------------------------------------------------------------------------
+  # ["customRules",0,"effect"] -> "customRules[0].effect", which is the address
+  # form that to_path() in plan_escalation.sh parses. Keep the two in step.
+  def render($p):
+    $p | reduce .[] as $seg ("";
+          if ($seg | type) == "number"
+          then . + "[" + ($seg | tostring) + "]"
+          else (if . == "" then $seg else . + "." + $seg end) end );
+
+  ["alert","prevent","block","disable","allow"] as $vocab
+
+  # Free-text metadata that can legitimately CONTAIN an effect word. A rule may
+  # be NAMED "alert"; without this a value-based scan offers to escalate the
+  # rule NAME, which would rename the rule rather than change enforcement.
+  # Confirmed by construction against a rule with name="alert", notes="prevent".
+  | ["name","previousName","notes","owner","modified","_id","description"] as $meta
+
+  | def sites($kind):
     .rules // []
     | to_entries[]
     | .key as $ri | .value as $r
-    | [
-        # Rule-level effect keys. Container only - selected by presence, so the
-        # host policy simply yields none rather than nulls.
-        ( $r | to_entries[]
-          | select(.key | test("Effect$"))
-          | { site: .key, effect: .value, action: null } ),
-
-        # Section effects. `getpath` returns null for a section the policy kind
-        # does not have, and those are dropped.
-        ( ["processes","deniedList","effect"],
-          ["filesystem","deniedList","effect"],
-          ["network","listeningPorts","effect"],
-          ["network","outboundPorts","effect"],
-          ["dns","domainList","effect"],
-          ["antiMalware","deniedProcesses","effect"]
-          | . as $p
-          | select($r | getpath($p) != null)
-          | { site: ($p | join(".")), effect: ($r | getpath($p)), action: null } ),
-
-        # Custom rules are addressed BY INDEX. `_id` is the documented key but
-        # reads as null through the policy endpoint, so the index is the only
-        # reliable address.
-        ( ($r.customRules // []) | to_entries[]
-          | { site: ("customRules[" + (.key|tostring) + "].effect"),
-              effect: .value.effect,
-              action: .value.action } )
-      ]
+    | [ $r
+        | [paths(scalars)] | .[] as $p
+        | ($r | getpath($p)) as $v
+        | select(($v | type) == "string" and ($vocab | index($v) != null))
+        | select($p | length > 0)
+        | select($meta | index($p[-1]) == null)
+        | { site: render($p),
+            effect: $v,
+            # `action` (audit|incident) is the OTHER axis and only customRules
+            # carry it: effect controls enforcement, action controls whether the
+            # event is logged as an audit or an incident. Escalating effect does
+            # NOT stop incidents - that is why "still firing" cannot discharge an
+            # escalation. Read from the parent object, so it attaches to
+            # any future construct shaped the same way.
+            action: ( if ($p | length) >= 2
+                      then ($r | getpath($p[0:-1]) | if type == "object" then .action else null end)
+                      else null end ) } ]
     | { kind: $kind, rule: ($r.name // "(unnamed)"), rule_index: $ri,
         owner: ($r.owner // ""), sites: . };
 

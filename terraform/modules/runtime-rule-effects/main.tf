@@ -61,8 +61,8 @@ locals {
   builtin_rules   = [for r in local.rules : r if r.match_status == "builtin"]
 
   # Flatten to one row per EFFECT SITE - the unit an escalation actually
-  # targets. A rule has no single effect: a container rule carries nine
-  # independent sites and a host rule a different, smaller set.
+  # targets. A rule has no single effect: a container rule carries 27
+  # independent sites and a host rule 19, a different set.
   #
   # `site` is a literal jq path into the policy object, so the escalator can
   # address a change without re-deriving anything.

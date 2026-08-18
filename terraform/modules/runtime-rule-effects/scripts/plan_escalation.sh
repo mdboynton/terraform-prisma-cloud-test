@@ -19,7 +19,7 @@
 #   effect  alert | prevent | block | allow
 #
 # The site is required because VERIFIED: a rule has no single effect. A
-# container rule carries nine independent effect sites and a host rule a
+# container rule carries 27 independent effect sites and a host rule a
 # different, smaller set. Deriving the site from the alert's auditType would be
 # a guess (Filesystem could mean filesystem.deniedList OR antiMalware), and a
 # wrong guess changes an unrelated control on a live security policy.

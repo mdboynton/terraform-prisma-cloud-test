@@ -26,8 +26,8 @@ The plan job cannot write, structurally rather than by convention:
 
 This is the thing to understand before using it.
 
-"Escalate this rule" is ambiguous: a container runtime rule carries **nine
-independent effect sites**, a host rule a smaller and different set. There is no
+"Escalate this rule" is ambiguous: a container runtime rule carries **27
+independent effect sites**, a host rule **19**, a different set. There is no
 single switch.
 
 So you choose four things, and three of them come straight from the plan output:
