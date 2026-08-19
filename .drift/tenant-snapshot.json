@@ -2,10 +2,10 @@
   "counts": {
     "roles": 170,
     "roles_unassigned": 75,
-    "users": 852,
-    "users_enabled": 851,
+    "users": 853,
+    "users_enabled": 852,
     "users_disabled": 1,
-    "service_accounts": 209,
+    "service_accounts": 210,
     "permission_groups": 62,
     "integrations": 145,
     "reports": 295,
@@ -491,7 +491,7 @@
       "name": "System Admin",
       "role_type": "System Admin",
       "account_group_count": 0,
-      "assigned_user_count": 713
+      "assigned_user_count": 714
     },
     {
       "name": "Temp-Prisma-Cloud-RO",
@@ -4446,6 +4446,12 @@
       "account_type": "USER_ACCOUNT",
       "enabled": true,
       "role_count": 3
+    },
+    {
+      "id": "988be6a7ebef",
+      "account_type": "SERVICE_ACCOUNT",
+      "enabled": true,
+      "role_count": 1
     },
     {
       "id": "98d107941877",
