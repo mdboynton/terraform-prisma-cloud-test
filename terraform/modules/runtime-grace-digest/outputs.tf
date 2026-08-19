@@ -13,13 +13,29 @@
 #
 # A workflow must branch on THIS value, not on the exit code.
 # ----------------------------------------------------------------
+# `empty_window` sits BELOW the two "your data may be wrong" states and ABOVE
+# `partial_grouping`, because ordering here is a claim about which problem to
+# report when several are true at once:
+#
+#   - suspect_unfiltered and empty_window are mutually exclusive by definition
+#     (one needs window == all_time > 0, the other window == 0 < all_time), so
+#     their relative order is unobservable. It is fixed only for readability.
+#
+#   - empty_window MUST outrank partial_grouping. With zero alerts in the
+#     window `complete` is trivially true, so partial_grouping cannot fire --
+#     but if the cap semantics ever change, reporting "the table is a sample"
+#     for a table that has no rows at all would be actively misleading.
+#
+# `ok` with zero rows remains a legitimate, healthy answer: it is reported only
+# when the tenant has no alerts AT ALL, which is genuinely nothing to say.
 output "status" {
-  description = "ok | disabled | missing_credentials | suspect_unfiltered | partial_grouping. Callers must branch on this: a failed check does NOT fail the plan, and check results are absent from plan JSON."
+  description = "ok | disabled | missing_credentials | suspect_unfiltered | empty_window | partial_grouping. Callers must branch on this: a failed check does NOT fail the plan, and check results are absent from plan JSON."
   value = (
     !var.enabled ? "disabled" :
     !local.creds_present ? "missing_credentials" :
     local.result == null ? "disabled" :
     local.result.suspect_unfiltered ? "suspect_unfiltered" :
+    (local.result.alerts_in_window == 0 && local.result.alerts_all_time > 0) ? "empty_window" :
     !local.result.complete ? "partial_grouping" :
     "ok"
   )
@@ -32,6 +48,7 @@ output "status_detail" {
     !local.creds_present ? "CSPM credentials were not supplied (cspm_url, access_key, secret_key). No report was produced - this is NOT the same as nothing firing." :
     local.result == null ? "Module disabled." :
     local.result.suspect_unfiltered ? "The ${local.result.window_days}-day window returned the same count as an all-time query. Either every alert is genuinely recent, or the time filter was silently ignored." :
+    (local.result.alerts_in_window == 0 && local.result.alerts_all_time > 0) ? "The ${local.result.window_days}-day window returned 0 alerts, but the tenant has ${local.result.alerts_all_time} all-time. Nothing is firing inside the window. This is indistinguishable from a healthy tenant in the report itself, and it plans zero grace warnings - widen window_days if this feeds an escalation campaign." :
     !local.result.complete ? "The rule table was built from ${local.result.alerts_fetched} of ${local.result.alerts_in_window} alerts (capped by max_alerts). Rules below the cut-off are missing." :
     null
   )
@@ -47,7 +64,7 @@ output "summary" {
 }
 
 output "rules" {
-  description = "Runtime rules that produced incidents inside the window, grouped by rule + scope (container|host) + cloud account, ordered by occurrences. INCLUDES the built-in `default` model. Empty list when nothing was queried."
+  description = "Runtime rules that produced promoted CSPM alerts inside the window, grouped by rule + scope (container|host) + cloud account, ordered by occurrences. INCLUDES the built-in `default` model. Empty list when nothing was queried."
   value       = local.rules
 }
 

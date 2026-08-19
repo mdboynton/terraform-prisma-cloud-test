@@ -208,6 +208,37 @@ check "time_window_applied" {
   }
 }
 
+# The mirror of the check above. `time_window_applied` catches a window that is
+# too WIDE (or silently ignored). This one catches a window that is too NARROW.
+#
+# Both failure modes render as a confident, clean report. An empty window looks
+# exactly like a healthy tenant: zero rows, no warnings, nothing to escalate.
+#
+# MEASURED on the reference tenant: the default 14-day window returns 0 open
+# alerts while an all-time query returns 111. A grace campaign run on the
+# defaults would plan zero warnings, email nobody, and report success - and the
+# 111 alerts that workflow 9 escalates against would still be there. That is
+# the split-brain this check exists to make loud.
+#
+# Deliberately NOT a hard failure. Zero-in-window is the CORRECT answer for a
+# healthy tenant, and a module that errors on good news is a module people
+# disable. The distinguishing signal is `alerts_all_time > 0`: alerts exist,
+# just not in the window being asked about.
+check "window_returned_alerts" {
+  assert {
+    condition = local.result == null ? true : !(
+      local.result.alerts_in_window == 0 &&
+      local.result.alerts_all_time > 0
+    )
+
+    error_message = format(
+      "The %s-day window returned 0 alerts, but the tenant has %s all-time. Nothing is firing INSIDE the window - which reads identically to a healthy tenant and will plan zero grace warnings. If this feeds an escalation campaign, widen window_days until it returns the population you intend to warn about; workflow 9 measures the same tenant over its own window, and the two must agree or people get blocked without notice.",
+      try(tostring(local.result.window_days), "?"),
+      try(tostring(local.result.alerts_all_time), "?")
+    )
+  }
+}
+
 check "grouping_is_complete" {
   assert {
     condition = local.result == null ? true : local.result.complete

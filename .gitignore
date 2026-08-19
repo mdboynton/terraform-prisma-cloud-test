@@ -65,6 +65,16 @@ terraform/runtime-grace-digest.json
 terraform/compute-alert-summary.json
 terraform/runtime-rule-effects.json
 
+# Terraform plan files in JSON form, ANYWHERE in the tree - not just under
+# terraform/. `terraform show -json tfplan` embeds the `variables` block
+# verbatim, so a plan JSON contains the Prisma Cloud access key, secret key
+# and console URL in PLAINTEXT on its first line. The entries above are all
+# `terraform/`-prefixed and a plan saved at the repo root slipped past every
+# one of them. These patterns are deliberately unanchored.
+plan.json
+*.tfplan
+*.tfplan.json
+
 # macOS
 .DS_Store
 

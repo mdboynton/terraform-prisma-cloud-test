@@ -456,6 +456,24 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
+          # The opposite failure: a window so narrow it returns nothing while
+          # the tenant is full of alerts. Without this branch an empty window
+          # renders as a clean report - no rows, no warnings - which is exactly
+          # what a healthy tenant looks like. Measured: the 14-day default
+          # returns 0 while the tenant holds 111 all-time.
+          if [ "$status" = "empty_window" ]; then
+            {
+              echo
+              echo "> [!WARNING]"
+              echo "> **Nothing fired inside the window - but the tenant is not empty.**"
+              echo "> $detail"
+              echo "> This report is empty because of the window, not because"
+              echo "> the tenant is clean. A grace campaign run on this setting"
+              echo "> would warn nobody. Widen \`window_days\` to cover the"
+              echo "> population workflow 9 escalates against."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
           {
             echo
             echo "<details><summary>Why this reports recurrence, not \"unresolved for N days\"</summary>"

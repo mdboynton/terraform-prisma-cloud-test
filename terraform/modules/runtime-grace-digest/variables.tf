@@ -6,7 +6,7 @@ variable "enabled" {
 }
 
 variable "window_days" {
-  description = "(Optional) How far back to look for runtime incidents. A rule that produced an incident inside this window is 'still firing'. NOTE: this is a RECURRENCE window, not a grace timer - see the module README for why age is not the measure."
+  description = "(Optional) How far back to look for promoted CSPM alerts. A rule that produced one inside this window is 'still firing'. NOTE: this is a RECURRENCE window, not a grace timer - see the module README for why age is not the measure. WARNING: the default is short and can legitimately return zero on a tenant that has plenty of alerts outside it; an empty window reads exactly like a healthy tenant, so check status != empty_window before using this to drive a grace campaign."
   type        = number
   default     = 14
   nullable    = false

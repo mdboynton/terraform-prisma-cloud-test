@@ -2,9 +2,16 @@
 
 Answers one question: **which runtime rules are still firing?**
 
-It lists the rules that produced incidents inside a recent window, grouped by
-rule, workload scope (container or host) and cloud account, ordered by how many
-times they fired.
+It lists the rules that produced **promoted CSPM alerts** inside a recent
+window, grouped by rule, workload scope (container or host) and cloud account,
+ordered by how many times they fired.
+
+> **A word on "incident" vs "alert".** An *incident* is the raw runtime event
+> in the Compute Console. CSPM promotes it into an *alert*. **This workflow
+> reads alerts** — it queries the CSPM alert API and never contacts the Compute
+> Console. The two words describe the same underlying event but different
+> records, different APIs and different credentials, so this page uses "alert"
+> for the thing being counted.
 
 It **sends nothing and changes nothing**. No email, no tickets, no enforcement.
 This is the baseline-gathering stage of the escalation pipeline — the gated
@@ -44,7 +51,7 @@ Actions → **8. Runtime Grace Digest (read-only)** → Run workflow.
 
 | Input | Default | What it does |
 |---|---|---|
-| `window_days` | `14` | The recurrence window. A rule with an incident inside it counts as still firing. |
+| `window_days` | `14` | The recurrence window. A rule with an alert inside it counts as still firing. **A short window can return nothing while the tenant is full of alerts** — see below. |
 | `alert_status` | `open` | Which lifecycle state to report. `dismissed` reviews what teams have accepted. |
 | `max_alerts` | `2000` | Cap on alerts read for grouping. Totals are never capped by this. |
 | `plan_warnings` | off | Also work out **who would be warned** that a rule is heading for escalation. Sends nothing. |
@@ -53,6 +60,27 @@ Actions → **8. Runtime Grace Digest (read-only)** → Run workflow.
 It also runs **automatically every Monday at 08:00 UTC** with the defaults.
 `plan_warnings` is **off** on that schedule: a weekly cron does not need to
 re-derive a recipient list nobody asked for.
+
+### An empty report is not the same as a clean tenant
+
+`window_days` decides what you can see, and the default is short. On the
+reference tenant:
+
+| window | open alerts |
+|---|---|
+| 14 days (the default) | **0** |
+| 1825 days | **111** |
+
+An empty result renders exactly like a healthy tenant — no rows, no warnings.
+The run says `status: empty_window` when this happens, and the summary carries
+a warning explaining it, precisely because the table alone cannot tell you
+which of the two you are looking at.
+
+**This matters most for a grace campaign.** Workflow 9 escalates rules over
+*its own* window. If this workflow's window is narrower, it warns fewer people
+than workflow 9 will block — and if it returns nothing, it warns nobody at all
+while the escalation goes ahead. Nothing links the two settings; they have to
+be set to agree deliberately.
 
 ## Where the results appear
 

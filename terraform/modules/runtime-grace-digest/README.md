@@ -1,9 +1,26 @@
 # runtime-grace-digest
 
-Reports **which runtime rules are still producing incidents**, grouped by rule,
-workload scope (container or host) and cloud account, ordered by occurrences.
+Reports **which runtime rules are still producing promoted CSPM alerts**,
+grouped by rule, workload scope (container or host) and cloud account, ordered
+by occurrences.
 
 Read-only: the module contains only `data` blocks, no `resource` blocks.
+
+> ### "Incident" vs "alert" — they are not interchangeable here
+>
+> **Incident** is the Compute Console's noun: the raw runtime event, reachable
+> only through the Compute API. **Alert** is what CSPM creates when it promotes
+> that incident, carrying `policyType: workload_incident`.
+>
+> **This module reads alerts.** It POSTs to CSPM `/v2/alert` and never contacts
+> the Compute Console. Everything it counts, filters, groups and ages is a
+> promoted alert. Where this README says "incident" it is describing the
+> underlying event; where it says "alert" it means the record actually being
+> queried — and the distinction decides which API, which credentials, and which
+> field names apply.
+>
+> This document previously led with "still producing incidents", which read as
+> though the Compute API was in use. It was not, and never has been.
 
 This is the report-only stage of the policy-escalation pipeline. It establishes
 a baseline so a human can decide whether a rule is worth escalating to
@@ -89,7 +106,7 @@ module "runtime_grace_digest" {
 | Name | Type | Default | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Off by default, so the module costs nothing in workflows that don't need it. |
-| `window_days` | number | `14` | Recurrence window, 1–3650. A rule with an incident inside it is "still firing". |
+| `window_days` | number | `14` | Recurrence window, 1–3650. A rule with a promoted alert inside it is "still firing". **The default is deliberately short and can legitimately return zero** — see "Two windows that must agree" below before using this for a grace campaign. |
 | `alert_status` | string | `"open"` | One of `open`, `resolved`, `dismissed`, `snoozed`. |
 | `max_alerts` | number | `2000` | Cap on alerts fetched for grouping, 1–10000. Does **not** cap the totals. |
 | `cspm_url` | string | `null` | CSPM API host, e.g. `api2.prismacloud.io`. Required when enabled. |
@@ -103,7 +120,7 @@ module "runtime_grace_digest" {
 
 | Name | Description |
 |---|---|
-| `status` | `ok` \| `disabled` \| `missing_credentials` \| `suspect_unfiltered` \| `partial_grouping`. **Branch on this.** |
+| `status` | `ok` \| `disabled` \| `missing_credentials` \| `suspect_unfiltered` \| `empty_window` \| `partial_grouping`. **Branch on this.** |
 | `status_detail` | Human-readable explanation. Null when `ok`. |
 | `summary` | Counts for the window plus the all-time total. Null when nothing was queried. |
 | `rules` | Groups, ordered by occurrences. Excludes the built-in `default` model. |
@@ -120,6 +137,37 @@ module "runtime_grace_digest" {
 **Null means "not asked".** Zero means "asked, nothing firing". Collapsing the
 two would let a misconfiguration read as a clean bill of health, which for a
 security report is the worst available failure mode.
+
+## Two windows that must agree
+
+This module and `runtime-rule-effects` (workflow 9) query the same tenant over
+**independently configured windows**. Nothing links them, and when they
+disagree the result is silent and one-directional:
+
+| | window | open alerts returned |
+|---|---|---|
+| This module, default | 14 days | **0** |
+| Workflow 9, as run | 1825 days | **111** |
+
+Measured on the reference tenant. A grace campaign run on this module's
+defaults would plan **zero** warnings, address **nobody**, and report success —
+while workflow 9 sees 111 alerts and 8 escalatable rules over the same tenant.
+
+The failure is asymmetric and that is what makes it dangerous:
+
+- **Window too narrow** → nobody is warned, and the report looks clean.
+- **Escalation proceeds anyway** → workloads are blocked with no notice.
+
+There is no cross-check between the two workflows, because neither can see the
+other's inputs. The protection is the `empty_window` status and the
+`window_returned_alerts` check, which fire when the window returns nothing
+while the tenant holds alerts. **Both are advisory** — a failed check does not
+fail the plan (see above), so a caller must branch on `status`.
+
+> **Before any grace campaign:** set `window_days` here to cover the same
+> population workflow 9 will escalate against, and confirm
+> `status != "empty_window"`. The two numbers are a policy decision about who
+> gets warned, not a tuning knob.
 
 ## Callers must branch on `status`, not the exit code
 
