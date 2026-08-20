@@ -233,6 +233,14 @@ The module pages `/images` and sums per page instead. Supporting measurements:
 
 - Compute runtime incidents carry `category`, **not** `severity` — there is no
   severity breakdown for incidents, only for image CVEs.
+  - **Careful — this is about the COMPUTE incident object only.** The promoted
+    CSPM alert is a different record and DOES carry `policy.severity`
+    (populated 111/111, measured 2026-08-20). That does not make it useful:
+    every runtime incident is promoted by one of just two built-in policies,
+    both hardcoded `high`, so severity is a constant across the whole runtime
+    population. A `=high` filter returns 100%, `=critical` returns 0%. See
+    "Severity is USELESS as a runtime filter" in
+    [`policy-escalation-findings.md`](policy-escalation-findings.md).
 - CVE counts are **instances, not affected images**: one image with three
   critical CVEs contributes three.
 

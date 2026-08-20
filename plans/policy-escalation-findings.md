@@ -143,6 +143,60 @@ are **host** rules (79 host rules exist), not container.
 collision. **A digest must key on `type` + `ruleName`**, never `ruleName` alone,
 or it will escalate against the wrong policy.
 
+### ⚠️ Severity is USELESS as a runtime filter — it is a constant [product]
+
+Measured live 2026-08-20 against `policy.type=workload_incident`,
+`alert.status=open`, 1825-day window.
+
+Two earlier claims were BOTH wrong and are corrected here:
+
+1. "Runtime incidents carry `category`, not `severity`" — that was about the
+   **Compute incident** object. The **promoted CSPM alert** is a different
+   record and it DOES carry `policy.severity`, populated on 111/111.
+2. So severity looks usable. It is not:
+
+```
+severity across 111 open runtime alerts:   high: 111     (nothing else)
+server-side filter policy.severity=high     -> 111
+                            =critical       ->   0
+                            =medium         ->   0
+                            =low            ->   0
+```
+
+The reason is structural, not a quirk of this tenant. Every runtime incident in
+the tenant is promoted by exactly **two** built-in policies:
+
+| policy | severity | alerts |
+|---|---|---|
+| Container workloads detected with Runtime Incidents | high | 101 |
+| Host workloads detected with Runtime Incidents      | high |  10 |
+
+Severity is an attribute of the **policy**, and there are only two policies,
+both hardcoded `high`. It says nothing about the individual finding. A
+`severity >= high` filter therefore selects **100% of the population** and a
+`= critical` filter selects **0%**. Either way it is not a filter.
+
+**Consequence:** "only high/critical should be candidates" cannot be
+implemented via severity for runtime. Requesting it will silently produce
+either everything or nothing. The fields that DO discriminate inside the
+runtime population:
+
+```
+incidentCategory:  Suspicious Binary 91, Cloud Provider 8, Lateral Movement 6,
+                   Crypto Miner 2, Malware 2, Execution Flow Hijack 1, Custom 1
+auditType:         Filesystem 94, Network 8, Processes 9
+auditRuleName:     default 51, croy 19, informatica corp test 17, rp-lab 9,
+                   aron test rule 5, tadenugba Custom Rule 4,
+                   ranti-nc-rule-test 3, Block Dangerous Container Settings 2,
+                   pavila-runtime-test 1
+```
+
+`incidentCategory` is the closest thing to a risk ranking and is the field to
+use if a "only the serious ones" filter is wanted — but the mapping from
+category to severity is a **customer policy decision**, not something the API
+provides. Crypto Miner and Malware are plainly worse than Suspicious Binary,
+and Suspicious Binary is 82% of the volume.
+
 ### Routing key
 
 **[product]** `.collections` on an incident is **not** a routing key — it lists
