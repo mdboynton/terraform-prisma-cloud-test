@@ -1,14 +1,14 @@
 {
   "counts": {
-    "roles": 170,
+    "roles": 171,
     "roles_unassigned": 75,
-    "users": 853,
-    "users_enabled": 852,
+    "users": 855,
+    "users_enabled": 854,
     "users_disabled": 1,
-    "service_accounts": 210,
+    "service_accounts": 212,
     "permission_groups": 62,
     "integrations": 145,
-    "reports": 295,
+    "reports": 297,
     "trusted_login_ips": 3,
     "trusted_alert_ips": 27
   },
@@ -491,7 +491,7 @@
       "name": "System Admin",
       "role_type": "System Admin",
       "account_group_count": 0,
-      "assigned_user_count": 714
+      "assigned_user_count": 715
     },
     {
       "name": "Temp-Prisma-Cloud-RO",
@@ -846,6 +846,12 @@
       "role_type": "llatorre-only-view-users",
       "account_group_count": 123,
       "assigned_user_count": 2
+    },
+    {
+      "name": "mbrummel-read-only",
+      "role_type": "Account Group Read Only",
+      "account_group_count": 1,
+      "assigned_user_count": 1
     },
     {
       "name": "miles-test-role-custom-for-cas",
@@ -1602,6 +1608,12 @@
       "account_type": "USER_ACCOUNT",
       "enabled": true,
       "role_count": 3
+    },
+    {
+      "id": "05d26793ed2f",
+      "account_type": "SERVICE_ACCOUNT",
+      "enabled": true,
+      "role_count": 1
     },
     {
       "id": "069ee51c634d",
@@ -5772,6 +5784,12 @@
       "account_type": "USER_ACCOUNT",
       "enabled": true,
       "role_count": 3
+    },
+    {
+      "id": "d7136ea46a1a",
+      "account_type": "SERVICE_ACCOUNT",
+      "enabled": true,
+      "role_count": 1
     },
     {
       "id": "d71bf7d8bff4",
