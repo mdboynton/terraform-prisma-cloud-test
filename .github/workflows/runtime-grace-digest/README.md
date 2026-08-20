@@ -54,6 +54,7 @@ Actions → **8. Runtime Grace Digest (read-only)** → Run workflow.
 | `window_days` | `14` | The recurrence window. A rule with an alert inside it counts as still firing. **A short window can return nothing while the tenant is full of alerts** — see below. |
 | `alert_status` | `open` | Which lifecycle state to report. `dismissed` reviews what teams have accepted. |
 | `max_alerts` | `2000` | Cap on alerts read for grouping. Totals are never capped by this. |
+| `severities` | `all severities` | Restrict to alerts promoted by a policy of that severity. On this tenant every runtime alert is `high`, so only `all severities` and `high`-inclusive options return anything — see below. |
 | `plan_warnings` | off | Also work out **who would be warned** that a rule is heading for escalation. Sends nothing. |
 | `grace_days` | `14` | Days an alert may stay open before its rule becomes a candidate. Only used with `plan_warnings`. |
 
@@ -81,6 +82,33 @@ which of the two you are looking at.
 than workflow 9 will block — and if it returns nothing, it warns nobody at all
 while the escalation goes ahead. Nothing links the two settings; they have to
 be set to agree deliberately.
+
+### The severity dropdown, and why it is a dropdown
+
+Runtime incidents reach CSPM through one of two built-in policies — *Container
+workloads detected with Runtime Incidents* and its Host counterpart — and
+**both hardcode `high`**. Measured on this tenant: 111 of 111 open runtime
+alerts are `high`, and none are `critical`. So `high + critical` returns the
+same 111 rows as `all severities`, and `critical only` returns 0. That is
+correct behaviour, not a broken filter.
+
+The option exists because a tenant with custom promoting policies will carry a
+real spread, and because a campaign scoped to high and critical should say so
+in the query.
+
+**It is a dropdown rather than a text box for a specific reason.** The severity
+filter *fails open*: an unrecognised value — including `High` with a capital H,
+or the comma-joined `high,critical` — is silently ignored and the API returns
+**every** severity, at HTTP 200, with a count that looks perfectly normal.
+Every other filter here fails the safe way, returning zero. A free-text box
+would let one typo widen a campaign that eventually blocks workloads, with
+nothing in the report saying so.
+
+Three guards back this up: the dropdown, Terraform variable validation, and a
+post-fetch assertion that checks the severity of every alert that came back and
+fails the run if any fall outside the request. The header line on the summary
+page always states the severity scope, so an unfiltered report says "all
+severities" rather than leaving you to assume.
 
 ## Where the results appear
 

@@ -404,6 +404,28 @@ variable "runtime_grace_digest_alert_status" {
   nullable    = false
 }
 
+variable "runtime_grace_digest_severities" {
+  description = "(Optional) Restrict the digest to promoted alerts whose POLICY carries one of these severities. Empty list (the default) means NO severity filter - the digest covers every severity. On the reference tenant both promoting policies are hardcoded `high`, so this changes nothing there; it exists because a tenant with custom promoting policies will vary, and a campaign scoped to high/critical should say so in the query."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  # Validated at the root as well as in the module. Normally that duplication
+  # would not earn its place, but `policy.severity` FAILS OPEN: the API answers
+  # an unrecognised value with HTTP 200 and every alert of every severity, at a
+  # count that looks entirely reasonable. A typo therefore does not produce an
+  # empty report someone investigates - it silently widens the campaign, and
+  # the campaign eventually BLOCKS workloads. Catching it here means the run
+  # stops on "you typed Critical" instead of succeeding against the wrong set.
+  validation {
+    condition = alltrue([
+      for s in var.runtime_grace_digest_severities :
+      contains(["critical", "high", "medium", "low", "informational"], s)
+    ])
+    error_message = "runtime_grace_digest_severities may only contain: critical, high, medium, low, informational (lowercase - the API treats 'High' as unrecognised, and an unrecognised value returns EVERY severity rather than none)."
+  }
+}
+
 # ----------------------------------------------------------------
 # Grace warning (PLAN ONLY).
 #

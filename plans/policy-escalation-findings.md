@@ -143,43 +143,65 @@ are **host** rules (79 host rules exist), not container.
 collision. **A digest must key on `type` + `ruleName`**, never `ruleName` alone,
 or it will escalate against the wrong policy.
 
-### ⚠️ Severity is USELESS as a runtime filter — it is a constant [product]
+### Severity on runtime alerts: real, but inert on THIS tenant [product]
 
 Measured live 2026-08-20 against `policy.type=workload_incident`,
 `alert.status=open`, 1825-day window.
 
-Two earlier claims were BOTH wrong and are corrected here:
+An earlier claim in this repo was wrong and is corrected here: "runtime
+incidents carry `category`, not `severity`" describes the **Compute incident**
+object. The **promoted CSPM alert** is a different record and it DOES carry
+`policy.severity`, populated on 111/111.
 
-1. "Runtime incidents carry `category`, not `severity`" — that was about the
-   **Compute incident** object. The **promoted CSPM alert** is a different
-   record and it DOES carry `policy.severity`, populated on 111/111.
-2. So severity looks usable. It is not:
+The catch is that on this tenant it does not vary:
 
 ```
 severity across 111 open runtime alerts:   high: 111     (nothing else)
-server-side filter policy.severity=high     -> 111
-                            =critical       ->   0
-                            =medium         ->   0
-                            =low            ->   0
 ```
 
-The reason is structural, not a quirk of this tenant. Every runtime incident in
-the tenant is promoted by exactly **two** built-in policies:
+Every runtime incident here is promoted by exactly **two** built-in policies:
 
 | policy | severity | alerts |
 |---|---|---|
 | Container workloads detected with Runtime Incidents | high | 101 |
 | Host workloads detected with Runtime Incidents      | high |  10 |
 
-Severity is an attribute of the **policy**, and there are only two policies,
-both hardcoded `high`. It says nothing about the individual finding. A
-`severity >= high` filter therefore selects **100% of the population** and a
-`= critical` filter selects **0%**. Either way it is not a filter.
+Severity is an attribute of the **promoting policy**, not of the individual
+finding. With only two policies, both `high`, a `high|critical` filter selects
+100% here and `critical` alone selects 0%.
 
-**Consequence:** "only high/critical should be candidates" cannot be
-implemented via severity for runtime. Requesting it will silently produce
-either everything or nothing. The fields that DO discriminate inside the
-runtime population:
+**DECIDED (with the requester): keep the filter anyway, as a pass-through.**
+The constancy is a property of this tenant's policy set, not of the API. A
+customer tenant with custom promoting policies will have varying severities,
+and the filter will discriminate there. It is inert here, not wrong.
+
+### ⚠️ Severity filter syntax: repeat the object, never comma-join [product]
+
+The filter works — but only in one of three plausible spellings, and the other
+two **fail OPEN**, returning the whole tenant while looking successful.
+
+| request | severities returned | verdict |
+|---|---|---|
+| one object, `=high` | `["high"]` | ✅ filters |
+| one object, `=low` | `["low"]` | ✅ filters |
+| **two objects**, `=high` + `=critical` | `["critical","high"]` | ✅ **OR — use this** |
+| one object, `="high,critical"` | all five | ❌ **silently ignored** |
+| one object, `="nonsense"` | all five | ❌ **silently ignored** |
+
+1. **Multi-value means repeating the filter object.** Comma-joining is the
+   natural thing to write and it is wrong.
+2. **An invalid VALUE fails OPEN on this field** — the opposite of the
+   behaviour recorded in §2 for other filters, where a bad value fails closed
+   to 0 rows. A typo (`"Critical"`, `"hi"`, `"high "`) returns **every alert of
+   every severity**, with a plausible-looking count and nothing in the response
+   marking the filter as dropped.
+
+**Consequence:** never treat the row count as evidence the severity filter
+applied. Assert on the DATA — every returned alert must carry a severity in the
+requested set — or a typo silently widens an escalation campaign to the whole
+tenant.
+
+### Fields that DO discriminate inside the runtime population
 
 ```
 incidentCategory:  Suspicious Binary 91, Cloud Provider 8, Lateral Movement 6,

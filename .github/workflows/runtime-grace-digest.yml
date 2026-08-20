@@ -71,6 +71,30 @@ on:
           - "2000"
           - "5000"
           - "10000"
+      severities:
+        # A CHOICE, AND NOT NEGOTIABLE.
+        #
+        # Every other input uses a choice because a typo would surface as a
+        # Terraform validation error partway through the run. This one is
+        # different in kind: `policy.severity` FAILS OPEN. Measured live, an
+        # unrecognised value ("nonsense", or "High" with a capital H) returns
+        # HTTP 200 and EVERY severity in the tenant, at a count that looks
+        # perfectly reasonable. A free-text box here would let one typo widen a
+        # blocking campaign to the whole estate with nothing in the report
+        # saying so.
+        #
+        # The comma-joined spelling is absent from these options for the same
+        # reason - "high,critical" as a single value is silently ignored, and
+        # the multi-value form is two separate filter objects. See the module
+        # README and digest.sh.
+        description: "Restrict to alerts promoted by a policy of this severity. 'all severities' is the default and applies NO filter."
+        type: choice
+        default: "all severities"
+        options:
+          - "all severities"
+          - "high + critical"
+          - "critical only"
+          - "high only"
       plan_warnings:
         description: "Also PLAN the grace warning: who would be told a rule is heading for escalation. Nothing is sent - there is no send path in this repo."
         type: boolean
@@ -118,6 +142,16 @@ env:
   TF_VAR_runtime_grace_digest_window_days: ${{ inputs.window_days || '14' }}
   TF_VAR_runtime_grace_digest_alert_status: ${{ inputs.alert_status || 'open' }}
   TF_VAR_runtime_grace_digest_max_alerts: ${{ inputs.max_alerts || '2000' }}
+
+  # NOT set here, unlike every other input above. A `list(string)` TF_VAR has to
+  # be a JSON literal - `["high"]`, not `high` - and the dropdown shows a human
+  # label instead. The translation happens in the "Resolve severity filter" step
+  # below, which is also where the label-to-JSON mapping can be commented.
+  #
+  # The default is deliberately the empty list, i.e. NO filter. Defaulting to
+  # high+critical would quietly narrow the digest, and the reference tenant
+  # promotes everything as `high`, so the narrowing would be invisible here and
+  # would only bite on a tenant with custom promoting policies.
 
   # Grace warning planning. OFF on the schedule: a weekly cron does not need to
   # re-derive a recipient list nobody asked for, and the plan output contains
@@ -174,6 +208,37 @@ jobs:
 
       - name: Terraform init
         run: terraform init -input=false
+
+      - name: Resolve severity filter
+        # Translates the dropdown label into the JSON list a `list(string)`
+        # TF_VAR requires. `high` on its own is not valid HCL for a list and
+        # Terraform would reject it, so the JSON form is mandatory.
+        #
+        # `inputs.severities` is EMPTY on a scheduled run, and the `*)` arm
+        # below turns that into `[]` - no filter, the whole population. That is
+        # the right default for a digest: the weekly report should describe
+        # everything that is firing, not a slice of it.
+        #
+        # Two severities become TWO filter objects downstream, never the
+        # comma-joined string "high,critical" - that spelling is silently
+        # ignored by the API and returns every severity. digest.sh builds the
+        # repeated form and asserts on the response; this step only picks the
+        # set.
+        #
+        # The label is matched against a closed set and anything unrecognised
+        # falls through to `[]`, so nothing typed here can reach the API as a
+        # severity value.
+        env:
+          SEVERITY_CHOICE: ${{ inputs.severities }}
+        run: |
+          case "$SEVERITY_CHOICE" in
+            "high + critical") sev='["high","critical"]' ;;
+            "critical only")   sev='["critical"]' ;;
+            "high only")       sev='["high"]' ;;
+            *)                 sev='[]' ;;
+          esac
+          echo "TF_VAR_runtime_grace_digest_severities=$sev" >> "$GITHUB_ENV"
+          echo "Severity filter: ${SEVERITY_CHOICE:-all severities} -> $sev"
 
       - name: Read runtime incident recurrence
         id: plan
@@ -252,6 +317,21 @@ jobs:
           window_days=$(printf   '%s' "$summary" | jq -r '.window_days')
           status_filter=$(printf '%s' "$summary" | jq -r '.alert_status')
 
+          # The severity scope, rendered for the header line below.
+          #
+          # This has to be VISIBLE. A filtered digest and an unfiltered one look
+          # identical apart from the counts, and nobody can tell a small number
+          # caused by a narrow filter from a small number caused by a quiet
+          # tenant. Saying "all severities" out loud is the point - it stops a
+          # reader assuming the campaign's high/critical scope was applied when
+          # it was not.
+          sev_list=$(printf '%s' "$summary" | jq -r '(.severities // []) | join(", ")')
+          if [ -z "$sev_list" ]; then
+            severity_filter="all severities"
+          else
+            severity_filter="$sev_list"
+          fi
+
           rule_count=$(printf '%s' "$rules" | jq -r 'length')
 
           # WHEN THE FETCH WAS CAPPED, THE GROUPED NUMBERS DESCRIBE THE SAMPLE,
@@ -285,7 +365,7 @@ jobs:
           # Terraform ever diverged from the one reaching this script.
           {
             echo
-            echo "**Window:** last ${window_days} days · **Status filter:** \`${status_filter}\`"
+            echo "**Window:** last ${window_days} days · **Status filter:** \`${status_filter}\` · **Severity:** \`${severity_filter}\`"
             echo
             echo "| Metric | Value |"
             echo "|---|---|"

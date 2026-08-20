@@ -43,6 +43,31 @@ variable "max_alerts" {
   }
 }
 
+variable "severities" {
+  description = "(Optional) Restrict the digest to promoted alerts whose POLICY carries one of these severities. Empty list means no severity filter at all. MEASURED on the reference tenant: every runtime incident is promoted by one of two built-in policies, both hardcoded `high`, so this is inert there - it is kept because a tenant with custom promoting policies will vary, and because a campaign that says 'high and critical only' should say so in the query rather than in a comment."
+  type        = list(string)
+  default     = []
+  nullable    = false
+
+  validation {
+    # Checked here because the API FAILS OPEN on a bad severity value: it
+    # returns every alert of every severity, with a plausible count and no
+    # indication the filter was dropped. Catching a typo at plan time is the
+    # difference between "you typed Critical" and an escalation campaign that
+    # silently widened to the whole tenant.
+    condition = alltrue([
+      for s in var.severities :
+      contains(["critical", "high", "medium", "low", "informational"], s)
+    ])
+    error_message = "severities may only contain: critical, high, medium, low, informational (lowercase)."
+  }
+
+  validation {
+    condition     = length(var.severities) == length(distinct(var.severities))
+    error_message = "severities must not contain duplicates."
+  }
+}
+
 variable "alert_status" {
   description = "(Optional) Which alert lifecycle state to report on. `open` is the digest's normal mode; `dismissed` is useful for reviewing what teams have accepted."
   type        = string

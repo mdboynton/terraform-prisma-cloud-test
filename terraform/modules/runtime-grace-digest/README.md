@@ -108,6 +108,7 @@ module "runtime_grace_digest" {
 | `enabled` | bool | `false` | Off by default, so the module costs nothing in workflows that don't need it. |
 | `window_days` | number | `14` | Recurrence window, 1–3650. A rule with a promoted alert inside it is "still firing". **The default is deliberately short and can legitimately return zero** — see "Two windows that must agree" below before using this for a grace campaign. |
 | `alert_status` | string | `"open"` | One of `open`, `resolved`, `dismissed`, `snoozed`. |
+| `severities` | list(string) | `[]` | Restrict to alerts whose **policy** carries one of these severities. Empty = no filter. Lowercase only. See "Severity is a pass-through filter". |
 | `max_alerts` | number | `2000` | Cap on alerts fetched for grouping, 1–10000. Does **not** cap the totals. |
 | `cspm_url` | string | `null` | CSPM API host, e.g. `api2.prismacloud.io`. Required when enabled. |
 | `access_key` | string | `null` | Access key id. Sensitive. |
@@ -202,14 +203,16 @@ would notify everyone.
 
 ## Guards
 
-Three failure modes are specific to this API and each has a guard.
+Four failure modes are specific to this API and each has a guard.
 
 ### 1. An unknown filter name returns the whole tenant
 
 The alerts API accepts a filter it does not recognise, returns HTTP 200, and
 ignores it. A typo in a filter *name* yields **18,351,682** rows — the entire
-tenant — rather than an error. (An unknown filter *value* fails closed and
-returns 0, which is the safe direction.)
+tenant — rather than an error.
+
+An unknown filter *value* usually fails closed and returns 0, which is the safe
+direction. **`policy.severity` is the exception** — see guard 4.
 
 The guard: query the window and an all-time baseline, and compare. If a short
 window returns exactly the all-time count, `status` becomes
@@ -237,6 +240,70 @@ state; only `alerts_in_window` and `alerts_all_time` remain server-side totals.
 ### 3. `detailed=true` is required for `totalRows`
 
 Without it the field is `0` — which looks exactly like "no alerts".
+
+### 4. ⚠️ `policy.severity` fails OPEN
+
+Unlike every other filter here, a bad severity *value* does not return zero
+rows. It returns **every** row. Measured live against `/v2/alert`:
+
+| request | severities returned | verdict |
+|---|---|---|
+| one object, `value: "high"` | `["high"]` | ✅ filters |
+| two objects, `"high"` + `"critical"` | `["critical","high"]` | ✅ OR — the correct multi-value form |
+| one object, `value: "high,critical"` | all five | ❌ silently ignored |
+| one object, `value: "nonsense"` | all five | ❌ silently ignored |
+
+Two consequences, both nasty:
+
+**Multi-value means repeating the object, not joining with commas.** The comma
+form is the natural thing to write and it quietly disables the filter.
+
+**A typo widens the query instead of emptying it.** An empty report gets
+investigated; a report covering the whole tenant just looks busier than
+expected. On a digest that feeds a campaign which eventually *blocks*
+workloads, that is the difference between a false alarm and blocking people who
+were never in scope. `"High"` with a capital H is enough to trigger it.
+
+The guard is threefold, because no single layer is sufficient:
+
+1. **Terraform validation** rejects any value outside the lowercase set, at
+   plan time, in both the module and the root.
+2. **`digest.sh` re-validates** its own input, so a direct invocation cannot
+   bypass the above.
+3. **A post-fetch assertion** checks every returned alert's severity is in the
+   requested set, and hard-fails if not. This is the one that matters: the
+   first two catch typos, but only inspecting the response catches the filter
+   being dropped for any other reason.
+
+**The row count is never evidence the filter applied.** `severities_verified`
+on the `scope` output is — it is true only when a filter was requested, rows
+came back, and all of them were inside the requested set.
+
+## Severity is a pass-through filter
+
+`severities` restricts the digest to alerts promoted by a policy of a given
+severity. The default is an empty list, meaning **no filter** — the digest
+describes every severity, and the report says "all severities" out loud so a
+reader cannot mistake an unfiltered count for a scoped one.
+
+**On the reference tenant this input changes nothing, and that is expected.**
+Measured: `policy.severity` is present on 111/111 open runtime alerts and every
+one of them is `high`. Only two built-in policies promote runtime incidents —
+*Container workloads detected with Runtime Incidents* and its Host counterpart —
+and both hardcode `high`. Asking for `high` returns 111; asking for `critical`
+returns 0.
+
+It is implemented anyway for two reasons. A tenant with custom promoting
+policies will carry a real spread, and this module is meant to move between
+tenants. And a campaign scoped to "high and critical only" should say so in the
+query rather than in a comment — an unwritten filter is one nobody can check.
+
+Note the layering: severity belongs to the **promoting policy**, not to the
+runtime incident. The Compute incident object has no severity at all; it
+carries `incidentCategory` (Suspicious Binary, Crypto Miner, Lateral Movement,
+and so on). If you need to discriminate *within* the runtime population on this
+tenant, that field and `auditRuleName` are what actually vary — severity does
+not.
 
 ## The built-in `default` model
 

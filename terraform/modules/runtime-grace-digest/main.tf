@@ -68,6 +68,11 @@ data "external" "digest" {
     window_days  = tostring(var.window_days)
     max_alerts   = tostring(var.max_alerts)
     alert_status = var.alert_status
+
+    # `external` query values must be STRINGS - a list here is a type error, not
+    # a helpful coercion - so the severity set travels as a JSON array literal
+    # and is parsed back by the script. `[]` means "no severity filter".
+    severities = jsonencode(var.severities)
   }
 }
 
@@ -113,6 +118,20 @@ locals {
     # True when the windowed count equals the all-time count on a short window,
     # which is what a silently-dropped time filter looks like.
     suspect_unfiltered = local.raw.suspect_unfiltered == "true"
+
+    # The severity set that was actually asked for, echoed back from the script
+    # rather than read from the variable, so the report describes the query that
+    # ran instead of the configuration that was intended.
+    severities = jsondecode(local.raw.severities)
+
+    # True only when a severity filter was requested AND at least one row came
+    # back AND every returned row was inside the requested set.
+    #
+    # False therefore has TWO meanings and is not, on its own, a problem: no
+    # filter was asked for, or the filter matched nothing. It can never mean
+    # "the filter leaked" - the script hard-fails on that, because
+    # `policy.severity` fails OPEN on a bad value and returns the whole tenant.
+    severities_verified = local.raw.severities_verified == "true"
   }
 }
 

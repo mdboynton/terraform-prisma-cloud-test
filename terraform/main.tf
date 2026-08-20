@@ -218,6 +218,10 @@ module "runtime_grace_digest" {
   max_alerts   = var.runtime_grace_digest_max_alerts
   alert_status = var.runtime_grace_digest_alert_status
 
+  # Empty list = no severity filter, which is the default and is reported as
+  # such rather than being presented as a scoped result.
+  severities = var.runtime_grace_digest_severities
+
   # Grace warning: PLANNED ONLY. Works out who would be told a rule is heading
   # for escalation. The module has no send path, and every planned message is
   # addressed to the override, never to the owner addresses read from the

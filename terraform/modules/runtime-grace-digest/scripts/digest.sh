@@ -70,6 +70,20 @@ WINDOW_DAYS="$(jq -r '.window_days  // "14"'   <<<"$INPUT")"
 MAX_ALERTS="$(jq -r '.max_alerts   // "2000"'  <<<"$INPUT")"
 ALERT_STATUS="$(jq -r '.alert_status // "open"' <<<"$INPUT")"
 
+# A JSON array, passed as a string because Terraform's `external` provider only
+# supports string-valued query fields. Empty array = no severity filter.
+SEVERITIES_JSON="$(jq -r '.severities // "[]"' <<<"$INPUT")"
+jq -e 'type == "array"' >/dev/null 2>&1 <<<"$SEVERITIES_JSON" \
+  || fail "severities must be a JSON array, got: $SEVERITIES_JSON"
+
+# Validated here as well as in Terraform. The Terraform validation is the one
+# users normally hit; this one catches a direct script invocation, and matters
+# more than a duplicate check usually would because of the fail-open below.
+BAD_SEV="$(jq -r '[.[] | select(
+    . as $s | ["critical","high","medium","low","informational"] | index($s) | not
+  )] | join(", ")' <<<"$SEVERITIES_JSON")"
+[ -z "$BAD_SEV" ] || fail "unsupported severity value(s): $BAD_SEV (expected critical|high|medium|low|informational)"
+
 [ -n "$CSPM_URL" ]   && [ "$CSPM_URL" != "null" ]   || fail "cspm_url is empty"
 [ -n "$ACCESS_KEY" ] && [ "$ACCESS_KEY" != "null" ] || fail "access_key is empty"
 [ -n "$SECRET_KEY" ] && [ "$SECRET_KEY" != "null" ] || fail "secret_key is empty"
@@ -122,17 +136,37 @@ search() {
         -H @"$TMP/auth.hdr" -H 'Content-Type: application/json' --data @-
 }
 
+# ---------------------------------------------------------------------------
+# ⚠️ MULTI-VALUE FILTERS ARE REPEATED OBJECTS, NOT COMMA-JOINED VALUES.
+#
+# VERIFIED live against /v2/alert:
+#
+#   [{severity:"high"},{severity:"critical"}]  -> ["critical","high"]   correct OR
+#   [{severity:"high,critical"}]               -> ALL FIVE severities   ignored
+#   [{severity:"nonsense"}]                    -> ALL FIVE severities   ignored
+#
+# The comma form is the natural thing to write and it silently returns the
+# whole tenant. Worse, an invalid VALUE fails OPEN on this field - the opposite
+# of other filters, where a bad value fails closed to zero rows. So a typo does
+# not produce an empty report anyone would investigate; it produces a bigger
+# one that looks fine. The assertion after the fetch is what actually catches
+# this - see "Severity filter assertion" below.
+# ---------------------------------------------------------------------------
 query_body() { # $1 = limit, $2 = timeRange object
   jq -nc \
     --argjson limit "$1" \
     --argjson tr "$2" \
     --arg status "$ALERT_STATUS" \
+    --argjson sev "$SEVERITIES_JSON" \
     '{
        timeRange: $tr,
-       filters: [
-         {name:"policy.type",   operator:"=", value:"workload_incident"},
-         {name:"alert.status",  operator:"=", value:$status}
-       ],
+       filters: (
+         [
+           {name:"policy.type",   operator:"=", value:"workload_incident"},
+           {name:"alert.status",  operator:"=", value:$status}
+         ]
+         + ($sev | map({name:"policy.severity", operator:"=", value:.}))
+       ),
        limit: $limit,
        detailed: true
      }'
@@ -179,6 +213,48 @@ FETCH_LIMIT="$MAX_ALERTS"
 [ "$FETCH_LIMIT" -gt 10000 ] && FETCH_LIMIT=10000
 
 ROWS_JSON="$(search "$(query_body "$FETCH_LIMIT" "$WINDOW_TR")")" || fail "alert search failed (detail fetch)"
+
+# ---------------------------------------------------------------------------
+# Severity filter assertion.
+#
+# THE ROW COUNT IS NOT EVIDENCE THE FILTER APPLIED. As recorded above, an
+# invalid `policy.severity` value fails OPEN: the API answers HTTP 200 with the
+# whole tenant and a count that looks entirely plausible. Nothing upstream of
+# this point would notice.
+#
+# So the check is on the DATA, not on the count: every fetched alert must carry
+# a severity that was actually asked for. One row outside the set means the
+# filter was dropped, and the right response is to stop -- a silently widened
+# set here flows into the notifier and, later, into an escalation that blocks
+# images nobody agreed to block.
+#
+# This HARD-FAILS rather than setting a flag the way the window check does,
+# because there is no honest reading of it. A short window equalling all-time
+# can be legitimate; a `medium` alert inside a `high`-only request cannot.
+#
+# `// "(missing)"` deliberately counts as a mismatch. Severity was present on
+# 111/111 measured alerts, so its absence is unexplained -- and unexplained is
+# not something to wave through on the one field known to lie about filtering.
+# ---------------------------------------------------------------------------
+SEVERITIES_VERIFIED=false
+if [ "$(jq -r 'length' <<<"$SEVERITIES_JSON")" -gt 0 ]; then
+  UNEXPECTED_SEV="$(jq -r --argjson want "$SEVERITIES_JSON" '
+    [ .items[]? | .policy.severity // "(missing)" ]
+    | unique
+    | map(select(. as $s | $want | index($s) | not))
+    | join(", ")' <<<"$ROWS_JSON")"
+
+  if [ -n "$UNEXPECTED_SEV" ]; then
+    fail "severity filter did not apply: asked for $(jq -r 'join(", ")' <<<"$SEVERITIES_JSON"), but the response also contained: $UNEXPECTED_SEV. This is the documented fail-open on policy.severity — treat these results as unfiltered."
+  fi
+
+  # Only provable with at least one row in hand. Zero rows is equally
+  # consistent with a working filter and a broken one, so reporting "verified"
+  # there would be a claim the data does not support.
+  if [ "$(jq -r '[.items[]?] | length' <<<"$ROWS_JSON")" -gt 0 ]; then
+    SEVERITIES_VERIFIED=true
+  fi
+fi
 
 # `scope` is derived from `policy.name`, NOT from `metadata.auditType`.
 #
@@ -329,6 +405,8 @@ jq -nc \
   --arg alerts_fetched    "$FETCHED" \
   --arg complete          "$COMPLETE" \
   --arg suspect_unfiltered "$SUSPECT_UNFILTERED" \
+  --arg severities        "$SEVERITIES_JSON" \
+  --arg severities_verified "$SEVERITIES_VERIFIED" \
   --arg distinct_rules    "$DISTINCT_RULES" \
   --arg distinct_groups   "$DISTINCT_GROUPS" \
   --arg occurrences       "$TOTAL_OCCURRENCES" \

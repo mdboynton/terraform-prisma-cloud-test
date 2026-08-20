@@ -154,5 +154,15 @@ output "scope" {
     complete            = local.result.complete
     unnamed_rule_alerts = local.result.unnamed_rule_alerts
     suspect_unfiltered  = local.result.suspect_unfiltered
+
+    # An empty list here is the honest report of an UNFILTERED query, and it is
+    # the default. Anyone reading a count and assuming "high/critical only"
+    # should be able to see, in the same object, that no severity was asked for.
+    severities = local.result.severities
+
+    # Proof the filter took effect, not just that it was requested. Kept next to
+    # `severities` because the pair is the whole story: what was asked for, and
+    # whether the response actually honoured it.
+    severities_verified = local.result.severities_verified
   }
 }
