@@ -128,9 +128,31 @@ locals {
 # abort. The override is what makes planning safe against live owner data.
 # ------------------------------------------------------------
 locals {
+  # `campaign_start_date` is as load-bearing as the override recipient: without
+  # it the countdown falls back to each finding's own age, and MEASURED on this
+  # tenant every open finding is already months past a 14-day grace. Gating on
+  # it here turns "silently warns everyone their deadline expired" into a
+  # readable "you must set this" at plan time.
+  campaign_start_set = var.campaign_start_date != null && var.campaign_start_date != ""
+
+  # A display-safe form of the date, for use inside `check` error messages.
+  #
+  # This is NOT belt-and-braces. Terraform evaluates a check's `error_message`
+  # EAGERLY - even on the runs where the condition passes - so every argument
+  # has to be formattable in every case, including the one where the caller
+  # omitted the date entirely.
+  #
+  # `try(tostring(x), "?")` does NOT protect against this, which is the trap
+  # that produced the original crash: `tostring(null)` RETURNS null rather than
+  # raising, so `try` has no error to catch, hands null to `format`, and the
+  # plan dies with "unsupported value for %s: null value cannot be formatted".
+  # `try` only guards operations that FAIL; it does nothing about ones that
+  # quietly succeed with null. A plain conditional is unambiguous.
+  campaign_start_display = local.campaign_start_set ? var.campaign_start_date : "(not set)"
+
   can_notify = var.notify_enabled && local.should_query && local.raw != null && (
     var.warning_recipient_override != null && var.warning_recipient_override != ""
-  )
+  ) && local.campaign_start_set
 }
 
 data "external" "notify" {
@@ -139,9 +161,10 @@ data "external" "notify" {
   program = ["bash", "${path.module}/scripts/notify_plan.sh"]
 
   query = {
-    rules_json         = local.raw.rules_json
-    grace_days         = tostring(var.grace_days)
-    override_recipient = var.warning_recipient_override
+    rules_json          = local.raw.rules_json
+    grace_days          = tostring(var.grace_days)
+    override_recipient  = var.warning_recipient_override
+    campaign_start_date = var.campaign_start_date
   }
 }
 
@@ -151,11 +174,20 @@ locals {
   warning_plan = local.notify_raw == null ? null : {
     grace_days = tonumber(local.notify_raw.grace_days)
 
+    # The announced start of the campaign. Day 0 for anything already open
+    # when it began.
+    campaign_start_date = local.notify_raw.campaign_start_date
+
     # Rule groups with at least one open alert.
     planned = tonumber(local.notify_raw.planned)
 
-    # Past the grace threshold.
+    # Past the grace threshold, measured from max(firstSeen, campaign start).
     overdue = tonumber(local.notify_raw.overdue)
+
+    # Groups that predate the campaign, so the announcement - not the finding -
+    # set their day 0. On a first run this is normally every group, and it is
+    # the count of people hearing about this for the first time.
+    backlog = tonumber(local.notify_raw.backlog)
 
     # No owner on the alert - cannot be addressed to a human. Surfaced rather
     # than dropped: silently skipping these is how a workload gets blocked
@@ -251,11 +283,14 @@ check "grouping_is_complete" {
   }
 }
 
-# The grace clock runs from each alert's own alertTime, so on a tenant with a
-# backlog EVERY candidate is already past the threshold on the first run. That
-# is not a warning, it is a "your grace period ended long ago" notice - and
-# sending it would be an ambush. Measured here: 19 of 19 planned groups were
-# already overdue, the oldest by 368 days.
+# The countdown now runs from max(firstSeen, campaign_start_date), so a backlog
+# no longer arrives pre-expired: everything already open starts its grace period
+# at the announcement.
+#
+# This check therefore means something different than it used to. Every group
+# being overdue is now only possible if the campaign start date is itself more
+# than grace_days in the past - i.e. the campaign really has run its course, or
+# somebody backdated the date and recreated the ambush this was written to catch.
 check "grace_window_is_meaningful" {
   assert {
     condition = local.warning_plan == null ? true : !(
@@ -264,9 +299,31 @@ check "grace_window_is_meaningful" {
     )
 
     error_message = format(
-      "Every one of the %s planned warnings is ALREADY past the %s-day grace window. The countdown is measured from each alert's own alertTime, so a first run against an existing backlog warns nobody in advance - it announces an expiry that already happened. Set a campaign start date and measure the grace period from first contact before any send path is wired.",
+      "Every one of the %s planned warnings is already past the %s-day grace window, counted from the campaign start date %s. Since the countdown starts at the announcement, this means either the campaign has genuinely run its full course, or campaign_start_date is backdated far enough that nobody ever received advance notice. Confirm which before any send path acts on this.",
       try(tostring(local.warning_plan.planned), "?"),
-      try(tostring(local.warning_plan.grace_days), "?")
+      try(tostring(local.warning_plan.grace_days), "?"),
+      try(tostring(local.warning_plan.campaign_start_date), "?")
+    )
+  }
+}
+
+# A campaign start date in the FUTURE means every countdown is negative: nothing
+# is ever overdue, so nothing would ever escalate, and the digest would look
+# calm indefinitely. Cheap to typo (2027 for 2026) and invisible in the output.
+# Compared directly rather than inferred from the counts. An earlier version of
+# this check tried to detect a future date from "no group is overdue", which is
+# also true of a perfectly healthy campaign on day 1 - it would have cried wolf
+# on every early run. `timecmp` against the date itself has one meaning.
+check "campaign_start_is_not_in_the_future" {
+  assert {
+    condition = !local.campaign_start_set ? true : timecmp(
+      plantimestamp(), "${var.campaign_start_date}T00:00:00Z"
+    ) >= 0
+
+    error_message = format(
+      "campaign_start_date (%s) is in the future. Every grace countdown starts then, so no finding can reach the %s-day threshold and nothing will ever be escalated - the report will look calm because the clock has not started.",
+      local.campaign_start_display,
+      try(tostring(var.grace_days), "?")
     )
   }
 }

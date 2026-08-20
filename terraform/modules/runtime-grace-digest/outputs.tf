@@ -82,12 +82,16 @@ output "actionable_rules" {
 # data: it is live mailboxes of real people, including external ones.
 # ----------------------------------------------------------------
 
+# `no_campaign_start` is checked alongside `no_override` because they are the
+# same class of problem: a required input the caller has not supplied, where
+# the consequence of a default would be silent and harmful.
 output "notify_status" {
-  description = "ok | disabled | no_override | not_queried | all_overdue | has_unroutable. Callers must branch on this rather than the exit code - a failed check does not fail the plan."
+  description = "ok | disabled | no_override | no_campaign_start | not_queried | all_overdue | has_unroutable. Callers must branch on this rather than the exit code - a failed check does not fail the plan."
   value = (
     !var.notify_enabled ? "disabled" :
     !local.should_query ? "not_queried" :
     (var.warning_recipient_override == null || var.warning_recipient_override == "") ? "no_override" :
+    !local.campaign_start_set ? "no_campaign_start" :
     local.warning_plan == null ? "not_queried" :
     (local.warning_plan.planned > 0 && local.warning_plan.overdue == local.warning_plan.planned) ? "all_overdue" :
     local.warning_plan.unroutable > 0 ? "has_unroutable" :
@@ -101,8 +105,9 @@ output "notify_status_detail" {
     !var.notify_enabled ? "Grace warning planning is disabled." :
     !local.should_query ? "The digest did not run, so there is nothing to plan warnings from." :
     (var.warning_recipient_override == null || var.warning_recipient_override == "") ? "warning_recipient_override is required. Planning reads live owner mailboxes from the alert data; it will not resolve real recipients until a reviewed send path exists." :
+    !local.campaign_start_set ? "campaign_start_date is required (YYYY-MM-DD). The countdown runs from max(firstSeen, campaign_start_date). Without it, findings that were already open before this campaign began would be reported as long overdue on the first run - warning people about a deadline that passed before anyone told them." :
     local.warning_plan == null ? "The digest did not run, so there is nothing to plan warnings from." :
-    (local.warning_plan.planned > 0 && local.warning_plan.overdue == local.warning_plan.planned) ? "All ${local.warning_plan.planned} planned warnings are already past the ${local.warning_plan.grace_days}-day window. The clock runs from each alert's alertTime, so a first run against a backlog announces an expiry that already happened rather than giving notice." :
+    (local.warning_plan.planned > 0 && local.warning_plan.overdue == local.warning_plan.planned) ? "All ${local.warning_plan.planned} planned warnings are already past the ${local.warning_plan.grace_days}-day window measured from ${local.warning_plan.campaign_start_date}. With a campaign start date set this should only happen once the period has genuinely elapsed - if it appears on a first run, check the date is not in the past." :
     local.warning_plan.unroutable > 0 ? "${local.warning_plan.unroutable} of ${local.warning_plan.planned} planned warnings have no owner on the alert and cannot be addressed. They are reported, not dropped - but those rules would be escalated with nobody warned." :
     null
   )

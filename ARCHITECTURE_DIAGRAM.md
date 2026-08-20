@@ -211,7 +211,7 @@ flowchart LR
     G --> OUT["status + rules[]<br/>ok / disabled / missing_credentials /<br/>suspect_unfiltered / partial_grouping"]
 
     G -.->|"opt-in: notify_enabled"| N["notify_plan.sh<br/>(data.external · no API calls)"]
-    N --> NOUT["notify_status + warning_plan[]<br/>ok / disabled / no_override /<br/>all_overdue / has_unroutable"]
+    N --> NOUT["notify_status + warning_plan[]<br/>ok / disabled / no_override / no_campaign_start /<br/>all_overdue / has_unroutable"]
 ```
 
 **The grace warning is planned, never sent.** With `notify_enabled` the module also
@@ -253,12 +253,23 @@ sent email cannot be recalled.
 - The workflow branches on `status`, never the exit code, on the same basis as its
   siblings. `disabled` and `missing_credentials` fail the run loudly rather than rendering
   an empty report, which would be a false all-clear.
-- The countdown starts at the alert's own `alertTime` — the only timestamp that ages
-  monotonically. **Not** `lastIncidentTime`: measured over 100 promoted alerts that
-  *precedes* `alertTime` in 67 of them (median 343s — the incident fires and CSPM promotes
-  it minutes later), so it is not even reliably the late end of the interval. **Not**
-  `firstSeen` either: identical on 98 of 100, but earlier where it differs, which would
-  escalate sooner.
+- The countdown starts at **`max(firstSeen, campaign_start_date)`**. `lastIncidentTime` is
+  still excluded: measured over 100 promoted alerts it *precedes* `alertTime` in 67 of them
+  (median 343s — the incident fires and CSPM promotes it minutes later), so it is not even
+  reliably the late end of the interval.
+- **This reverses an earlier decision, deliberately.** The countdown used to run from
+  `alertTime`, and `firstSeen` was rejected for being earlier where the two differ (98 of
+  100 identical) and so escalating sooner. That reasoning only holds if day 0 is the
+  finding's own age — and measuring the tenant showed it cannot be: all 52 open findings
+  already exceed a 14-day grace (min 29 days, median 150, max 371), so *any* self-aged
+  countdown declares the entire backlog expired on the first run. `campaign_start_date`
+  now floors day 0 at the announcement, which makes "escalates sooner" moot for the
+  backlog and makes `firstSeen` the honest anchor for anything new.
+- The group is anchored on its **oldest** open finding (`min`). A rule producing new alerts
+  in bursts must not have its clock reset by each burst, or a sporadic rule (`rp-lab`: 34
+  alerts over 7 months across 8 accounts) would never become overdue at all.
+- No state is kept between runs. `firstSeen` is on 100/100 alerts and stable across reads,
+  so the countdown is recomputed from the API every time — no ledger, artifact or commit.
 - Only `open` alerts run the clock, and `open_first` is tracked separately from `first`.
   A rule whose old alerts were all dismissed plus one fresh open alert must not read as
   aged.

@@ -85,6 +85,10 @@ on:
           - "30"
           - "60"
           - "90"
+      campaign_start_date:
+        description: "REQUIRED with plan_warnings (YYYY-MM-DD). The date the campaign was announced. Countdowns run from max(firstSeen, this), so findings already open before the campaign still get a full grace period instead of reading as long overdue."
+        type: string
+        default: ""
 
   # A digest is only useful if it arrives without being asked for. Monday 08:00
   # UTC, before the working week starts in most of the covered regions.
@@ -120,6 +124,13 @@ env:
   # live personal email addresses.
   TF_VAR_runtime_grace_digest_notify_enabled: ${{ inputs.plan_warnings || 'false' }}
   TF_VAR_runtime_grace_digest_grace_days: ${{ inputs.grace_days || '14' }}
+
+  # No fallback value on purpose. An empty string leaves the module in
+  # `no_campaign_start`, which reports what is missing; any default here would
+  # silently pick a clock. Today would restart every countdown on every run so
+  # nothing ever escalates; a fixed past date would tell owners their grace
+  # period expired before they were told it existed.
+  TF_VAR_runtime_grace_digest_campaign_start_date: ${{ inputs.campaign_start_date }}
 
   # EVERY PLANNED WARNING IS ADDRESSED HERE, always, no exceptions.
   #

@@ -204,8 +204,22 @@ REDUCED="$(jq -c '[ .items[]? | {
     count:    (.metadata.auditCount    // 1),
     last:     (.metadata.lastIncidentTime // .alertTime // 0),
 
-    # `first` is where the grace countdown starts. See the block below.
+    # `first` is when CSPM raised the alert. See the block below.
     first:    (.alertTime // 0),
+
+    # `first_seen` is when the finding was FIRST OBSERVED, and it is what the
+    # grace countdown measures from.
+    #
+    # MEASURED on 100 live promoted alerts: firstSeen is present on 100/100 and
+    # identical to alertTime on 98/100. Where they differ, firstSeen is EARLIER
+    # (by 55 and 153 days in the two sampled cases) because the finding existed
+    # before CSPM promoted it. Earlier is the honest answer for "how long has
+    # this been going on", so it is preferred here.
+    #
+    # The `// .alertTime` fallback matters: alertTime is the only timestamp
+    # guaranteed non-zero, and a missing firstSeen must not silently become
+    # epoch 0, which would read as ~56 years old and instantly overdue.
+    first_seen: (.firstSeen // .alertTime // 0),
     status:   (.status // "unknown"),
 
     # Recipient signals for the grace warning. `// []` matters: 20 of the 52
@@ -276,6 +290,18 @@ GROUPED="$(jq -c '
       first:      (map(.first) | min),
       open_alerts: (map(select(.status == "open")) | length),
       open_first: ((map(select(.status == "open") | .first) | min) // 0),
+
+      # The OLDEST still-open finding in the group anchors the countdown.
+      #
+      # `min`, not `max`, is a deliberate policy choice: a group that keeps
+      # producing new alerts must not have its clock reset by each new one.
+      # Measured here, `rp-lab` fires sporadically across 7 months -- anchoring
+      # on the newest alert would restart the countdown every few weeks and the
+      # rule would never reach the grace threshold, so it would never escalate.
+      #
+      # Only OPEN members count. Resolving or dismissing the oldest alert
+      # legitimately advances the anchor to the next-oldest open one.
+      open_first_seen: ((map(select(.status == "open") | .first_seen) | min) // 0),
 
       # Union across the group. A group is one rule in one account, so the
       # owners are usually identical across members; unique keeps the address

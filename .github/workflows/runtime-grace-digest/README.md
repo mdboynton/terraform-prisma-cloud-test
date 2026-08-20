@@ -94,6 +94,11 @@ Turn on `plan_warnings` and the report gains a second section: who *would* be
 told that a rule is heading for escalation, how old the oldest open alert is,
 and how many of those messages could honestly be sent.
 
+`plan_warnings` needs **two** values, and neither has a default:
+`campaign_start_date` (the day you announced the campaign) and the override
+recipient. Leave the date out and the run reports `no_campaign_start` and plans
+nothing — see "When the clock starts" below for why it is not optional.
+
 **Nothing is sent, and nothing here can send.** There is no SMTP client, no
 webhook and no mail command anywhere in this workflow or the module behind it.
 Every planned message is addressed to one fixed override recipient; the real
@@ -110,7 +115,8 @@ a form that physically cannot contact anyone.
 | Row | Meaning |
 |---|---|
 | Rule groups with an open alert | Candidates. Only `open` alerts run the clock. |
-| Past the grace window | Already over the threshold. |
+| Past the grace window | Already over the threshold, counted from day 0. |
+| Started before the campaign (backlog) | Day 0 came from the announcement, not the finding. Normally every group on a first run. |
 | No owner on the alert (unroutable) | Cannot be addressed to anyone. |
 | Not escalatable (built-in model) | The `default` learned model — no escalation can target it. |
 | **Could honestly be warned today** | Overdue **and** addressable **and** escalatable. |
@@ -120,15 +126,30 @@ a form that physically cannot contact anyone.
 Only the **counts** appear on the summary page — it is visible to everyone with
 repo read access. The addresses are in the artifact.
 
-### Two warnings you will probably see on a first run
+### When the clock starts
 
-**"Every planned warning is already past the deadline."** The countdown runs
-from each alert's own `alertTime`, so against an existing backlog the deadline
-passed long ago — in the reference tenant, every candidate was overdue and the
-oldest by 368 days. Sending that would not be a warning; it would announce an
-expiry that already happened. A grace period has to start when it is
-**announced**, so a send path needs a campaign start date measured from first
-contact.
+Day 0 is **the later of** the finding's own `firstSeen` **and**
+`campaign_start_date` — not simply how old the finding is.
+
+This matters more than it sounds. Measured against the reference tenant, every
+open finding is already older than a 14-day grace period (min 29 days, median
+150, max 371). Counting from `firstSeen` alone means the first run tells
+everyone their grace period expired before they were ever told it had started.
+That is an ambush, not a warning.
+
+So the announcement sets day 0 for the backlog, and anything appearing later
+starts from its own first sighting. A run started today reports the whole
+backlog as `backlog: true` with the full grace period still ahead of it, while
+`finding_age_days` still shows the true age for context.
+
+A group is anchored on its **oldest** open finding. A rule that keeps producing
+new alerts must not have its clock reset by each one, or a sporadic rule would
+never become overdue at all.
+
+Nothing is stored between runs. The countdown is recomputed from the API on
+every run, so there is no ledger to drift or lose.
+
+### A warning you will probably see on a first run
 
 **"N groups cannot be addressed to anyone."** Those alerts carry no owner. They
 are shown rather than dropped: quietly skipping them is how a workload ends up

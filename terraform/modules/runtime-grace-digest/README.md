@@ -113,7 +113,8 @@ module "runtime_grace_digest" {
 | `access_key` | string | `null` | Access key id. Sensitive. |
 | `secret_key` | string | `null` | Secret key. Sensitive. |
 | `notify_enabled` | bool | `false` | Also PLAN the grace warning. Nothing is ever sent. |
-| `grace_days` | number | `14` | Days an alert may stay open before its rule is a candidate, 1–3650. |
+| `grace_days` | number | `14` | Days a finding may stay open, counted from day 0, before its rule is a candidate. 1–3650. |
+| `campaign_start_date` | string | `null` | **Required when `notify_enabled`.** `YYYY-MM-DD`. The day the campaign was announced. Day 0 is `max(firstSeen, campaign_start_date)` — see "When the clock starts". |
 | `warning_recipient_override` | string | `null` | **Required when `notify_enabled`.** Every planned message is addressed here. Not a dry-run toggle — see below. |
 
 ## Outputs
@@ -129,7 +130,7 @@ module "runtime_grace_digest" {
 | `alerts_in_window` | Server-side total for the window. Never capped by `max_alerts`. |
 | `distinct_rules` | How many distinct rules fired. |
 | `scope` | What was actually queried, for troubleshooting. |
-| `notify_status` | `ok` \| `disabled` \| `no_override` \| `not_queried` \| `all_overdue` \| `has_unroutable`. **Branch on this.** |
+| `notify_status` | `ok` \| `disabled` \| `no_override` \| `no_campaign_start` \| `not_queried` \| `all_overdue` \| `has_unroutable`. **Branch on this.** |
 | `notify_status_detail` | Human-readable explanation. Null when `ok`. |
 | `warning_plan` | Counts for the planned warning. Null when planning is disabled. |
 | `warning_messages` | Per-group plan. **Contains live personal email addresses** in `would_notify`. |
@@ -262,6 +263,41 @@ many days of grace remain, and which mailbox the message would go to.
 command anywhere in the module. `notify_plan.sh` produces JSON on stdout and
 nothing else.
 
+### When the clock starts
+
+Day 0 for a group is **`max(firstSeen, campaign_start_date)`**, not the age of
+the finding.
+
+The obvious design — count from each finding's own `firstSeen` — was measured
+against this tenant and rejected. Every one of the 52 open findings is already
+older than a 14-day grace period (min 29 days, median 150, max 371). Counting
+from `firstSeen` alone means the very first run tells all 25 groups their grace
+period expired before they were ever told it had begun. That is not a warning,
+it is an ambush.
+
+`campaign_start_date` fixes the announcement. Anything already open when the
+campaign began starts its countdown then; anything that appears afterwards
+starts from its own `firstSeen`. Two fields make this visible in the plan:
+
+- `finding_age_days` — the true age, unaffected by the campaign date.
+- `backlog` — true when the announcement, not the finding, set day 0. On a
+  first run this is normally every group, and it is the count of people
+  hearing about this for the first time.
+
+There is no stored state anywhere in this. `firstSeen` is present on 100/100
+sampled alerts and the API reports it identically on every read, so the
+countdown is recomputed from scratch on each run. No ledger, no artifact, no
+committed file to drift.
+
+**A group is anchored on its OLDEST open finding** (`min`, not `max`). A rule
+that keeps producing new alerts must not have its clock reset by each one —
+`rp-lab` fires sporadically across 7 months and 8 accounts, and anchoring on
+the newest finding would mean it never becomes overdue at all.
+
+A date in the future is rejected by a check: it would make every countdown
+negative, so nothing could ever be escalated and the report would look calm
+indefinitely.
+
 ### Why the override recipient is required, not a "dry run" flag
 
 `warning_recipient_override` has no default, and planning refuses to run
@@ -304,7 +340,7 @@ that decision is open.
 
 | Output | Meaning |
 |---|---|
-| `notify_status` | `ok` \| `disabled` \| `no_override` \| `not_queried` \| `all_overdue` \| `has_unroutable` |
+| `notify_status` | `ok` \| `disabled` \| `no_override` \| `no_campaign_start` \| `not_queried` \| `all_overdue` \| `has_unroutable` |
 | `warning_plan` | counts: planned, overdue, unroutable, not_escalatable, sendable, distinct_owners, max_recipients |
 | `warning_messages` | per group: `age_days`, `days_remaining`, `overdue`, `escalatable`, `routable`, `would_notify`, `recipient` |
 

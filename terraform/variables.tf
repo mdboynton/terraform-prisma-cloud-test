@@ -427,10 +427,25 @@ variable "runtime_grace_digest_notify_enabled" {
 }
 
 variable "runtime_grace_digest_grace_days" {
-  description = "(Optional) Days an alert may stay open before its rule becomes an escalation candidate. Measured from the alert's own alertTime, so against an existing backlog every candidate is already overdue on the first run - the module reports that rather than pretending it gave notice."
+  description = "(Optional) Days a finding may stay open before its rule becomes an escalation candidate. Counted from max(firstSeen, runtime_grace_digest_campaign_start_date), so findings that were already open when the campaign began still get the full period."
   type        = number
   default     = 14
   nullable    = false
+}
+
+variable "runtime_grace_digest_campaign_start_date" {
+  description = "(Required when runtime_grace_digest_notify_enabled) YYYY-MM-DD date the grace campaign was announced. Day 0 is max(firstSeen, this date). No default: today would restart every countdown on each run so nothing would ever escalate, and a past date would report findings as overdue before anyone was told."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.runtime_grace_digest_campaign_start_date == null ||
+      var.runtime_grace_digest_campaign_start_date == "" ||
+      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", var.runtime_grace_digest_campaign_start_date))
+    )
+    error_message = "runtime_grace_digest_campaign_start_date must be YYYY-MM-DD (or empty to leave the campaign unstarted)."
+  }
 }
 
 variable "runtime_grace_digest_warning_recipient" {

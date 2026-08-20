@@ -35,7 +35,8 @@
 # ---------------------------------------------------------------------------
 # CONTRACT (Terraform external data source)
 # ---------------------------------------------------------------------------
-# stdin : {"rules_json","grace_days","override_recipient","now_ms"(optional)}
+# stdin : {"rules_json","grace_days","override_recipient",
+#          "campaign_start_date"(YYYY-MM-DD),"now_ms"(optional)}
 # stdout: a FLAT MAP OF STRINGS — the external provider rejects anything else.
 #
 set -euo pipefail
@@ -53,9 +54,20 @@ RULES_JSON="$(get rules_json)"
 GRACE_DAYS="$(get grace_days)"
 OVERRIDE="$(get override_recipient)"
 NOW_MS="$(get now_ms)"
+CAMPAIGN_START="$(get campaign_start_date)"
 
 [ -n "$RULES_JSON" ] || fail "rules_json is required (the grouped table from digest.sh)"
 [ -n "$GRACE_DAYS" ] || fail "grace_days is required"
+
+# ---------------------------------------------------------------------------
+# ORDER MATTERS: the override recipient is checked FIRST.
+#
+# It is the guard that stops live owner mailboxes being resolved at all, so it
+# must be the first thing that can refuse. An earlier version of this file put
+# the campaign-date check above it, which meant a caller who omitted BOTH was
+# told about the date and never learned the safety gate existed. Caught by the
+# existing notify suite, which asserts the refusal wording.
+# ---------------------------------------------------------------------------
 
 # The override is what makes this script safe to run against live data. Refuse
 # to plan without it rather than defaulting to the real owner addresses.
@@ -67,6 +79,55 @@ NOW_MS="$(get now_ms)"
 case "$OVERRIDE" in
   *@*.*) ;;
   *) fail "override_recipient does not look like an email address: $OVERRIDE" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# THE CAMPAIGN START DATE — required, and the reason is not bureaucratic.
+#
+# The countdown measures from `firstSeen`, the finding's own first sighting.
+# MEASURED on this tenant: all 52 open alerts are ALREADY older than 14 days
+# (min 29, median 150, max 371). Anchoring on firstSeen alone means the very
+# first run tells every single owner their grace period expired months ago,
+# and hands all 52 straight to the escalation gate. Nobody actually receives
+# the 14 days they were promised. That is an ambush, not a warning.
+#
+# So day 0 is max(firstSeen, campaign_start_date):
+#   - findings already open at go-live start their clock at the ANNOUNCEMENT;
+#   - findings first seen afterwards start at their own firstSeen.
+# Both cohorts get a full grace period.
+#
+# There is deliberately NO DEFAULT. Defaulting to today would silently reset
+# the whole campaign on every run and no one would ever reach the threshold;
+# defaulting to epoch would restore the ambush. Neither failure is visible in
+# the output, so the caller has to say what the date is.
+# ---------------------------------------------------------------------------
+[ -n "$CAMPAIGN_START" ] || fail \
+  "campaign_start_date is required (YYYY-MM-DD). The grace countdown runs from
+ max(firstSeen, campaign_start_date). Without it, findings that were already
+ open before this campaign existed would be reported as long overdue on the
+ first run - warning people about a deadline that passed before they were
+ told. Set it to the date the campaign is announced."
+
+case "$CAMPAIGN_START" in
+  [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+  *) fail "campaign_start_date must be YYYY-MM-DD, got: $CAMPAIGN_START" ;;
+esac
+
+# Convert to epoch ms at UTC midnight. GNU and BSD date disagree on flags, so
+# try both rather than assuming the runner's platform (CI is Linux, dev is
+# macOS, and a silent failure here would hand jq an empty string).
+CAMPAIGN_START_MS=""
+if CS="$(date -u -d "${CAMPAIGN_START}T00:00:00Z" +%s 2>/dev/null)"; then
+  CAMPAIGN_START_MS="$(( CS * 1000 ))"
+elif CS="$(date -u -j -f "%Y-%m-%d %H:%M:%S" "${CAMPAIGN_START} 00:00:00" +%s 2>/dev/null)"; then
+  CAMPAIGN_START_MS="$(( CS * 1000 ))"
+else
+  fail "could not parse campaign_start_date '$CAMPAIGN_START' with either GNU or BSD date"
+fi
+
+# A calendar-shaped string can still be nonsense (2026-02-31 parses on GNU).
+case "$CAMPAIGN_START_MS" in
+  ''|*[!0-9]*) fail "campaign_start_date did not convert to a timestamp: $CAMPAIGN_START" ;;
 esac
 
 case "$GRACE_DAYS" in
@@ -119,10 +180,27 @@ echo "$RULES_JSON" | jq -e 'type == "array"' >/dev/null 2>&1 \
 PLANNED="$(jq -c \
   --argjson now "$NOW_MS" \
   --argjson grace "$GRACE_DAYS" \
+  --argjson cstart "$CAMPAIGN_START_MS" \
   --arg override "$OVERRIDE" '
   [ .[]
     | select(.open_alerts > 0 and .open_first > 0)
-    | ((($now - .open_first) / 86400000) | floor) as $age
+
+    # Prefer the finding-level first sighting; fall back to the alert time for
+    # data produced before `open_first_seen` existed, so an older digest
+    # payload still plans rather than silently dropping every group.
+    | ((if (.open_first_seen // 0) > 0 then .open_first_seen else .open_first end)) as $seen
+
+    # DAY 0 = the later of "when we first saw it" and "when we announced the
+    # campaign". A finding that predates the campaign cannot be more than
+    # (today - campaign_start) days into its grace period, however old it is.
+    | (if $seen > $cstart then $seen else $cstart end) as $clock_start
+
+    | ((($now - $clock_start) / 86400000) | floor) as $age
+
+    # The real age of the finding, independent of the campaign. Kept because
+    # it is the honest answer to "how long has this been happening" and a
+    # warning that hides it would understate the problem.
+    | ((($now - $seen) / 86400000) | floor) as $true_age
     | {
         rule:        .rule,
         scope:       .scope,
@@ -130,7 +208,18 @@ PLANNED="$(jq -c \
         clusters:    (.clusters // []),
         open_alerts: .open_alerts,
         occurrences: .occurrences,
+
+        # Days into the GRACE PERIOD. This is what the countdown in a warning
+        # message must use.
         age_days:    $age,
+
+        # Days since the finding was first seen. Always >= age_days.
+        finding_age_days: $true_age,
+
+        # True when the campaign start, not the finding, is setting day 0 --
+        # i.e. this was already open before the campaign began.
+        backlog:     ($cstart > $seen),
+
         days_remaining: ($grace - $age),
         overdue:     ($age >= $grace),
 
@@ -155,6 +244,12 @@ PLANNED="$(jq -c \
 
 TOTAL="$(jq -r 'length' <<<"$PLANNED")"
 OVERDUE="$(jq -r '[.[] | select(.overdue)] | length' <<<"$PLANNED")"
+
+# How many groups predate the campaign. On a first run this is normally ALL of
+# them, and it is the number that says "these people are hearing about this for
+# the first time" -- distinct from `overdue`, which now means "their announced
+# grace period has genuinely elapsed".
+BACKLOG="$(jq -r '[.[] | select(.backlog)] | length' <<<"$PLANNED")"
 UNROUTABLE="$(jq -r '[.[] | select(.routable | not)] | length' <<<"$PLANNED")"
 DISTINCT_OWNERS="$(jq -r '[.[].would_notify[]] | unique | length' <<<"$PLANNED")"
 NOT_ESCALATABLE="$(jq -r '[.[] | select(.escalatable | not)] | length' <<<"$PLANNED")"
@@ -166,8 +261,10 @@ MAX_RECIPIENTS="$(jq -r '[.[].would_notify | length] | max // 0' <<<"$PLANNED")"
 
 jq -nc \
   --arg grace_days       "$GRACE_DAYS" \
+  --arg campaign_start_date "$CAMPAIGN_START" \
   --arg planned          "$TOTAL" \
   --arg overdue          "$OVERDUE" \
+  --arg backlog          "$BACKLOG" \
   --arg unroutable       "$UNROUTABLE" \
   --arg not_escalatable  "$NOT_ESCALATABLE" \
   --arg sendable         "$SENDABLE" \

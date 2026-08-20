@@ -17,6 +17,20 @@ variable "window_days" {
   }
 }
 
+variable "campaign_start_date" {
+  description = "(Required when notify_enabled) The date the grace campaign was ANNOUNCED, as YYYY-MM-DD. The countdown runs from max(firstSeen, campaign_start_date), so findings that were already open before the campaign began start their grace period at the announcement rather than being reported as long overdue on the first run. There is deliberately no default: today would reset the campaign on every run, and epoch would warn everyone that their deadline already passed."
+  type        = string
+  default     = null
+
+  validation {
+    condition = (
+      var.campaign_start_date == null ||
+      can(regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", var.campaign_start_date))
+    )
+    error_message = "campaign_start_date must be in YYYY-MM-DD format."
+  }
+}
+
 variable "max_alerts" {
   description = "(Optional) Cap on how many alerts are fetched for grouping. The window and tenant TOTALS are never capped by this - only the grouped table, which reports when it is incomplete."
   type        = number

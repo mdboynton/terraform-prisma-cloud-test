@@ -226,6 +226,13 @@ module "runtime_grace_digest" {
   grace_days                 = var.runtime_grace_digest_grace_days
   warning_recipient_override = var.runtime_grace_digest_warning_recipient
 
+  # Day 0 for anything already open when the campaign was announced. An empty
+  # string from an unset workflow input must arrive as null, not "", so the
+  # module reports `no_campaign_start` rather than failing date parsing.
+  campaign_start_date = (
+    var.runtime_grace_digest_campaign_start_date == "" ? null : var.runtime_grace_digest_campaign_start_date
+  )
+
   # The script calls the CSPM REST API directly, so it needs credentials
   # explicitly - it cannot read the prismacloud provider block.
   cspm_url   = var.prisma_cloud_api_url
