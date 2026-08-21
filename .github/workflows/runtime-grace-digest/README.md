@@ -142,9 +142,38 @@ severities" rather than leaving you to assume.
 
 ## Where the results appear
 
-- **Summary page** — the report. Start here.
+- **Summary page** — the report. Start here. Counts only: no owner address is
+  ever printed here, because the summary is visible to everyone with repo read
+  access.
 - **Artifact** `runtime-grace-digest` — full JSON, 90-day retention, including
   every group when the table on the summary page is truncated to the top 40.
+
+### What the artifact contains
+
+| Key | Contents |
+|---|---|
+| `summary`, `scope`, `rules` | The recurrence report, as rendered above. |
+| `notify_status`, `notify_status_detail` | Why the warning plan looks the way it does. `null` when `plan_warnings` is off. |
+| `warning_plan` | The counts, including `due_today` and `emails_today`. |
+| `warning_messages` | One row per **rule group**, with ages and `would_notify`. |
+| `warning_accounts` | One row per **account** — the unit an email is sent in. |
+
+> [!CAUTION]
+> **The artifact contains live personal email addresses**, including external
+> ones, read from the alerts' `cloudAccountOwners`. It is gitignored and must
+> not be committed or pasted into a ticket.
+
+The warning keys were missing for several revisions while the summary page
+already told readers "the artifact has all of them, with recipients". It did
+not: the file held `summary`, `scope` and `rules` only, so anyone who followed
+that sentence found no ages and no recipients. The addressing record and the
+report are now the same file.
+
+Every `recipient` in the artifact is checked against the override address
+before the file is written, and the run **fails** if any row disagrees. If the
+expected address is missing entirely the run also fails, rather than comparing
+against an empty string and reporting the correct address as the violation —
+a check that cannot run must stop the run, not pass it.
 
 ## The grace warning — planned, never sent
 

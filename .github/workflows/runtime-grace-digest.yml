@@ -290,6 +290,13 @@ jobs:
         # parses it, so a crafted input could execute. The window and status
         # shown in the report are read out of the plan data instead, which is
         # both injection-free and the value that was actually queried.
+        env:
+          # The address every planned warning must be addressed to, passed as an
+          # ENV VAR rather than interpolated into the body, for the reason
+          # above. Same value the module is given, so the assertion below
+          # compares the plan against the workflow's own intent rather than
+          # against a second copy of the address that could drift from it.
+          WARNING_RECIPIENT: ${{ env.TF_VAR_runtime_grace_digest_warning_recipient }}
         run: |
           # Reads the PLAN file, not state: state is empty on a plan-only run,
           # so `terraform output` would return nothing.
@@ -586,7 +593,7 @@ jobs:
 
                 if [ "$msg_count" -gt 40 ]; then
                   echo "" >> "$GITHUB_STEP_SUMMARY"
-                  echo "_Showing the 40 oldest of $msg_count. The artifact has all of them, with recipients._" >> "$GITHUB_STEP_SUMMARY"
+                  echo "_Showing the 40 oldest of $msg_count. The artifact has all of them, with recipients, plus the per-account rollup that a send path would use._" >> "$GITHUB_STEP_SUMMARY"
                 fi
               fi
             fi
@@ -640,11 +647,78 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           # Full result to the artifact, including fields not rendered above.
+          #
+          # THE WARNING KEYS ARE NOT OPTIONAL EXTRAS. The summary page tells the
+          # reader, under the age table, that "the artifact has all of them,
+          # with recipients" - and for a while that sentence was simply false.
+          # The artifact held summary/scope/rules only, so a reviewer who
+          # followed it found no ages, no days_remaining, no notify_today and
+          # no per-account rollup. The count on the summary page was the only
+          # record of who the campaign intended to contact, and a count is not
+          # reviewable.
+          #
+          # This file is the reviewable record of the campaign's addressing, and
+          # it is what a send path reads. Both need the plan, not a subset of it.
+          #
+          # `// null` on each: the notify outputs are absent from the plan JSON
+          # when planning is off, and jq would otherwise emit nothing for them.
+          # An explicit null distinguishes "planning was disabled" from "planned
+          # and found nobody" - the same not-null-versus-zero distinction the
+          # module's outputs are built around.
           printf '%s' "$plan_json" | jq '{
             summary: .output_changes.runtime_grace_digest.after,
             scope:   .output_changes.runtime_grace_digest_scope.after,
-            rules:   .output_changes.runtime_grace_digest_rules.after
+            rules:   .output_changes.runtime_grace_digest_rules.after,
+
+            notify_status:        (.output_changes.runtime_grace_digest_notify_status.after        // null),
+            notify_status_detail: (.output_changes.runtime_grace_digest_notify_status_detail.after // null),
+            warning_plan:         (.output_changes.runtime_grace_digest_warning_plan.after         // null),
+
+            # Per RULE GROUP. Carries would_notify - the real owner mailboxes.
+            warning_messages: (.output_changes.runtime_grace_digest_warning_messages.after // null),
+
+            # Per ACCOUNT: one entry per email. This is the unit a send path
+            # iterates, and the reason it is here rather than derived later.
+            warning_accounts: (.output_changes.runtime_grace_digest_warning_accounts.after // null)
           }' > runtime-grace-digest.json
+
+          # THE ADDRESSING INVARIANT, ASSERTED ON THE FILE THAT WOULD BE SENT.
+          #
+          # Every planned message must be addressed to the override recipient.
+          # That is guaranteed in the module, but this artifact is what a send
+          # path reads, so the guarantee is re-checked HERE, on the actual bytes
+          # - not inferred from the module having been correct upstream.
+          #
+          # It fails the run rather than warning. A warning on a scheduled job
+          # is read by nobody, and the failure mode this guards against is
+          # mailing a real owner by accident, which cannot be undone.
+          # An UNSET expected address makes this check meaningless, and worse
+          # than meaningless: every row would compare unequal to "" and the
+          # correct address would be reported as the violation. Measured
+          # exactly that while wiring it up. So the absence of the value is
+          # itself the error - the check refuses to run blind rather than
+          # producing a confident wrong answer.
+          if [ -z "${WARNING_RECIPIENT:-}" ]; then
+            echo "::error title=Cannot verify addressing::WARNING_RECIPIENT is empty, so the override recipient cannot be checked. Refusing to produce a send-path artifact that has not been verified."
+            touch handled-failure.marker
+            exit 1
+          fi
+
+          bad_rcpt="$(jq -r --arg p "$WARNING_RECIPIENT" '
+            [ (.warning_accounts // [])[], (.warning_messages // [])[]
+              | select(.recipient != $p) | .recipient ]
+            | unique | join(", ")' runtime-grace-digest.json)"
+          if [ -n "$bad_rcpt" ]; then
+            echo "::error title=Addressing invariant violated::The plan contains recipients other than the override: $bad_rcpt"
+            touch handled-failure.marker
+            {
+              echo
+              echo "> [!CAUTION]"
+              echo "> **The warning plan addressed somebody other than the override recipient.**"
+              echo "> The run was failed deliberately and nothing was written for a send path."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
 
           echo "===== artifact ====="
           # `wc -c` pads with spaces on some platforms; strip them so the log
