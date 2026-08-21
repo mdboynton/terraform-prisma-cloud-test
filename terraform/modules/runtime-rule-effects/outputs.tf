@@ -129,6 +129,11 @@ output "summary" {
     alerting        = length(local.alerting_sites)
     enforced        = length(local.enforced_sites)
     disabled        = length(local.disabled_sites)
+    # ⚠️ REPORTED SEPARATELY, NOT SUBTRACTED SILENTLY. `alerting` counts only
+    # what could actually be escalated; `locked` is the remainder that is
+    # alerting but has no enforcing value the API will accept. Without this
+    # number the candidate list appears to shrink for no visible reason.
+    locked = length(local.locked_sites)
   }
 }
 
@@ -151,8 +156,13 @@ output "sites" {
 }
 
 output "alerting_sites" {
-  description = "Sites currently set to `alert` on rules that are still firing. THE ESCALATION CANDIDATE LIST - a human picks from here."
+  description = "Sites currently set to `alert` on rules that are still firing AND that the API will accept an enforcing value for. THE ESCALATION CANDIDATE LIST - a human picks from here."
   value       = local.alerting_sites
+}
+
+output "locked_sites" {
+  description = "Alerting sites that CANNOT be escalated: the API rejects any enforcing value there (e.g. host network.*, container Raw sockets). Real detections, permanently alert-only - listed so the shorter candidate list is explained rather than mysterious."
+  value       = local.locked_sites
 }
 
 output "enforced_sites" {

@@ -83,6 +83,67 @@ locals {
     ]
   ])
 
+  # -------------------------------------------------------------------------
+  # Sites the API will actually accept an enforcing value for.
+  #
+  # ⚠️ MEASURED THE HARD WAY, run 32526631084. An operator escalated
+  # host / pavila-runtime-test / network.denyListEffect from alert to prevent.
+  # The rule was valid, the site was valid, it sat at `alert`, Terraform
+  # planned the write and a human approved it. The API refused:
+  #
+  #   PUT /api/v1/policies/runtime/host -> HTTP 400
+  #   {"err":"invalid network deny list effect runtime rule effect prevent"}
+  #
+  # Sitting at `alert` says nothing about whether a STRONGER value is allowed.
+  # In the Console the host Networking rows render only Disable | Alert - there
+  # is no Prevent button to press. The permitted set is a property of
+  # (workload x site) and there is NO SCHEMA TO ASK: /openapi.json,
+  # /api/v1/swagger.json, /api/v1/_docs and three other candidates all 404.
+  # So the list below is transcribed from the Console UI, which is the only
+  # authority that exists.
+  #
+  # ⚠️ DO NOT REPLACE THIS WITH A DATA-DRIVEN GUESS. The obvious inference -
+  # "a site accepts prevent if some rule already holds prevent there" - is
+  # wrong in BOTH directions on this very tenant:
+  #   - container network.rawSocketsEffect HOLDS `block` on 2 rules, yet the
+  #     UI offers it no Block button (false positive -> the 400 above)
+  #   - host antiMalware.encryptedBinaries is `alert` on all 81 rules, yet the
+  #     UI DOES offer Prevent (false negative -> a real target silently lost)
+  # Usage is not permission. test_escalatable_sites.sh pins both cases.
+  #
+  # Host: the eight rows that show a Prevent button. Everything under host
+  # `network.*` is alert-only. Container: everything EXCEPT Raw sockets.
+  host_escalatable = [
+    "antiMalware.cryptoMiner",
+    "antiMalware.serviceUnknownOriginBinary",
+    "antiMalware.userUnknownOriginBinary",
+    "antiMalware.tempFSProc",
+    "antiMalware.webShell",
+    "antiMalware.deniedProcesses.effect",
+    "dns.denyListEffect",
+    "dns.intelligenceFeed",
+  ]
+  container_not_escalatable = ["network.rawSocketsEffect"]
+
+  # customRules[N].effect is indexed, so it cannot be matched literally. It is
+  # escalatable on both policies - the UI renders a full effect selector for a
+  # custom rule - so the index is normalised away before comparing.
+  #
+  # ⚠️ TAGGED ONTO EACH SITE RATHER THAN KEYED IN A MAP. A map keyed on
+  # kind|rule|site would blow up on a duplicate key, and rule names are NOT
+  # unique - 3 names exist in both the container and host policies, and a
+  # single policy may carry the same name twice. Carrying the flag on the row
+  # cannot collide.
+  tagged_sites = [
+    for s in local.sites : merge(s, {
+      escalatable = (
+        startswith(s.site, "customRules[") ? true :
+        s.kind == "host" ? contains(local.host_escalatable, s.site) :
+        !contains(local.container_not_escalatable, s.site)
+      )
+    })
+  ]
+
   # Sites that are merely alerting while the rule keeps firing: the candidates
   # a human would consider escalating.
   #
@@ -92,7 +153,20 @@ locals {
   # disable -> prevent switches on a detection that was never running. That is a
   # different and much larger decision than alert -> prevent, and it is surfaced
   # separately rather than folded into a single "escalate me" list.
-  alerting_sites = [for s in local.sites : s if s.effect == "alert"]
+  alerting_sites = [
+    for s in local.tagged_sites : s if s.effect == "alert" && s.escalatable
+  ]
+
+  # Alerting, but the API would refuse to enforce it. Reported separately so
+  # the number does not silently shrink: these are real detections that simply
+  # cannot be escalated, and hiding them entirely would misrepresent coverage.
+  locked_sites = [
+    for s in local.tagged_sites : s if s.effect == "alert" && !s.escalatable
+  ]
+
+  # ⚠️ THE STATE LISTS BELOW ARE NOT FILTERED. They report what IS, not what
+  # may be changed. A site already at `prevent` is enforcing whether or not we
+  # would offer to set it.
   disabled_sites = [for s in local.sites : s if s.effect == "disable"]
 
   # Already escalated, yet still producing alerts.

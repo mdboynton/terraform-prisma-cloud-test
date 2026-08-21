@@ -438,8 +438,16 @@ output "runtime_rule_effects_window_detail" {
 }
 
 output "runtime_rule_effects_alerting_sites" {
-  description = "THE ESCALATION CANDIDATE LIST. Effect sites still set to `alert` on rules that keep firing, addressed as (kind, rule, site) so an escalation names its target exactly."
+  description = "THE ESCALATION CANDIDATE LIST. Effect sites still set to `alert` on rules that keep firing AND that the API will accept an enforcing value for, addressed as (kind, rule, site) so an escalation names its target exactly."
   value       = module.runtime_rule_effects.alerting_sites
+}
+
+# ⚠️ THIS OUTPUT MUST EXIST AT THE ROOT, not only on the module. Bug 1 was
+# exactly that mistake: the escalation outputs were defined on the module and
+# never surfaced here, so the workflow read nothing and reported nothing.
+output "runtime_rule_effects_locked_sites" {
+  description = "Alerting sites that CANNOT be escalated - the API rejects every enforcing value there (host network.*, container Raw sockets). Listed so a shorter candidate list is explained rather than mysterious."
+  value       = module.runtime_rule_effects.locked_sites
 }
 
 output "runtime_rule_effects_enforced_sites" {
