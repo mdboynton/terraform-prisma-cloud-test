@@ -3,8 +3,8 @@
     "roles": 171,
     "roles_unassigned": 75,
     "users": 855,
-    "users_enabled": 854,
-    "users_disabled": 1,
+    "users_enabled": 855,
+    "users_disabled": 0,
     "service_accounts": 212,
     "permission_groups": 62,
     "integrations": 145,
@@ -347,7 +347,7 @@
       "name": "NYC-OTI-ruben-test SVC",
       "role_type": "Ruben-PG",
       "account_group_count": 0,
-      "assigned_user_count": 2
+      "assigned_user_count": 3
     },
     {
       "name": "PC Training Testing",
@@ -3868,7 +3868,7 @@
     {
       "id": "73e30ce287c4",
       "account_type": "SYSTEM_ACCOUNT",
-      "enabled": false,
+      "enabled": true,
       "role_count": 1
     },
     {
@@ -5375,7 +5375,7 @@
       "id": "c2907349881f",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
-      "role_count": 3
+      "role_count": 4
     },
     {
       "id": "c29ff817808c",
