@@ -458,12 +458,43 @@ jobs:
           terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan >/dev/null
           terraform show -json tfplan > preflight.json
 
-          status="$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value' preflight.json)"
+          # ⚠️ SAME -target PRUNING AS THE PLAN JOB. READ resource_changes.
+          #
+          # This step re-plans, so it hits the identical problem: with
+          # `-target=module.runtime_rule_effects` the plan is partial and
+          # Terraform drops root outputs that depend on null_resource.escalate
+          # - including escalation_status. Reading it here yielded the jq null
+          # for a missing key, and on run 32523578068 the approver's write was
+          # refused with "Escalation status is 'null', not 'will_apply'".
+          #
+          # The guard meant to protect the write became the thing that blocked
+          # it. The resource itself is never pruned (it IS the target), so a
+          # planned create is the authoritative signal that an apply will
+          # write. Fall back to the output only when the plan is complete.
+          escalates="$(jq -r '[.resource_changes[]?
+                       | select(.address | test("null_resource\\.escalate"))
+                       | select(.change.actions != ["no-op"])] | length' preflight.json)"
+
+          out="$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value // ""' preflight.json)"
+
+          if [ "$escalates" -gt 0 ]; then
+            status="will_apply"
+          elif [ -n "$out" ] && [ "$out" != "null" ]; then
+            status="$out"
+          else
+            # Neither signal says a write will happen. Whatever the operator
+            # intended, refusing here is correct: this is the last checkpoint
+            # before a live policy changes.
+            status="no_write_planned"
+          fi
+
           if [ "$status" != "will_apply" ]; then
             echo "::error::Escalation status is '$status', not 'will_apply'. Nothing was changed."
-            jq -r '.planned_values.outputs.runtime_rule_effects_escalation_detail.value' preflight.json
+            jq -r '.planned_values.outputs.runtime_rule_effects_escalation_detail.value // "No detail available (output pruned by -target)."' preflight.json
             exit 1
           fi
+
+          echo "Preflight: the plan still contains $escalates escalation write(s)."
 
           # The rule must still exist and must still be at `alert`. If someone
           # escalated it by hand since the plan, the write is redundant; if the
