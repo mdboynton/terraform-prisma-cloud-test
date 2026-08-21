@@ -343,27 +343,134 @@ jobs:
             exit 1
           fi
 
+      # This page answers ONE question: what would an apply write?
+      #
+      # It used to answer a different one. The old version led with the tenant
+      # read - the same `sites: 146 / alerting: 103` figures workflow 8
+      # reports - then printed one row per alerting site (103 of them here),
+      # and put the pending write last. The operator's verdict was that
+      # workflow 9 "is the exact same as wf8", which was fair: the only part
+      # unique to this workflow was the final line.
+      #
+      # ⚠️ THAT LAYOUT IS ALSO HOW BUG 3 HID. The summary rendered the tenant
+      # statistics perfectly while the verdict beneath them was empty, so the
+      # page looked healthy on a run where a fully authorised escalation had
+      # been silently dropped. Leading with the write means a missing verdict
+      # is the first thing you see, not a footnote.
+      #
+      # ⚠️ IT MUST NOT READ THE escalation_* OUTPUTS. `-target` prunes them
+      # (see the "Read the escalation status" step above). The requested write
+      # comes from `.variables`, the current effect from `alerting_sites` /
+      # `disabled_sites` / `enforced_sites`, and the verdict from the status
+      # step - all three survive a partial plan.
       - name: Render the summary
+        env:
+          STATUS: ${{ steps.status.outputs.escalation_status }}
         run: |
           {
-            echo "## Runtime rule effects"
+            echo "## Runtime rule effects — pending write"
             echo
-            jq -r '.planned_values.outputs.runtime_rule_effects.value
-                   | to_entries[] | "- **\(.key)**: \(.value)"' plan.json 2>/dev/null \
-              || echo "_No summary available._"
+
+            req="$(jq -r '(.variables.runtime_rule_effects_escalations.value // []) | length' plan.json)"
+
+            if [ "$req" -eq 0 ]; then
+              echo "**Nothing is slated to be written.** This run only read the tenant."
+              echo
+              echo "To escalate a rule, re-run with the four \`escalate_*\` fields filled in."
+            else
+              # One row per requested target, joined against live state so the
+              # change reads as a diff rather than an announcement. The join is
+              # kind+rule+site, which is how the module identifies a site.
+              echo "| kind | rule | site | now | would become |"
+              echo "|---|---|---|---|---|"
+              jq -r '
+                ([ (.planned_values.outputs.runtime_rule_effects_alerting_sites.value // [])[],
+                   (.planned_values.outputs.runtime_rule_effects_disabled_sites.value // [])[],
+                   (.planned_values.outputs.runtime_rule_effects_enforced_sites.value // [])[]
+                 ] | map({key: "\(.kind)|\(.rule)|\(.site)", value: .effect}) | from_entries) as $live
+                | (.variables.runtime_rule_effects_escalations.value // [])[]
+                | . as $e
+                | ($live["\($e.kind)|\($e.rule)|\($e.site)"] // "not found") as $now
+                | "| \($e.kind) | \($e.rule) | `\($e.site)` | `\($now)` | `\($e.effect)` |"
+              ' plan.json
+              echo
+
+              # ⚠️ disable -> anything is NOT a tightening. A site at `disable`
+              # is detecting nothing; escalating it switches a dormant
+              # detection ON at full enforcement, with no observation period
+              # behind it. 58 sites on this tenant sit at `disable`, so this
+              # is a live hazard, not a corner case.
+              # ⚠️ BIND THE ELEMENT BEFORE index(). Inside `index(...)` the
+              # input `.` is the ARRAY being searched, not the element being
+              # filtered, so a bare `.kind` there indexes an array and jq dies
+              # with "Cannot index array with string". Under `set -e` - which
+              # is how Actions runs every `run:` block - that aborted the whole
+              # step and the summary stopped at the table.
+              woke="$(jq -r '
+                ([ (.planned_values.outputs.runtime_rule_effects_disabled_sites.value // [])[] ]
+                 | map("\(.kind)|\(.rule)|\(.site)")) as $off
+                | [ (.variables.runtime_rule_effects_escalations.value // [])[]
+                    | . as $e
+                    | select(($off | index("\($e.kind)|\($e.rule)|\($e.site)")) != null)
+                    | "\($e.rule) / \($e.site)" ] | join(", ")
+              ' plan.json)"
+              if [ -n "$woke" ]; then
+                echo "> [!WARNING]"
+                echo "> **This turns a detection ON, it does not tighten one.**"
+                echo ">"
+                echo "> Currently \`disable\`: $woke"
+                echo ">"
+                echo "> These sites are not detecting anything today. Escalating"
+                echo "> them enforces immediately, with no alerting period first."
+                echo
+              fi
+            fi
+
+            echo
+            echo "**Verdict:** \`${STATUS:-unavailable}\`"
+            echo
+            case "${STATUS:-}" in
+              will_apply)
+                echo "An apply would write the change above. It is held at the"
+                echo "environment approval — nothing has changed yet."
+                ;;
+              nothing_requested)
+                echo "No escalation was requested, so the apply job is skipped."
+                ;;
+              not_confirmed)
+                echo "A target was named but \`apply_confirm\` was not \`APPLY\`,"
+                echo "so the apply job is skipped and nothing will be written."
+                ;;
+              disabled)
+                echo "The module is disabled, so no write was planned."
+                ;;
+            esac
+            echo
+
+            # The tenant read is still worth carrying - it is the evidence the
+            # target was chosen from - but it is context now, not the headline.
+            echo "<details><summary>Tenant read (context)</summary>"
             echo
             status="$(jq -r '.planned_values.outputs.runtime_rule_effects_status.value // "unknown"' plan.json)"
             detail="$(jq -r '.planned_values.outputs.runtime_rule_effects_status_detail.value // ""' plan.json)"
-            echo "**Read status:** \`$status\`"
+            echo "Read status: \`$status\`"
             if [ -n "$detail" ] && [ "$detail" != "null" ]; then
               echo
               echo "> $detail"
             fi
             echo
+            jq -r '.planned_values.outputs.runtime_rule_effects.value
+                   | "sites \(.sites), matched \(.matched), alerting \(.alerting), enforced \(.enforced), disabled \(.disabled) (window \(.window_days)d)"' \
+              plan.json 2>/dev/null || echo "_No summary available._"
+            echo
+            echo "The full per-site breakdown is in the \`runtime-rule-effects-plan\` artifact."
+            echo "</details>"
+            echo
 
-            # An empty candidate list has two very different causes, and the
-            # dangerous reading - "nothing is firing, all clear" - is the
-            # likelier one. Say which it is BEFORE showing the empty table.
+            # An empty result has two very different causes, and the dangerous
+            # reading - "nothing is firing, all clear" - is the likelier one.
+            # This stays OUTSIDE the fold: it is a correction to the numbers
+            # above, and a warning nobody expands is not a warning.
             wstatus="$(jq -r '.planned_values.outputs.runtime_rule_effects_window_status.value // "unknown"' plan.json)"
             wdetail="$(jq -r '.planned_values.outputs.runtime_rule_effects_window_detail.value // ""' plan.json)"
             if [ "$wstatus" = "empty_window_but_alerts_exist" ]; then
@@ -377,25 +484,6 @@ jobs:
               echo "> $wdetail"
               echo
             fi
-
-            echo "### Escalation candidates (still only alerting)"
-            echo
-            n="$(jq '.planned_values.outputs.runtime_rule_effects_alerting_sites.value | length' plan.json)"
-            if [ "$n" = "0" ]; then
-              echo "_None._"
-            else
-              echo "| kind | rule | site | occurrences |"
-              echo "|---|---|---|---|"
-              jq -r '.planned_values.outputs.runtime_rule_effects_alerting_sites.value[]
-                     | "| \(.kind) | \(.rule) | `\(.site)` | \(.occurrences) |"' plan.json
-            fi
-            echo
-
-            echo "### Write status"
-            echo
-            echo "\`$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value' plan.json)\`"
-            echo
-            jq -r '.planned_values.outputs.runtime_rule_effects_escalation_detail.value // ""' plan.json
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the plan
