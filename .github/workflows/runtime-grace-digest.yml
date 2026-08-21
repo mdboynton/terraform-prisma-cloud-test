@@ -994,6 +994,11 @@ jobs:
           WARNING_RECIPIENT: ${{ env.TF_VAR_runtime_grace_digest_warning_recipient }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # A record of what ACTUALLY went, appended only after the sender
+          # returns 0. The report step below reads THIS, not outbox/ - see
+          # the comment there for why that distinction matters.
+          : > sent.log
+
           for f in outbox/*.json; do
             account=$(jq -r '.account' "$f")
             days=$(jq -r '.min_days_remaining' "$f")
@@ -1061,20 +1066,56 @@ jobs:
               s.send_message(msg)
           print(f"sent: {subject}")
           PY
+
+            # Reached only if python exited 0. `run:` blocks execute under
+            # `bash -e`, so a failed send aborts the loop here and the
+            # remaining accounts are never attempted - measured, not assumed.
+            jq -r '"\(.account)\t\(.min_days_remaining)\t\(.rule_count)"' "$f" >> sent.log
           done
 
       - name: Report what was sent
         if: always()
         run: |
+          # ⚠️ THIS READS sent.log, NOT outbox/.
+          #
+          # outbox/ is what was COMPOSED; sent.log is what was DELIVERED.
+          # Because this step is `if: always()`, it also runs after a failed
+          # send - and it used to iterate outbox/, so a run that died on
+          # message 3 of 5 still printed all five under the heading "sent".
+          # That is a report that lies precisely when it matters most, and
+          # an authentication failure part-way through is the LIKELY first
+          # experience with a new relay, not an exotic edge case.
+          planned=$(ls outbox/*.json 2>/dev/null | wc -l | tr -d ' ')
+          sent=$(wc -l < sent.log 2>/dev/null | tr -d ' '); sent=${sent:-0}
+
           {
             echo "## Grace warnings — sent"
             echo
-            echo "| Account | Days left | Rules |"
-            echo "|---|---:|---:|"
-            for f in outbox/*.json; do
-              jq -r '"| \(.account) | \(.min_days_remaining) | \(.rule_count) |"' "$f"
-            done
+            if [ "$sent" -eq 0 ]; then
+              echo "**No messages were sent.** $planned were composed."
+            else
+              echo "**$sent of $planned** composed message(s) were sent."
+            fi
             echo
+
+            if [ "$sent" -gt 0 ]; then
+              echo "| Account | Days left | Rules |"
+              echo "|---|---:|---:|"
+              while IFS="$(printf '\t')" read -r acct days rules; do
+                echo "| $acct | $days | $rules |"
+              done < sent.log
+              echo
+            fi
+
+            if [ "$sent" -lt "$planned" ]; then
+              echo "> [!WARNING]"
+              echo "> $((planned - sent)) message(s) were NOT sent — the send step stopped"
+              echo "> early. The accounts above are the ones that DID receive mail; the"
+              echo "> rest received nothing. Re-running re-sends to everyone, including"
+              echo "> the accounts listed above."
+              echo
+            fi
+
             echo "All messages were addressed to the override recipient. The real owner"
             echo "addresses appear in each body for review and were not used as recipients."
           } >> "$GITHUB_STEP_SUMMARY"

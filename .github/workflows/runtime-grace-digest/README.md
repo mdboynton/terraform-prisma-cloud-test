@@ -438,15 +438,17 @@ there is nothing to allowlist. The relay has to authenticate with the
 *credentials* above. That rules out most internal "just relay from our subnet"
 servers unless they also accept SMTP AUTH from outside.
 
-Realistic options, roughly in order of least friction:
+Realistic options, in order of least friction **for this domain**:
 
-1. **A transactional provider** (SendGrid, Mailgun, Amazon SES, Postmark).
-   Designed for exactly this: credential auth, works from anywhere, free tiers
-   cover a campaign of this size. Usually the fastest path.
-2. **Google Workspace / Microsoft 365 app password**, if your account allows
-   one. Sends as a real person, which is either useful or misleading depending
-   on how you want the warning to read. Often blocked by admin policy — check
-   before planning around it.
+1. **Your own Google Workspace mailbox via an App Password** — the recommended
+   starting point, and the only option below that satisfies this domain's
+   anti-spoofing policy without extra DNS work. See the next section.
+2. **A transactional provider** (SendGrid, Mailgun, Amazon SES, Postmark).
+   Credential auth, works from anywhere, free tiers cover this volume.
+   ⚠️ But its IPs are **not** SPF-authorised for `paloaltonetworks.com`
+   (measured — see the table below), and DMARC is `p=reject`. So this needs
+   either a domain you control as `SMTP_FROM`, or a DNS change. The right
+   long-term answer, not the quickest first send.
 3. **An internal relay that accepts authenticated submission from the
    internet.** Best deliverability inside the company, most paperwork.
 4. **A self-hosted runner inside the network**, if an IP-authorised relay is
@@ -467,6 +469,88 @@ Realistic options, roughly in order of least friction:
 **Not the Prisma Cloud tenant.** Measured: `/settings/smtp` returns 404 on this
 tenant, so there is no relay to borrow. Mail leaves from the runner or not at
 all.
+
+### Sending from your own Google Workspace mailbox
+
+**This is the recommended way to get the first send working**, and for this
+domain it is the option that actually satisfies the anti-spoofing policy.
+
+| Secret | Value |
+|---|---|
+| `SMTP_SERVER` | `smtp.gmail.com` |
+| `SMTP_PORT` | `587` |
+| `SMTP_USERNAME` | `tule@paloaltonetworks.com` (the full address, not the local part) |
+| `SMTP_PASSWORD` | a **16-character App Password** — see below |
+| `SMTP_FROM` | the *same* address as `SMTP_USERNAME` |
+
+#### Why this works when sending "directly" would not
+
+`paloaltonetworks.com` publishes `-all` (hard fail) with DMARC `p=reject`.
+Measured 2026-08-21 by expanding the SPF macro
+`include:%{ir}.%{v}.%{d}.spf.has.pphosted.com` per source IP:
+
+| Sending IP | SPF result |
+|---|---|
+| Google `209.85.220.41`, `209.85.128.28`, `74.125.82.41` | `v=spf1 ip4:<that IP> -all` → **PASS** |
+| Azure/GitHub-runner `20.62.156.30`, `13.107.42.14` | generic fallback, ends `-all` → **FAIL** |
+| Controls `1.2.3.4`, `203.0.113.99` | same fallback → **FAIL** |
+
+*(The control IPs matter: the first three returning their own address could
+have been a lookup that echoes any input. The bogus IPs returning a visibly
+**different** record is what proves the check discriminates.)*
+
+So the runner must **not** be the thing that talks to the world. It hands the
+message to `smtp.gmail.com` over authenticated submission, and **Google** then
+sends it from a Google IP — which is authorised. Same address, different
+source IP, opposite outcome.
+
+This also means: with `p=reject`, do not point `SMTP_SERVER` at anything else
+while keeping this `SMTP_FROM`. Mail from an unauthorised IP claiming this
+domain is **rejected outright**, not filed as spam.
+
+#### Getting the App Password
+
+1. Turn on **2-Step Verification** — myaccount.google.com → Security. App
+   Passwords do not appear as an option until this is on; that is the usual
+   reason the page seems to be missing.
+2. Go to myaccount.google.com/apppasswords, name it `prisma-grace-campaign`,
+   and copy the 16 characters.
+3. Paste it as `SMTP_PASSWORD`. The spaces Google displays are cosmetic;
+   pasting without them is safer.
+
+Your normal password will **not** work, and "less secure app access" no longer
+exists — an App Password is the only route.
+
+> [!NOTE]
+> ⚠️ **On a managed Workspace account this may be blocked.** A Workspace admin
+> can disable App Passwords (and 2SV enrolment) domain-wide, and in
+> security-conscious organisations it often is. If the apppasswords page says
+> the option is not available for your account, that is **policy, not a
+> mistake on your part** — no amount of retrying changes it. In that case use
+> a transactional provider, and note that its IP will *not* be SPF-authorised
+> for this domain, so `SMTP_FROM` must be a domain you control instead.
+
+**`SMTP_FROM` must equal `SMTP_USERNAME`.** Google rewrites or refuses a
+mismatched sender, and with `p=reject` a mismatch is fatal rather than
+cosmetic. Do not set a decorative `no-reply@` address.
+
+Worth knowing:
+
+- **Sending limits** are ~2,000 messages/day for a Workspace account, far
+  above this campaign's volume (the live tenant currently produces about 5
+  messages/day) — but it is the ceiling if the tenant grows.
+- **Internal delivery is the easy case.** Both sender and recipient are on
+  this domain and SPF passes, so this first send is about as likely to land
+  cleanly as email gets. If a message does not arrive, check the run summary
+  first — it now reports what was *actually* delivered, which is the
+  authoritative answer.
+
+> [!IMPORTANT]
+> Fine for proving the pipeline; not how the campaign should run for real.
+> The mail comes from a person rather than a team, it breaks when you rotate
+> the App Password, and a personal credential sits in repository secrets.
+> Move to a service mailbox or a transactional provider before anything is
+> addressed to real owners.
 
 ### 3. Prove it with the smallest possible send
 
