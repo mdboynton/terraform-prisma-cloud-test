@@ -376,6 +376,33 @@ output "runtime_grace_digest_warning_accounts" {
   value       = module.runtime_grace_digest.warning_accounts
 }
 
+# ---------------------------------------------------------------------------
+# THE DAY-14 HANDOFF.
+#
+# ⚠️ A MODULE OUTPUT THAT IS NOT RE-EXPORTED HERE IS INVISIBLE TO THE
+# WORKFLOW. The workflow reads `terraform show -json` and looks under
+# `.output_changes.<root output name>`; module-level outputs do not appear
+# there. These three existed on the module but were never plumbed through, so
+# the workflow's `// []` fallback silently produced an empty handoff, the
+# day-14 section rendered nothing, and the escalation gate skipped every run.
+# Nothing errored - the wiring was simply absent, which is why it presented as
+# "no findings" rather than as a failure.
+# ---------------------------------------------------------------------------
+output "runtime_grace_digest_escalation_handoff" {
+  description = "Overdue groups workflow 9 COULD act on, deduped by (kind, rule). `site` and `effect` are always null - a container rule has 27 independent effect sites and enforcement state does not survive alert promotion, so which control should block is a human decision."
+  value       = module.runtime_grace_digest.escalation_handoff
+}
+
+output "runtime_grace_digest_escalation_blocked" {
+  description = "Overdue groups that CANNOT be escalated - the built-in `default` learned model has no rule name to target. Reported rather than dropped: on this tenant it is the largest group of overdue findings."
+  value       = module.runtime_grace_digest.escalation_blocked
+}
+
+output "runtime_grace_digest_escalation_ambiguous" {
+  description = "Overdue, escalatable groups whose owning policy is undetermined. Never guessed: three rule names exist in BOTH the container and host policies, and escalating the wrong one changes an unrelated control."
+  value       = module.runtime_grace_digest.escalation_ambiguous
+}
+
 output "runtime_grace_digest_scope" {
   description = "How the digest was produced, for troubleshooting an unexpected count."
   value       = module.runtime_grace_digest.scope
