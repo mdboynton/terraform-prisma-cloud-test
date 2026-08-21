@@ -259,9 +259,39 @@ locals {
 
     # Always false in this module. There is no send path yet.
     send_capable = local.notify_raw.send_capable == "true"
+
+    # ----------------------------------------------------------------
+    # DAY-14 HANDOFF COUNTS. Overdue rule/policy groups, split by whether
+    # workflow 9 could act on them at all. Reported as three numbers rather
+    # than one: an overdue finding that CANNOT be escalated still needs a
+    # decision, and folding it into a single total hides that.
+    # ----------------------------------------------------------------
+    escalation_ready     = tonumber(local.notify_raw.escalation_ready)
+    escalation_blocked   = tonumber(local.notify_raw.escalation_blocked)
+    escalation_ambiguous = tonumber(local.notify_raw.escalation_ambiguous)
   }
 
   warning_messages = local.notify_raw == null ? [] : jsondecode(local.notify_raw.messages_json)
+
+  # ------------------------------------------------------------------
+  # The day-14 handoff lists. See notify_plan.sh for why `site` and `effect`
+  # are null: enforcement state does not survive alert promotion, so the
+  # alert can name the RULE but never which of its 27 effect sites should
+  # start blocking. Those two fields are a human decision, and this module
+  # deliberately does not fabricate them.
+  # ------------------------------------------------------------------
+  escalation_handoff = local.notify_raw == null ? [] : jsondecode(local.notify_raw.handoff_ready_json)
+
+  # Overdue, but nothing workflow 9 can target - the built-in `default`
+  # learned model. Surfaced because on this tenant it is the LARGEST group,
+  # and a campaign that silently omitted it would misreport most of the
+  # backlog as handled.
+  escalation_blocked_list = local.notify_raw == null ? [] : jsondecode(local.notify_raw.handoff_blocked_json)
+
+  # Overdue and escalatable, but the owning policy is undetermined. Never
+  # resolved by guessing: rule names are not unique across container and
+  # host, and the wrong pick changes an unrelated control.
+  escalation_ambiguous_list = local.notify_raw == null ? [] : jsondecode(local.notify_raw.handoff_ambiguous_json)
 
   # One entry per ACCOUNT due a reminder today - the unit an email is sent in.
   # `warning_messages` remains the per-rule-group view; this is a rollup of it,

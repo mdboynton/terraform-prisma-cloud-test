@@ -568,6 +568,115 @@ jobs:
                 } >> "$GITHUB_STEP_SUMMARY"
               fi
 
+              # ----------------------------------------------------------
+              # DAY 14 — the handoff to workflow 9.
+              #
+              # ⚠️ READS THE PLAN OUTPUTS, NOT runtime-grace-digest.json.
+              #
+              # This section runs at ~line 588. The artifact is not written
+              # until ~line 823, further down this same step. An earlier
+              # version of this block read the artifact, and because GitHub
+              # `run:` blocks execute under `bash -e`, the missing file
+              # aborted the ENTIRE render step - no summary, no artifact, exit
+              # 2. Caught by test_render.sh and test_artifact.sh, which run
+              # the whole step; the day-14 unit test missed it completely
+              # because it feeds the block a fixture file and so never sees
+              # the ordering.
+              #
+              # `$plan_json` is already in scope and is the same data the
+              # artifact is built from, so the page and the artifact still
+              # cannot disagree.
+              #
+              # WHY THIS IS A LIST AND NOT A BUTTON. Workflow 9 escalates an
+              # EFFECT SITE - {kind, rule, site, effect}. A container rule has
+              # 27 independent effect sites, a host rule 19, and MEASURED
+              # against 100 promoted alerts there are ZERO effect keys at any
+              # depth: enforcement state does not survive promotion. So the
+              # alert names the rule but cannot say which control should start
+              # blocking. Filling `site` in automatically would be choosing at
+              # random which production control begins denying traffic.
+              # ----------------------------------------------------------
+              esc_handoff="$(printf '%s' "$plan_json" | jq -c '(.output_changes.runtime_grace_digest_escalation_handoff.after   // [])')"
+              esc_blocked="$(printf '%s' "$plan_json" | jq -c '(.output_changes.runtime_grace_digest_escalation_blocked.after   // [])')"
+              esc_ambigl="$(printf '%s' "$plan_json" | jq -c '(.output_changes.runtime_grace_digest_escalation_ambiguous.after // [])')"
+
+              esc_ready="$(jq -r 'length' <<<"$esc_handoff")"
+              esc_block="$(jq -r 'length' <<<"$esc_blocked")"
+              esc_ambig="$(jq -r 'length' <<<"$esc_ambigl")"
+
+              if [ "$(( esc_ready + esc_block + esc_ambig ))" -gt 0 ]; then
+                {
+                  echo
+                  echo "## Day 14 — reached the deadline"
+                  echo
+                  echo "These rule groups have used their full ${w_grace}-day grace period."
+                  echo "**Nothing has been escalated.** Workflow 9 applies escalations, it is"
+                  echo "human-gated, and this run did not call it."
+                } >> "$GITHUB_STEP_SUMMARY"
+
+                if [ "$esc_ready" -gt 0 ]; then
+                  {
+                    echo
+                    echo "### Ready for workflow 9 ($esc_ready)"
+                    echo
+                    echo "| Policy | Rule | Oldest | Accounts | Occurrences |"
+                    echo "|---|---|---|---|---|"
+                    jq -r '.[]
+                      | "| \(.kind) | \(.rule) | \(.max_age_days)d | \(.accounts | join(", ")) | \(.occurrences) |"' \
+                      <<<"$esc_handoff"
+                    echo
+                    echo "> [!IMPORTANT]"
+                    echo "> **You must choose the effect site.** Run **9. Runtime Rule"
+                    echo "> Effects** with \`escalate_kind\` and \`escalate_rule\` copied from"
+                    echo "> the table, leaving the escalate fields blank for a read-only"
+                    echo "> plan first — that plan lists the rule's effect sites and their"
+                    echo "> current settings. A container rule has 27 of them and a host"
+                    echo "> rule 19; the alert data identifies none, so picking one is a"
+                    echo "> decision about what starts blocking traffic, not a lookup."
+                  } >> "$GITHUB_STEP_SUMMARY"
+                fi
+
+                # Reported even though nothing can be done about them through
+                # this route. On the reference tenant `default` carries 51 of
+                # 111 incidents, so a day-14 section that listed only the
+                # actionable rules would present less than half the expired
+                # backlog as the whole of it.
+                if [ "$esc_block" -gt 0 ]; then
+                  {
+                    echo
+                    echo "### Overdue but NOT escalatable ($esc_block)"
+                    echo
+                    echo "> [!WARNING]"
+                    echo "> These have passed the deadline and workflow 9 **cannot act on"
+                    echo "> them**. They are the built-in learned model, which has no rule"
+                    echo "> name to target. Their findings are real; the escalation route"
+                    echo "> is not available. They need a different remedy."
+                    echo
+                    jq -r '.[]
+                      | "- **\(.rule)** (\(.kind)), oldest \(.max_age_days)d — \(.reason)"' \
+                      <<<"$esc_blocked"
+                  } >> "$GITHUB_STEP_SUMMARY"
+                fi
+
+                if [ "$esc_ambig" -gt 0 ]; then
+                  {
+                    echo
+                    echo "### Overdue, policy undetermined ($esc_ambig)"
+                    echo
+                    echo "> [!WARNING]"
+                    echo "> The owning policy could not be determined from the alert, and it"
+                    echo "> is **not guessed**: three rule names exist in both the container"
+                    echo "> and host policies, and escalating the wrong one would change an"
+                    echo "> unrelated control. Confirm the policy in the Compute Console"
+                    echo "> before escalating."
+                    echo
+                    jq -r '.[]
+                      | "- **\(.rule)** (scope reported as `\(.kind)`), oldest \(.max_age_days)d"' \
+                      <<<"$esc_ambigl"
+                  } >> "$GITHUB_STEP_SUMMARY"
+                fi
+              fi
+
               # Day 0 is max(firstSeen, campaign_start_date), so a backlog no
               # longer arrives pre-expired. Reaching this state now means the
               # campaign start itself is more than grace_days in the past.
@@ -711,7 +820,21 @@ jobs:
 
             # Per ACCOUNT: one entry per email. This is the unit a send path
             # iterates, and the reason it is here rather than derived later.
-            warning_accounts: (.output_changes.runtime_grace_digest_warning_accounts.after // null)
+            warning_accounts: (.output_changes.runtime_grace_digest_warning_accounts.after // null),
+
+            # THE DAY-14 HANDOFF. What workflow 9 would need, for the groups
+            # whose grace has actually elapsed. Carried in the artifact rather
+            # than only rendered to the summary page, because the summary is
+            # read by a human once and the artifact is what any downstream
+            # automation would consume.
+            #
+            # `site` and `effect` are null on every entry, by design - see the
+            # module. Three separate lists because "overdue" splits into
+            # actionable, un-escalatable and ambiguous, and one combined count
+            # would imply the whole backlog can be acted on.
+            escalation_handoff:   (.output_changes.runtime_grace_digest_escalation_handoff.after   // null),
+            escalation_blocked:   (.output_changes.runtime_grace_digest_escalation_blocked.after   // null),
+            escalation_ambiguous: (.output_changes.runtime_grace_digest_escalation_ambiguous.after // null)
           }' > runtime-grace-digest.json
 
           # THE ADDRESSING INVARIANT, ASSERTED ON THE FILE THAT WOULD BE SENT.

@@ -139,6 +139,28 @@ output "warning_accounts" {
   value       = local.warning_accounts
 }
 
+# ----------------------------------------------------------------
+# THE DAY-14 HANDOFF.
+#
+# Nothing here escalates anything. This module has no write path; these are
+# lists a human or a downstream workflow reads.
+# ----------------------------------------------------------------
+
+output "escalation_handoff" {
+  description = "Overdue rule/policy groups workflow 9 COULD act on, deduped by (kind, rule) because escalation targets a rule in a policy, not a rule in an account. Each entry carries kind and rule, plus accounts/max_age_days/open_alerts/occurrences for review. `site` and `effect` are ALWAYS null: a container rule has 27 independent effect sites and enforcement state does not survive alert promotion, so the alert names the rule but not which control should block. Those two are a human decision. Empty when planning is disabled or nothing is overdue."
+  value       = local.escalation_handoff
+}
+
+output "escalation_blocked" {
+  description = "Overdue groups that CANNOT be escalated - the built-in `default` learned model, which has no rule name to target. Reported separately rather than dropped: on the reference tenant this is the single largest group of overdue findings, so omitting it would present most of the backlog as actionable when it is not."
+  value       = local.escalation_blocked_list
+}
+
+output "escalation_ambiguous" {
+  description = "Overdue, escalatable groups whose owning policy is undetermined (`policy.name` matched neither container nor host). Never guessed: three rule names exist in BOTH the container and host policies, and escalating the wrong one changes an unrelated control."
+  value       = local.escalation_ambiguous_list
+}
+
 output "top_rule" {
   description = "The single actionable rule with the most occurrences in the window, or null when nothing is firing. Convenience for a one-line notification."
   value       = length(local.actionable_rules) > 0 ? local.actionable_rules[0] : null

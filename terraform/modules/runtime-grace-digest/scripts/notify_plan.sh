@@ -398,6 +398,112 @@ ACCOUNTS_UNROUTABLE="$(jq -r '[.[] | select(.routable | not)] | length' <<<"$ACC
 # a measured number in the report rather than a claim in a comment.
 SENDS_IF_PER_RULE="$(jq -r '[.[] | select(.notify_today) | (.would_notify|length)] | add // 0' <<<"$PLANNED")"
 
+# ---------------------------------------------------------------------------
+# THE DAY-14 HANDOFF — what workflow 9 would need to escalate.
+#
+# This is a LIST, not an instruction. Nothing here escalates anything; the
+# script still has no write path of any kind.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS CANNOT BE A COMPLETE ESCALATION REQUEST
+# ---------------------------------------------------------------------------
+# Workflow 9 escalates an EFFECT SITE, identified by {kind, rule, site,
+# effect}. Of those four, this script can honestly supply only two:
+#
+#   kind   YES - `scope` is derived from `policy.name`, which is the ONLY
+#                place the container-vs-host split appears. Verified in
+#                digest.sh: the value is exactly "container" or "host",
+#                or "unknown" when the policy name matched neither.
+#   rule   YES - `metadata.auditRuleName`, which resolves 13/13 against the
+#                policy rule names.
+#   site   NO  - a container rule has 27 independent effect sites and a host
+#                rule 19. MEASURED against 100 promoted alerts: ZERO keys
+#                matching /effect/i at any depth. Enforcement state does not
+#                survive promotion - it exists only in the Compute Console
+#                policy objects. The alert says a rule fired; it does not say
+#                which of its 27 controls should start blocking.
+#   effect NO  - follows from the site, and `block` is container-only.
+#
+# So the handoff carries the two fields it can prove and names the two a human
+# must choose. Guessing a site would pick, at random, which control starts
+# blocking production traffic.
+#
+# THREE OUTCOMES, REPORTED SEPARATELY. Collapsing them into one count is how a
+# finding reaches its deadline with nobody having decided anything:
+#
+#   ready      - overdue, escalatable, scope known. A human picks the site.
+#   blocked    - overdue but NOT escalatable: the built-in `default` learned
+#                model, which cannot be targeted by name. On this tenant that
+#                is the single largest group of findings, so hiding it would
+#                misrepresent most of the backlog as actionable.
+#   ambiguous  - overdue and escalatable, but `scope` came back "unknown", so
+#                the policy is undetermined. Rule names are NOT unique across
+#                policies - three exist in both container and host - and
+#                picking the wrong one changes an unrelated control.
+#
+# Deduplicated by (scope, rule): escalation targets a rule in a policy, not a
+# rule in an account. Two accounts hitting the same rule are ONE escalation.
+# ---------------------------------------------------------------------------
+HANDOFF_READY="$(jq -c '
+  [ .[]
+    | select(.overdue and .escalatable and (.scope == "container" or .scope == "host"))
+  ]
+  | group_by(.scope + "\u0000" + .rule)
+  | map({
+      kind:  .[0].scope,
+      rule:  .[0].rule,
+
+      # Named, not guessed - see the block above.
+      site:   null,
+      effect: null,
+
+      # Carried so a reviewer can weigh the target before choosing a site.
+      accounts:      ([.[].account] | unique),
+      max_age_days:  ([.[].age_days] | max),
+      open_alerts:   ([.[].open_alerts] | add),
+      occurrences:   ([.[].occurrences] | add)
+    })
+  | sort_by(-.max_age_days, .rule)' <<<"$PLANNED")"
+
+HANDOFF_BLOCKED="$(jq -c '
+  [ .[] | select(.overdue and (.escalatable | not)) ]
+  | group_by(.scope + "\u0000" + .rule)
+  | map({kind: .[0].scope, rule: .[0].rule,
+         accounts: ([.[].account] | unique),
+         max_age_days: ([.[].age_days] | max),
+         reason: "the built-in learned model cannot be escalated by name"})
+  | sort_by(-.max_age_days, .rule)' <<<"$PLANNED")"
+
+HANDOFF_AMBIGUOUS="$(jq -c '
+  [ .[]
+    | select(.overdue and .escalatable and .scope != "container" and .scope != "host")
+  ]
+  | group_by(.scope + "\u0000" + .rule)
+  | map({kind: .[0].scope, rule: .[0].rule,
+         accounts: ([.[].account] | unique),
+         max_age_days: ([.[].age_days] | max),
+         reason: "policy.name matched neither container nor host, so the policy is undetermined"})
+  | sort_by(-.max_age_days, .rule)' <<<"$PLANNED")"
+
+ESCALATION_READY="$(jq -r 'length' <<<"$HANDOFF_READY")"
+ESCALATION_BLOCKED="$(jq -r 'length' <<<"$HANDOFF_BLOCKED")"
+ESCALATION_AMBIGUOUS="$(jq -r 'length' <<<"$HANDOFF_AMBIGUOUS")"
+
+# Arithmetic check, not decoration. Every overdue group must land in exactly
+# one of the three buckets. If the predicates ever drift out of sync - say a
+# new scope value appears - findings would vanish silently between them, and
+# a vanished overdue finding is one that reaches its deadline unescalated
+# with nothing reporting the omission.
+OVERDUE_GROUPS="$(jq -r '[.[] | select(.overdue)]
+  | group_by(.scope + "\u0000" + .rule) | length' <<<"$PLANNED")"
+BUCKETED=$(( ESCALATION_READY + ESCALATION_BLOCKED + ESCALATION_AMBIGUOUS ))
+if [ "$BUCKETED" -ne "$OVERDUE_GROUPS" ]; then
+  fail "handoff buckets do not reconcile: ready($ESCALATION_READY) +
+ blocked($ESCALATION_BLOCKED) + ambiguous($ESCALATION_AMBIGUOUS) = $BUCKETED,
+ but there are $OVERDUE_GROUPS overdue rule/policy groups. Some overdue
+ finding is in no bucket and would reach its deadline unreported."
+fi
+
 jq -nc \
   --arg emails_today       "$EMAILS_TODAY" \
   --arg accounts_unroutable "$ACCOUNTS_UNROUTABLE" \
@@ -419,4 +525,10 @@ jq -nc \
   --arg override_recipient "$OVERRIDE" \
   --arg send_capable     "false" \
   --arg messages_json    "$PLANNED" \
+  --arg escalation_ready     "$ESCALATION_READY" \
+  --arg escalation_blocked   "$ESCALATION_BLOCKED" \
+  --arg escalation_ambiguous "$ESCALATION_AMBIGUOUS" \
+  --arg handoff_ready_json     "$HANDOFF_READY" \
+  --arg handoff_blocked_json   "$HANDOFF_BLOCKED" \
+  --arg handoff_ambiguous_json "$HANDOFF_AMBIGUOUS" \
   '$ARGS.named'
