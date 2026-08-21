@@ -930,6 +930,56 @@ larger change than `alert → prevent`: it turns on a detection that was never
 running. WF9 must treat it as a distinct, louder case, not "just another
 upgrade".
 
+### ⚠️ ANSWERED 2026-08-21: the vocabulary is PER SITE, not per workload [product]
+
+**A site can reject an effect that is valid for its own workload type.** This
+was measured, not inferred — the first real escalation this repo ever attempted
+was refused by the API:
+
+```
+PUT /api/v1/policies/runtime/host returned HTTP 400
+{"err":"invalid network deny list effect runtime rule effect prevent"}
+```
+
+Target: host / `pavila-runtime-test` / `network.denyListEffect` / `alert → prevent`.
+
+Everything upstream was correct. `prevent` is the documented host spelling, the
+rule existed, the site existed, it sat at `alert`, Terraform planned the write
+and the approval was granted. The **site itself** does not accept `prevent`.
+
+Enumerating all 81 live host rules makes the pattern unmistakable:
+
+| Host site | Values actually held across 81 rules |
+|---|---|
+| `network.denyListEffect` | `alert`=81 — **nothing else, ever** |
+| `network.customFeed` | `alert`=81 |
+| `network.intelligenceFeed` | `alert`=81 |
+| `dns.denyListEffect` | `alert`=10, `disable`=60, **`prevent`=11** |
+| `dns.intelligenceFeed` | `alert`=12, `disable`=65, **`prevent`=4** |
+
+The whole `network.*` group is frozen at `alert`. Its near-twin `dns.*` — same
+"deny list" concept, same spelling of the field — enforces freely. So the
+constraint is not "host cannot prevent", and not "deny lists cannot prevent";
+it is specific to `network.*`.
+
+**Consequences:**
+
+1. **The 103 "escalation candidates" WF9 reports are not all escalatable.** The
+   list is built by value (`effect == "alert"`), which cannot know whether the
+   site would accept a stronger value. Some fraction will 400.
+2. **Only the API can answer this.** There is no schema, no docs page, and no
+   field-naming convention that separates the two groups.
+3. **The best available preflight is empirical**: a site is *known* to accept
+   `prevent` if some rule on the tenant already holds `prevent` there. That is
+   evidence, not proof — a site with 0 occurrences may simply never have been
+   tried.
+4. The failure is safe. `apply_escalation.sh` sends one `PUT` of the whole
+   document, so a 400 means the server rejected it entirely and **nothing was
+   partially written**. Re-reading afterwards confirmed `enforced=0`, unchanged.
+
+**Still unmeasured:** whether `network.denyListEffect` accepts `disable`, and
+whether the container `network.*` group carries the same restriction.
+
 ### The join key: names DO resolve, but they are not unique
 
 > **⚠️ CORRECTION.** An earlier revision of this section claimed *"only 5 of 13
