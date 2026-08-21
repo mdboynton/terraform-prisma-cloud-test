@@ -214,12 +214,18 @@ flowchart LR
     N --> NOUT["notify_status + warning_plan[]<br/>ok / disabled / no_override / no_campaign_start /<br/>all_overdue / has_unroutable"]
 ```
 
-**The grace warning is planned, never sent.** With `notify_enabled` the module also
-reports *who would be told* a rule is heading for escalation. It makes no further API
-calls — it consumes the grouped table above — and it contains no SMTP client, webhook or
-mail command. Every planned message is addressed to a required
-`warning_recipient_override`; the owner addresses read from the alert travel alongside as
-`would_notify`, for review only.
+**The MODULE plans the grace warning; the WORKFLOW sends it.** With `notify_enabled` the
+module reports *who would be told* a rule is heading for escalation. It makes no further
+API calls — it consumes the grouped table above — and it contains no SMTP client, webhook
+or mail command, so no Terraform run can mail anybody. Every planned message is addressed
+to a required `warning_recipient_override`; the owner addresses read from the alert travel
+alongside as `would_notify`, for review only.
+
+Sending lives in workflow 8's separate `send` job, behind an explicit `send_warnings`
+input, a dispatch-only condition (a scheduled run can never send), and an environment
+approval — after which the addressing is re-verified against the artifact before a single
+message is composed. The split is the point: the thing that decides *who* is due and the
+thing that can *contact* them are different components with different gates.
 
 That is a required field rather than a dry-run boolean on purpose. A flag can be flipped
 by accident; a required field that *replaces* the address means the unreviewed path does

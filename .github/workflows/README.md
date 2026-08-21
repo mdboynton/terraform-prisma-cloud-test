@@ -12,7 +12,7 @@ step-by-step guide in the folder beside it.
 | 5 | [`drift-detection.yml`](drift-detection.yml) | Daily "did anything change in the tenant?" check; opens an issue when it did | **No** — only commits a snapshot to this repo | [drift-detection/README.md](drift-detection/README.md) |
 | 6 | [`alert-summary.yml`](alert-summary.yml) | Count alerts for a CSPM Collection by severity, and list the critical ones | **No** — read-only by construction | [alert-summary/README.md](alert-summary/README.md) |
 | 7 | [`compute-alert-summary.yml`](compute-alert-summary.yml) | Count Compute runtime incidents and image CVEs for a **Compute** collection | **No** — read-only by construction | [compute-alert-summary/README.md](compute-alert-summary/README.md) |
-| 8 | [`runtime-grace-digest.yml`](runtime-grace-digest.yml) | Which runtime rules are **still firing**, grouped by rule, scope and account | **No** — read-only by construction | [runtime-grace-digest/README.md](runtime-grace-digest/README.md) |
+| 8 | [`runtime-grace-digest.yml`](runtime-grace-digest.yml) | Which runtime rules are **still firing**, grouped by rule, scope and account | **No** to the tenant — but it can **send email** (gated) | [runtime-grace-digest/README.md](runtime-grace-digest/README.md) |
 | 9 | [`runtime-rule-effects.yml`](runtime-rule-effects.yml) | Which firing rules are **still only watching**; raise one effect site to prevent/block | Yes — approval gated | [runtime-rule-effects/README.md](runtime-rule-effects/README.md) |
 
 ## Which one do I want?

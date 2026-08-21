@@ -410,9 +410,15 @@ Set `notify_enabled = true` and the module also works out **who would be told**
 that a rule is heading for escalation — how old the oldest open alert is, how
 many days of grace remain, and which mailbox the message would go to.
 
-**It cannot send anything.** There is no SMTP client, no webhook, no `mail`
-command anywhere in the module. `notify_plan.sh` produces JSON on stdout and
-nothing else.
+**THIS MODULE cannot send anything.** There is no SMTP client, no webhook, no
+`mail` command anywhere in it. `notify_plan.sh` produces JSON on stdout and
+nothing else, so no `terraform plan` or `apply` can contact a person.
+
+That is a property of the module, not of the campaign. Workflow 8 has a
+separate, gated `send` job that mails this plan — see
+[the workflow README](../../../.github/workflows/runtime-grace-digest/README.md).
+The separation is deliberate: a caller embedding this module gets the planning
+and none of the reach.
 
 ### When the clock starts
 

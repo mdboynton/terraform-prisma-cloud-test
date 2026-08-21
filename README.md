@@ -19,7 +19,7 @@ workflows, each with its own step-by-step guide:
 | 5 | [**Drift Detection**](.github/workflows/drift-detection/README.md) | Find out what changed since yesterday, including console-made changes | **No** — only commits a snapshot to this repo |
 | 6 | [**Alert Summary**](.github/workflows/alert-summary/README.md) | Count alerts for a CSPM Collection by severity, and list the critical ones | **No** — read-only by construction |
 | 7 | [**Compute Alert Summary**](.github/workflows/compute-alert-summary/README.md) | Count Compute runtime incidents and image CVEs for a **Compute** collection | **No** — read-only by construction |
-| 8 | [**Runtime Grace Digest**](.github/workflows/runtime-grace-digest/README.md) | See which runtime rules are **still firing**, to decide what is worth escalating | **No** — read-only by construction |
+| 8 | [**Runtime Grace Digest**](.github/workflows/runtime-grace-digest/README.md) | See which runtime rules are **still firing**, to decide what is worth escalating | **No** to the tenant — but it can **send the grace warning emails**, behind an explicit switch and an approval |
 | 9 | [**Runtime Rule Effects**](.github/workflows/runtime-rule-effects/README.md) | See which firing rules are **still only watching**; turn one into a blocking rule | Yes — approval gated |
 
 Ground rules across all nine: **plan is always safe**, **pushing never

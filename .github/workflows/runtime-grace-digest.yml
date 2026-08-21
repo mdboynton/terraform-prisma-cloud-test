@@ -1,4 +1,4 @@
-name: 8. Runtime Grace Digest (read-only)
+name: 8. Runtime Grace Digest
 
 # Answers "which runtime rules are STILL FIRING?" — grouped by rule, workload
 # scope and cloud account, with occurrence counts.
@@ -16,19 +16,25 @@ name: 8. Runtime Grace Digest (read-only)
 # So this workflow asks the answerable question instead. A fixed workload stops
 # firing, so the signal clears itself.
 #
-# IT SENDS NOTHING AND CHANGES NOTHING. This is the report-only stage of the
-# escalation pipeline: it exists to establish a baseline before anyone proposes
-# flipping a rule to Prevent/Block. The gated escalator is a separate workflow
-# that does not exist yet.
+# IT CHANGES NOTHING IN THE TENANT. The runtime-grace-digest module contains
+# only Terraform `data` blocks — no `resource` blocks — so no run of this
+# workflow can alter a policy, a rule or an alert. The gated escalator that
+# does write is workflow 9, and the two are fully decoupled.
 #
-# READ-ONLY BY CONSTRUCTION. The runtime-grace-digest module contains only
-# Terraform `data` blocks — no `resource` blocks — so this workflow cannot
-# change the tenant. There is deliberately no apply job and no environment gate.
+# ⚠️ IT CAN, HOWEVER, SEND EMAIL — and that is the one irreversible thing here.
+#
+# The `send` job mails the grace warnings. It is off unless someone dispatches
+# the workflow with `send_warnings`, it can never run on the schedule, and it
+# sits behind an environment approval. Every message goes to a single override
+# recipient; the real owner addresses travel in the body for review only. See
+# the "Sending" section of the README for the full list of gates and why each
+# one exists.
 #
 # Docs: .github/workflows/runtime-grace-digest/README.md
 #
 # Required repository secrets:
 #   PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
+#   SMTP_SERVER, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_FROM (send only)
 
 on:
   workflow_dispatch:
@@ -96,7 +102,7 @@ on:
           - "critical only"
           - "high only"
       plan_warnings:
-        description: "Also PLAN the grace warning: who would be told a rule is heading for escalation. Nothing is sent - there is no send path in this repo."
+        description: "Also PLAN the grace warning: who would be told a rule is heading for escalation. Planning alone sends nothing - sending needs send_warnings as well."
         type: boolean
         default: false
       grace_days:
@@ -113,6 +119,19 @@ on:
         description: "REQUIRED with plan_warnings (YYYY-MM-DD). The date the campaign was announced. Countdowns run from max(firstSeen, this), so findings already open before the campaign still get a full grace period instead of reading as long overdue."
         type: string
         default: ""
+      send_warnings:
+        # THE ONLY SWITCH IN THIS REPO THAT CONTACTS A HUMAN BEING.
+        #
+        # Every other dangerous control here changes the tenant, and a wrong
+        # write is undone by another write. A sent email cannot be recalled.
+        #
+        # Default false, and false is also what a scheduled run gets: sending
+        # is a decision someone takes, not something a cron drifts into. It
+        # additionally requires plan_warnings, an environment approval, and a
+        # re-check of the addressing after that approval - see the `send` job.
+        description: "ACTUALLY SEND the grace warning emails. Requires plan_warnings. Every message goes to the fixed override recipient, never to the real owners. Off by default and never on for scheduled runs."
+        type: boolean
+        default: false
 
   # DAILY, not weekly.
   #
@@ -166,23 +185,26 @@ env:
   # promotes everything as `high`, so the narrowing would be invisible here and
   # would only bite on a tenant with custom promoting policies.
 
-  # Grace warning planning. STILL OFF on the schedule.
+  # Grace warning planning. Still off on the SCHEDULE, and the reason has
+  # changed - it is now a hard dependency rather than a safety decision.
   #
-  # ⚠️ THIS IS THE REMAINING GAP IN THE CAMPAIGN, AND IT IS DELIBERATE.
+  # THE SAFETY ARGUMENT IS SETTLED. The send job cannot run on a scheduled
+  # event at all (see "Decide whether to send"), so a planning cron can no
+  # longer be one config change away from mailing anybody. That was the
+  # original reason this stayed off, and it no longer applies.
   #
-  # The cron is now daily so the 1/3/5/7/10/13 reminder days are observable,
-  # but the scheduled run does not PLAN warnings, so it does not compute
-  # `due_today` either. Today the campaign only runs when someone dispatches it
-  # with plan_warnings on.
+  # WHAT BLOCKS IT NOW: `campaign_start_date` has no default, deliberately -
+  # today would restart every countdown on every run, and a fixed past date
+  # would tell owners their grace expired before anyone told them it existed.
+  # A scheduled run therefore passes an empty date, and the module's
+  # `should_plan` requires `campaign_start_set`, so planning would report
+  # `no_campaign_start` and compute nothing. Setting this to `true` here would
+  # produce a daily run that LOOKS like it is running the campaign and is in
+  # fact doing nothing - worse than being visibly off.
   #
-  # It is left off because turning it on makes an unattended daily job resolve
-  # live owner mailboxes into an artifact, and the artifact is the thing that
-  # would then be mailed. The order that keeps that safe is: build the send
-  # path, review its addressing against the override, THEN let the schedule
-  # drive it. Flipping this first would give a daily job that is one config
-  # change away from mailing real people, with no reviewed send path behind it.
-  #
-  # Turn this on in the slice that adds sending, not before.
+  # To put the campaign on the cron, the start date has to become a committed
+  # value (a repository variable, say) rather than a per-run input. That is a
+  # decision about the campaign, not a workflow tweak, so it is not made here.
   TF_VAR_runtime_grace_digest_notify_enabled: ${{ inputs.plan_warnings || 'false' }}
   TF_VAR_runtime_grace_digest_grace_days: ${{ inputs.grace_days || '14' }}
 
@@ -228,6 +250,14 @@ jobs:
     # One paged query against the alerts API. The slowest measured run was a few
     # seconds; 20 minutes covers a large window on a rate-limited tenant.
     timeout-minutes: 20
+
+    outputs:
+      # Whether the SEND job should run at all. Computed from the plan data
+      # rather than from the inputs, so a run that asked to send but planned
+      # nothing does not reach the gate and does not ask anyone to approve an
+      # empty mailing.
+      emails_today: ${{ steps.sendgate.outputs.emails_today }}
+      should_send:  ${{ steps.sendgate.outputs.should_send }}
 
     steps:
       - name: Checkout
@@ -498,10 +528,12 @@ jobs:
 
               {
                 echo "> [!IMPORTANT]"
-                echo "> **This workflow cannot send mail.** There is no SMTP client,"
-                echo "> webhook or mail command anywhere in the module. Every planned"
-                echo "> message is addressed to a single override recipient, and the"
-                echo "> real owner addresses are recorded for review only."
+                echo "> **Planning sends nothing.** The module has no SMTP client,"
+                echo "> webhook or mail command; mail leaves only from the separate"
+                echo "> gated \`send\` job, which needs \`send_warnings\`, a manual"
+                echo "> dispatch and an environment approval. Every message is"
+                echo "> addressed to a single override recipient, and the real owner"
+                echo "> addresses are recorded for review only."
                 echo
                 echo "**Grace window:** ${w_grace} days · **Reminders on day:** ${w_ndays}"
                 echo
@@ -725,6 +757,65 @@ jobs:
           # line reads "bytes=1234" rather than "bytes=     1234".
           echo "bytes=$(wc -c < runtime-grace-digest.json | tr -d ' ')"
 
+      # Decides whether the SEND job runs. Every condition is ANDed, and each
+      # is here because its absence is a way to mail somebody by accident:
+      #
+      #   event    - a SCHEDULED run must never send. Sending is a decision a
+      #              person takes. This is what makes it safe to turn
+      #              plan_warnings on for the cron: the daily job can compute
+      #              who is due and still be structurally unable to tell them.
+      #   input    - the operator asked for it explicitly, on this run.
+      #   planned  - warnings were actually planned. Without this a run with
+      #              send_warnings on and plan_warnings off would reach the
+      #              approval gate with nothing behind it.
+      #   count    - there is at least one email. Nobody should be asked to
+      #              approve a mailing of zero.
+      #
+      # The environment approval on the send job is a fifth condition, and the
+      # re-verification inside that job is a sixth.
+      - name: Decide whether to send
+        id: sendgate
+        env:
+          SEND_REQUESTED: ${{ inputs.send_warnings }}
+          IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          emails_today="$(jq -r '.warning_plan.emails_today // 0' runtime-grace-digest.json)"
+          notify_status="$(jq -r '.notify_status // "disabled"' runtime-grace-digest.json)"
+
+          should_send=false
+          if [ "$IS_DISPATCH" = "true" ] \
+             && [ "$SEND_REQUESTED" = "true" ] \
+             && [ "$notify_status" != "disabled" ] \
+             && [ "$emails_today" -gt 0 ]; then
+            should_send=true
+          fi
+
+          echo "emails_today=$emails_today" >> "$GITHUB_OUTPUT"
+          echo "should_send=$should_send"   >> "$GITHUB_OUTPUT"
+          echo "should_send=$should_send emails_today=$emails_today"
+
+          {
+            echo
+            echo "### Sending"
+            echo
+            if [ "$should_send" = "true" ]; then
+              echo "**$emails_today email(s) queued** - one per account, every one addressed"
+              echo "to the override recipient. The send job is now waiting on the"
+              echo "\`grace-warning-send\` environment approval."
+            elif [ "$SEND_REQUESTED" != "true" ]; then
+              echo "Nothing was sent. This run only reported."
+            elif [ "$notify_status" = "disabled" ]; then
+              echo "> [!WARNING]"
+              echo "> Sending was requested but \`plan_warnings\` was off, so there is no"
+              echo "> plan to send. Nothing will be sent - re-run with both switched on."
+            elif [ "$emails_today" -eq 0 ]; then
+              echo "Sending was requested, but **nothing is due today**: no group's age"
+              echo "lands on a reminder day. Nothing will be sent."
+            else
+              echo "Nothing was sent."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # Runs ONLY when something above failed. Every other step writes to the
       # summary page on the success path, so without this a failed run produces
       # a blank summary — a red X and nothing else. That matters more here than
@@ -796,3 +887,177 @@ jobs:
           path: terraform/runtime-grace-digest.json
           if-no-files-found: error
           retention-days: 90
+
+  # ---------------------------------------------------------------------------
+  # THE ONLY JOB IN THIS REPO THAT CONTACTS A HUMAN BEING.
+  #
+  # It is a separate job, not a step, for one reason: `environment:` gates a
+  # JOB. A step cannot wait for approval, so a send bolted onto the digest job
+  # would run the moment the plan finished.
+  #
+  # Everything else in this repository writes to the tenant, and a wrong write
+  # is undone by another write. An email is not undoable. So the gates are:
+  #
+  #   1. `plan_warnings` on           (there is a plan at all)
+  #   2. `send_warnings` on           (asked for, explicitly)
+  #   3. workflow_dispatch only       (never a scheduled run)
+  #   4. emails_today > 0             (there is something to send)
+  #   5. environment approval         (a second human)
+  #   6. re-verification below        (the plan is re-checked AFTER approval)
+  #
+  # Gate 6 exists because approving an environment does NOT re-run the checks
+  # from the plan job. Without it, an approver clicking through hours later
+  # would release whatever the artifact happened to contain.
+  # ---------------------------------------------------------------------------
+  send:
+    name: Send the grace warnings (gated)
+    needs: digest
+    runs-on: ubuntu-latest
+    if: needs.digest.outputs.should_send == 'true'
+    environment:
+      name: grace-warning-send
+    timeout-minutes: 15
+
+    # OVERRIDES the workflow-level `working-directory: terraform`.
+    #
+    # That default exists because every other job runs Terraform. This job runs
+    # none, and `download-artifact` ignores `defaults.run` anyway - it unpacks
+    # to the workspace ROOT. Inheriting the default would leave every step in
+    # this job looking in `terraform/` for a file sitting one level up, and the
+    # first symptom would be a jq parse error rather than a missing file.
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - name: Download the reviewed plan
+        uses: actions/download-artifact@v4
+        with:
+          name: runtime-grace-digest
+
+      # RE-VERIFICATION AFTER APPROVAL.
+      #
+      # The addressing was already asserted in the digest job, before the
+      # artifact was uploaded. It is asserted AGAIN here, on the bytes that
+      # actually arrived, because between those two points sit an artifact
+      # round-trip and a human approval that can be granted hours later.
+      #
+      # Re-checking costs nothing. Not re-checking means the last word on who
+      # gets mailed was said by a step that ran before anyone looked at it.
+      - name: Verify the addressing before sending
+        env:
+          WARNING_RECIPIENT: ${{ env.TF_VAR_runtime_grace_digest_warning_recipient }}
+        run: |
+          if [ -z "${WARNING_RECIPIENT:-}" ]; then
+            echo "::error title=Refusing to send::WARNING_RECIPIENT is empty, so recipients cannot be verified."
+            exit 1
+          fi
+
+          # Same shape as the digest-job assertion, deliberately: a divergence
+          # between the two would mean one of them is not testing what it says.
+          bad="$(jq -r --arg p "$WARNING_RECIPIENT" '
+            [ (.warning_accounts // [])[] | select(.recipient != $p) | .recipient ]
+            | unique | join(", ")' runtime-grace-digest.json)"
+          if [ -n "$bad" ]; then
+            echo "::error title=Refusing to send::Artifact contains non-override recipients: $bad"
+            exit 1
+          fi
+
+          # `would_notify` holds REAL owner mailboxes and must never become a
+          # To: header. Proven here rather than assumed from the send step
+          # reading the right field, because that is a one-character mistake.
+          n="$(jq -r '[.warning_accounts[]? | select(.routable)] | length' runtime-grace-digest.json)"
+          [ "$n" -gt 0 ] || { echo "::error::Nothing routable to send."; exit 1; }
+
+          echo "Verified: $n message(s), all addressed to $WARNING_RECIPIENT"
+
+      # Builds one file per account. Writing the bodies to disk rather than
+      # into the matrix keeps the real owner addresses out of workflow
+      # expressions, which are echoed into logs.
+      - name: Compose the messages
+        run: |
+          mkdir -p outbox
+          jq -r '.warning_accounts[] | select(.routable) | @base64' \
+            runtime-grace-digest.json | nl -w1 -s' ' | while read -r i row; do
+            printf '%s' "$row" | base64 --decode > "outbox/$i.json"
+          done
+          echo "composed $(ls outbox | wc -l | tr -d ' ') message(s)"
+
+      - name: Send
+        env:
+          # Secrets, never interpolated into a script body.
+          SMTP_SERVER:   ${{ secrets.SMTP_SERVER }}
+          SMTP_PORT:     ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM:     ${{ secrets.SMTP_FROM }}
+          WARNING_RECIPIENT: ${{ env.TF_VAR_runtime_grace_digest_warning_recipient }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for f in outbox/*.json; do
+            account=$(jq -r '.account' "$f")
+            days=$(jq -r '.min_days_remaining' "$f")
+            rules=$(jq -r '.rule_count' "$f")
+
+            # The REAL owners are named in the BODY, for review, but the
+            # envelope goes to the override recipient only.
+            intended=$(jq -r '.would_notify | join(", ")' "$f")
+
+            subject="[Action needed] $account: $rules runtime rule(s), $days day(s) before enforcement"
+
+            {
+              echo "This is a grace-period reminder from the runtime rule campaign."
+              echo
+              echo "Cloud account: $account"
+              echo "Days remaining before the rule(s) are switched to blocking: $days"
+              echo
+              echo "Rules still producing incidents in this account:"
+              jq -r '.groups[] | "  - \(.rule) [\(.scope)] - age \(.age_days)d, \(.days_remaining)d left, \(.open_alerts) open"' "$f"
+              echo
+              echo "What to do: fix the workload behaviour these rules detect, or reply"
+              echo "to request an exception. When a workload stops triggering a rule the"
+              echo "finding clears itself."
+              echo
+              echo "-----"
+              echo "TEST MODE: in production this would be addressed to: $intended"
+              echo "Sent to $WARNING_RECIPIENT instead. Run: $RUN_URL"
+            } > body.txt
+
+            python3 - "$subject" body.txt <<'PY'
+          import os, smtplib, ssl, sys
+          from email.message import EmailMessage
+
+          subject, body_path = sys.argv[1], sys.argv[2]
+          msg = EmailMessage()
+          msg["Subject"] = subject
+          msg["From"] = os.environ["SMTP_FROM"]
+          # THE ONLY PLACE A RECIPIENT IS SET, and it is the override. There is
+          # deliberately no code path here that reads `would_notify`.
+          msg["To"] = os.environ["WARNING_RECIPIENT"]
+          msg.set_content(open(body_path).read())
+
+          host = os.environ["SMTP_SERVER"]
+          port = int(os.environ.get("SMTP_PORT") or 587)
+          with smtplib.SMTP(host, port, timeout=30) as s:
+              s.starttls(context=ssl.create_default_context())
+              s.login(os.environ["SMTP_USERNAME"], os.environ["SMTP_PASSWORD"])
+              s.send_message(msg)
+          print(f"sent: {subject}")
+          PY
+          done
+
+      - name: Report what was sent
+        if: always()
+        run: |
+          {
+            echo "## Grace warnings — sent"
+            echo
+            echo "| Account | Days left | Rules |"
+            echo "|---|---:|---:|"
+            for f in outbox/*.json; do
+              jq -r '"| \(.account) | \(.min_days_remaining) | \(.rule_count) |"' "$f"
+            done
+            echo
+            echo "All messages were addressed to the override recipient. The real owner"
+            echo "addresses appear in each body for review and were not used as recipients."
+          } >> "$GITHUB_STEP_SUMMARY"

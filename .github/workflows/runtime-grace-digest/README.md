@@ -1,4 +1,4 @@
-# Workflow 8 — Runtime Grace Digest (read-only)
+# Workflow 8 — Runtime Grace Digest
 
 Answers one question: **which runtime rules are still firing?**
 
@@ -21,9 +21,16 @@ exist yet.
 ## Why "cannot" rather than "does not"
 
 The `runtime-grace-digest` module contains only Terraform `data` blocks — no
-`resource` blocks. There is nothing for an apply to apply. That is why this
-workflow has no apply job and no environment gate: the read-only property comes
-from the module's construction, not from a policy someone could forget.
+`resource` blocks. There is nothing for an apply to apply. **No run of this
+workflow can change the tenant**, and that comes from the module's
+construction, not from a policy someone could forget.
+
+> [!IMPORTANT]
+> **It can still send email.** "Cannot change the tenant" is not "cannot do
+> anything irreversible" — those are different claims, and only the first one
+> is guaranteed by construction here. Mail leaves from the separate `send`
+> job, which is off by default, impossible on a schedule, and behind an
+> environment approval. See [Sending](#sending).
 
 ## It reports recurrence, not "unresolved for N days"
 
@@ -80,17 +87,32 @@ A consequence worth knowing: because the schedule is a set of exact days and
 nothing records what was sent, **a missed run is a missed notice**. If the cron
 does not fire on day 3, the next contact is day 5.
 
-### ⚠️ The scheduled run does not plan warnings yet
+### ⚠️ The scheduled run does not plan warnings
 
-`plan_warnings` is still **off** on the schedule, so the daily run reports
-recurrence but does not compute who is due a reminder. The campaign currently
-only runs when someone dispatches the workflow with `plan_warnings` on.
+`plan_warnings` is **off** on the schedule, so the daily run reports recurrence
+but does not compute who is due a reminder. The campaign runs when someone
+dispatches the workflow with `plan_warnings` on.
 
-That is deliberate. Turning it on makes an unattended daily job resolve live
-owner mailboxes into an artifact — and that artifact is what a send path would
-mail. The safe order is: build the send path, review its addressing against the
-override recipient, then let the schedule drive it. It gets switched on in the
-slice that adds sending.
+**The reason is a dependency, not caution.** `campaign_start_date` has no
+default on purpose — today's date would restart every countdown on every run,
+and a fixed past date would tell owners their grace expired before they were
+told it existed. A scheduled run therefore supplies an empty date, and the
+module requires one before it will plan anything. Measured, with planning
+forced on and no date:
+
+```
+notify_status = no_campaign_start
+warning_plan  = null
+```
+
+So switching this on would produce a daily job that *looks* like it is running
+the campaign and computes nothing — worse than being visibly off.
+
+Safety is no longer the blocker: the `send` job cannot run on a scheduled event
+at all, so a planning cron cannot become a mailing cron by config change. To
+put the campaign on the schedule, the start date has to become a committed
+value (a repository variable) rather than a per-run input — a decision about
+the campaign, not a workflow tweak.
 
 ### An empty report is not the same as a clean tenant
 
@@ -175,7 +197,7 @@ expected address is missing entirely the run also fails, rather than comparing
 against an empty string and reporting the correct address as the violation —
 a check that cannot run must stop the run, not pass it.
 
-## The grace warning — planned, never sent
+## The grace warning — planned, and sent only when you ask
 
 Turn on `plan_warnings` and the report gains a second section: who *would* be
 told that a rule is heading for escalation, how old the oldest open alert is,
@@ -186,16 +208,50 @@ and how many of those messages could honestly be sent.
 recipient. Leave the date out and the run reports `no_campaign_start` and plans
 nothing — see "When the clock starts" below for why it is not optional.
 
-**Nothing is sent, and nothing here can send.** There is no SMTP client, no
-webhook and no mail command anywhere in this workflow or the module behind it.
-Every planned message is addressed to one fixed override recipient; the real
-owner addresses are recorded for review only.
+Planning still sends nothing. The module itself has no SMTP client, no webhook
+and no mail command; it computes a plan and stops.
 
-That is deliberate. Every other workflow in this repo can only affect the
+### Sending
+
+Mail leaves the runner only from the separate **`send`** job, and only when
+every one of these is true:
+
+| # | Gate | Why |
+|---|---|---|
+| 1 | `plan_warnings` on | There has to be a plan. |
+| 2 | `send_warnings` on | Asked for explicitly, this run. |
+| 3 | `workflow_dispatch` | **A scheduled run can never send.** |
+| 4 | `emails_today > 0` | Nobody approves a mailing of zero. |
+| 5 | `grace-warning-send` environment approval | A second human. |
+| 6 | Addressing re-verified after approval | See below. |
+
+Gate 3 is what makes the daily cron safe: the schedule computes who is due and
+is structurally unable to tell them.
+
+Gate 6 exists because **approving an environment does not re-run the earlier
+checks**. Between the plan and the approval sit an artifact round-trip and a
+human who may click hours later. The send job therefore re-reads the artifact
+and re-asserts that every recipient is the override before composing anything.
+If the expected address is missing it refuses rather than comparing against an
+empty string.
+
+> [!IMPORTANT]
+> **Every message goes to the override recipient**, currently
+> `tule@paloaltonetworks.com`. The real owner addresses appear *in the body*,
+> labelled `TEST MODE`, so the addressing can be reviewed against real data —
+> they are never used as a `To:`, `Cc:` or `Bcc:`.
+
+That asymmetry is deliberate. Every other workflow here can only affect the
 tenant, and a wrong write is undone by another write. These recipients are
-**live mailboxes of real people**, read from the alert's `cloudAccountOwners`,
-and a sent email cannot be recalled. So the addressing gets reviewed first, in
-a form that physically cannot contact anyone.
+**live mailboxes of real people**, read from the alert's `cloudAccountOwners`
+and including addresses outside the company. A sent email cannot be recalled.
+
+**One email per ACCOUNT, not per rule.** Owners are a property of the cloud
+account, so rule-level sends mail the same people repeatedly — measured on the
+reference tenant, 26 sends collapse to 5 emails carrying identical information.
+
+Required secrets: `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
+`SMTP_FROM`. Without them the send job fails; the digest still runs.
 
 ### Reading it
 
