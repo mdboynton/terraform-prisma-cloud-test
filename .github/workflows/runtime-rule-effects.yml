@@ -245,9 +245,81 @@ jobs:
       - name: Read the escalation status
         id: status
         run: |
-          s="$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value // "unknown"' plan.json)"
+          # ⚠️ DO NOT READ THIS FROM `.planned_values.outputs`.
+          #
+          # MEASURED on run 32517954430: an operator supplied all four
+          # escalate_* fields and typed APPLY, Terraform planned the write
+          # (`null_resource.escalate[0]: create`), and this step still
+          # reported `unknown` - so the apply job's `will_apply` condition
+          # was never met and the escalation silently did not happen.
+          #
+          # CAUSE: the plan runs with `-target=module.runtime_rule_effects`,
+          # which makes it PARTIAL ("complete": false). Terraform prunes root
+          # outputs whose dependencies sit outside the target graph. On that
+          # run 52 configured outputs became 10, and the three pruned
+          # runtime_rule_effects outputs were EXACTLY the three that depend on
+          # null_resource.escalate - escalation_status, escalation_detail and
+          # planned_escalations. Their siblings, which depend only on the data
+          # source, survived. That asymmetry is why the summary rendered
+          # `sites: 146` perfectly while the verdict came back empty.
+          #
+          # The key was absent from `output_changes` as well, which rules out
+          # "unknown at plan time" - an unknown output is still listed there.
+          #
+          # THE RESOURCE ITSELF IS NOT PRUNED, because it IS the target. So we
+          # derive the verdict from `resource_changes`, which is authoritative
+          # for what an apply would do, and fall back to the output only when
+          # the plan is complete (no -target) and the output survived.
+          escalates="$(jq -r '[.resource_changes[]?
+                       | select(.address | test("null_resource\\.escalate"))
+                       | select(.change.actions != ["no-op"])] | length' plan.json)"
+
+          out="$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value // ""' plan.json)"
+
+          # What the OPERATOR asked for, read back from the plan's own record
+          # of its inputs. `.variables` is NOT pruned by -target, so this is
+          # readable on every run - unlike the outputs.
+          #
+          # ⚠️ THIS BRANCH EXISTS BECAUSE OF A REAL ARTIFACT, NOT A GUESS.
+          # Run 32303297872 was a genuine read-only run: escalations=[],
+          # apply="", zero escalate resources - AND the status output was
+          # pruned all the same. An earlier version of this fix treated
+          # "no resource + no output" as unreadable and exited 1, which would
+          # have failed every read-only run, including workflow 8's day-14
+          # call. Absence of a request is a perfectly readable answer.
+          requested="$(jq -r '(.variables.runtime_rule_effects_escalations.value // []) | length' plan.json)"
+          confirmed="$(jq -r '.variables.runtime_rule_effects_apply.value // ""' plan.json)"
+
+          if [ "$escalates" -gt 0 ]; then
+            # A planned create IS the write. Nothing else produces one: the
+            # module only builds this resource when `escalations` is non-empty
+            # AND apply_escalations == "APPLY".
+            s="will_apply"
+          elif [ -n "$out" ]; then
+            # Complete (non-targeted) plan: trust the module's own richer
+            # verdict, which distinguishes disabled / not_confirmed / etc.
+            s="$out"
+          elif [ "$requested" -eq 0 ]; then
+            s="nothing_requested"
+          elif [ "$confirmed" != "APPLY" ]; then
+            s="not_confirmed"
+          else
+            # A target WAS named and APPLY WAS typed, yet no write is planned
+            # and no output is readable. That combination should be
+            # impossible, and it is precisely the shape of the bug this step
+            # was rewritten to catch.
+            #
+            # ⚠️ NO SILENT DEGRADATION. The original code substituted
+            # "unknown" here; it flowed on and skipped the apply exactly as
+            # if the module had refused, which is how a fully authorised
+            # escalation went unnoticed. A verdict we cannot read is never a
+            # safe "no".
+            echo "::error::Escalation requested ($requested target(s), confirm=$confirmed) but the plan shows no write and no readable status. Refusing to guess - inspect the runtime-rule-effects-plan artifact."
+            exit 1
+          fi
+
           echo "escalation_status=$s" >> "$GITHUB_OUTPUT"
-          echo "escalation_status=$s"
+          echo "escalation_status=$s (planned writes: $escalates, requested: $requested)"
 
       # PROVES the plan is read-only. A `data` source runs at plan time, so if
       # the write had been built as one, this count would be irrelevant and the
