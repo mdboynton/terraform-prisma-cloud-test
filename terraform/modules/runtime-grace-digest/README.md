@@ -135,7 +135,9 @@ module "runtime_grace_digest" {
 | `notify_status` | `ok` \| `disabled` \| `no_override` \| `no_campaign_start` \| `not_queried` \| `all_overdue` \| `has_unroutable`. **Branch on this.** |
 | `notify_status_detail` | Human-readable explanation. Null when `ok`. |
 | `warning_plan` | Counts for the planned warning. Null when planning is disabled. |
-| `warning_messages` | Per-group plan. **Contains live personal email addresses** in `would_notify`. |
+| `warning_messages` | Per-rule-group plan. **Contains live personal email addresses** in `would_notify`. |
+| `due_today_messages` | The subset of `warning_messages` due a reminder today, per rule group. |
+| `warning_accounts` | **One entry per email** — per cloud account due today, with its rules in `groups`. **Live personal email addresses.** |
 
 **Null means "not asked".** Zero means "asked, nothing firing". Collapsing the
 two would let a misconfiguration read as a clean bill of health, which for a
@@ -279,6 +281,43 @@ The guard is threefold, because no single layer is sufficient:
 **The row count is never evidence the filter applied.** `severities_verified`
 on the `scope` output is — it is true only when a filter was requested, rows
 came back, and all of them were inside the requested set.
+
+## One email per ACCOUNT, not per rule
+
+Recipients come from the alert's `cloudAccountOwners`, which is a property of
+the **cloud account** — not of the runtime rule. Every rule group inside an
+account therefore has the same owners, and sending per rule group just mails
+the same people repeatedly.
+
+Measured on the reference tenant:
+
+| | per rule group | per account |
+|---|---|---|
+| `twistlock-cto-lab` (3 rules, 5 owners) | 15 sends | **5** |
+| whole tenant | 26 sends | **9** |
+
+The extra sends carry nothing the first email did not.
+
+**This rollup is safe because owners are constant within an account** — all 11
+accounts report exactly one distinct owner set across their groups. It is not
+an approximation; the groups genuinely share a recipient list. Should that ever
+change, the union widens rather than dropping anyone: telling one extra person
+is recoverable, silently dropping an owner is not.
+
+`warning_accounts` is the unit an email is sent in. `warning_messages` remains
+the per-rule-group view — the rollup is additive, so callers wanting rule
+detail still have it, and each account entry carries its rules in `groups` for
+the body.
+
+Two things deliberately **not** done:
+
+- **No grouping by person.** That would cut 9 to 8, because one address owns
+  two accounts. An email about "your account" is actionable; one spanning
+  several accounts makes the reader work out which finding belongs where.
+- **No dropping of unroutable accounts.** An account with no owner still
+  appears, flagged `routable: false` and counted in `accounts_unroutable`.
+  Filtering them out is precisely how a workload gets escalated with nobody
+  warned.
 
 ## The reminder schedule
 

@@ -237,6 +237,19 @@ locals {
     # which is mid-period and correctly silent.
     due_today = tonumber(local.notify_raw.due_today)
 
+    # How many EMAILS would actually be dispatched today, one per addressable
+    # account. This - not `due_today` - is the number that matters to the
+    # people receiving them.
+    emails_today = tonumber(local.notify_raw.emails_today)
+
+    # Accounts due a reminder with no owner to send it to. The same gap as
+    # `unroutable`, counted at the level mail is actually sent.
+    accounts_unroutable = tonumber(local.notify_raw.accounts_unroutable)
+
+    # What one-email-per-rule-group would have cost. Kept so the saving stays a
+    # measured number rather than an assertion in a comment.
+    sends_if_per_rule = tonumber(local.notify_raw.sends_if_per_rule)
+
     # Of those, how many could actually be delivered. The DIFFERENCE between
     # this and due_today is the count of people who are due a warning today
     # and will not receive one, which is the number worth watching.
@@ -249,6 +262,11 @@ locals {
   }
 
   warning_messages = local.notify_raw == null ? [] : jsondecode(local.notify_raw.messages_json)
+
+  # One entry per ACCOUNT due a reminder today - the unit an email is sent in.
+  # `warning_messages` remains the per-rule-group view; this is a rollup of it,
+  # not a replacement, so callers that want rule detail still have it.
+  warning_accounts = local.notify_raw == null ? [] : jsondecode(local.notify_raw.accounts_json)
 }
 
 # ------------------------------------------------------------

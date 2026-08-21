@@ -127,8 +127,16 @@ output "warning_messages" {
 # caller does not have to re-implement the schedule filter and risk drifting
 # from it - the definition of "due today" lives in one place.
 output "due_today_messages" {
-  description = "The subset of `warning_messages` whose age_days lands on a notify_days entry today. This is what a send path iterates. Empty list when planning is disabled or nothing is due. Contains live personal email addresses."
+  description = "The subset of `warning_messages` whose age_days lands on a notify_days entry today. Per RULE GROUP. Empty list when planning is disabled or nothing is due. Contains live personal email addresses."
   value       = [for m in local.warning_messages : m if m.notify_today]
+}
+
+# ONE ENTRY PER EMAIL. This is what a send path iterates - not
+# `due_today_messages`, which is the per-rule view and would mail the same
+# people once per rule group.
+output "warning_accounts" {
+  description = "One entry per cloud ACCOUNT due a reminder today: account, would_notify (real owner addresses, review only), recipient (always the override), routable, rule_count, rules, min_days_remaining, any_escalatable and the per-rule `groups` detail for the body. THIS IS THE UNIT AN EMAIL IS SENT IN. Contains live personal email addresses - do not publish verbatim."
+  value       = local.warning_accounts
 }
 
 output "top_rule" {

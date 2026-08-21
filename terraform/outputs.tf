@@ -370,6 +370,12 @@ output "runtime_grace_digest_warning_messages" {
   value       = module.runtime_grace_digest.warning_messages
 }
 
+# ONE ENTRY PER EMAIL, not per rule group. A send path iterates THIS.
+output "runtime_grace_digest_warning_accounts" {
+  description = "One entry per cloud account due a reminder today - the unit an email is sent in. Recipients come from the account, so rule-level sends would mail the same people repeatedly. Contains live personal email addresses."
+  value       = module.runtime_grace_digest.warning_accounts
+}
+
 output "runtime_grace_digest_scope" {
   description = "How the digest was produced, for troubleshooting an unexpected count."
   value       = module.runtime_grace_digest.scope

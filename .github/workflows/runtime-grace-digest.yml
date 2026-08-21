@@ -485,6 +485,9 @@ jobs:
               w_ndays=$(printf   '%s' "$warning_plan" | jq -r '.notify_days | join(", ")')
               w_due=$(printf     '%s' "$warning_plan" | jq -r '.due_today')
               w_duerout=$(printf '%s' "$warning_plan" | jq -r '.due_today_routable')
+              w_emails=$(printf  '%s' "$warning_plan" | jq -r '.emails_today')
+              w_perrule=$(printf '%s' "$warning_plan" | jq -r '.sends_if_per_rule')
+              w_acctunr=$(printf '%s' "$warning_plan" | jq -r '.accounts_unroutable')
 
               {
                 echo "> [!IMPORTANT]"
@@ -500,6 +503,9 @@ jobs:
                 echo "| Rule groups with an open alert | $w_planned |"
                 echo "| **Due a reminder TODAY** | **$w_due** |"
                 echo "| ...of those, actually addressable | $w_duerout |"
+                echo "| **Emails that would be sent** | **$w_emails** |"
+                echo "| (one per rule group would have been) | $w_perrule |"
+                echo "| Accounts due with no owner to tell | $w_acctunr |"
                 echo "| Past the grace window | $w_overdue |"
                 echo "| No owner on the alert (unroutable) | $w_unroute |"
                 echo "| Not escalatable (built-in model) | $w_notesc |"

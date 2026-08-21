@@ -321,7 +321,88 @@ DUE_TODAY="$(jq -r '[.[] | select(.notify_today)] | length' <<<"$PLANNED")"
 # arithmetic the reader has to do themselves.
 DUE_TODAY_ROUTABLE="$(jq -r '[.[] | select(.notify_today and .routable)] | length' <<<"$PLANNED")"
 
+# ---------------------------------------------------------------------------
+# THE PER-ACCOUNT ROLLUP — one email per account, not one per rule group.
+#
+# WHY ACCOUNT AND NOT RULE GROUP
+#
+# Recipients come from the ALERT's `cloudAccountOwners`, which is a property of
+# the cloud account, not of the runtime rule. So the same people own every rule
+# group in their account and rule-level sends just repeat themselves.
+#
+# MEASURED on the reference tenant: `twistlock-cto-lab` has 3 rule groups and
+# 5 owners - 15 individual sends under rule grouping, 5 emails under account
+# grouping, to exactly the same people. Across the whole tenant it is 26 sends
+# versus 9. The extra 17 carry no information the first email did not.
+#
+# ALSO MEASURED, and the reason this is safe: owners are CONSTANT within an
+# account. Every one of the 11 accounts has exactly one distinct owner set
+# across all its groups (`owner_sets=1`). Rolling up therefore loses no
+# addressing precision - it is not an approximation, the groups genuinely
+# share a recipient list.
+#
+# WHAT IS DELIBERATELY NOT DONE HERE
+#
+# Grouping by PERSON instead of account would cut 9 to 8, because one address
+# owns two accounts. Not worth it: an email about "your account" is actionable,
+# an email spanning several accounts makes the reader work out which finding
+# belongs where, and the account is the unit the owner can actually act on.
+#
+# Only groups DUE TODAY are rolled up. An account with nothing due produces no
+# email at all rather than an empty one.
+# ---------------------------------------------------------------------------
+ACCOUNT_PLAN="$(jq -c --arg override "$OVERRIDE" '
+  [ .[] | select(.notify_today) ]
+  | group_by(.account)
+  | map({
+      account:     .[0].account,
+
+      # Union rather than first-wins. Owners are constant per account today,
+      # but if that ever stops being true the union errs toward telling one
+      # extra person rather than silently dropping an owner.
+      would_notify: ([.[].would_notify[]] | unique),
+      recipient:    $override,
+      routable:     (([.[].would_notify[]] | unique | length) > 0),
+
+      rule_count:   length,
+      rules:        ([.[].rule] | unique),
+
+      # The most urgent thing in this email decides its tone and subject, so
+      # the smallest days_remaining is carried at the top level rather than
+      # left for a template to recompute.
+      min_days_remaining: ([.[].days_remaining] | min),
+      max_age_days:       ([.[].age_days] | max),
+
+      # True when at least one group in this account can actually be escalated.
+      # An email whose every rule is the built-in `default` model threatens a
+      # consequence that cannot be delivered.
+      any_escalatable: ([.[] | select(.escalatable)] | length > 0),
+
+      open_alerts:  ([.[].open_alerts] | add),
+      occurrences:  ([.[].occurrences] | add),
+
+      # The per-rule detail that would form the body of the email.
+      groups: [ .[] | {rule, scope, age_days, days_remaining, open_alerts,
+                       occurrences, escalatable} ]
+    })
+  | sort_by(.min_days_remaining, .account)' <<<"$PLANNED")"
+
+# How many emails a send path would actually dispatch today.
+EMAILS_TODAY="$(jq -r '[.[] | select(.routable)] | length' <<<"$ACCOUNT_PLAN")"
+
+# Accounts due a reminder that cannot be addressed. Reported separately so the
+# gap stays visible at the level the email is actually sent at.
+ACCOUNTS_UNROUTABLE="$(jq -r '[.[] | select(.routable | not)] | length' <<<"$ACCOUNT_PLAN")"
+
+# What the rule-group-per-email approach would have cost, kept so the saving is
+# a measured number in the report rather than a claim in a comment.
+SENDS_IF_PER_RULE="$(jq -r '[.[] | select(.notify_today) | (.would_notify|length)] | add // 0' <<<"$PLANNED")"
+
 jq -nc \
+  --arg emails_today       "$EMAILS_TODAY" \
+  --arg accounts_unroutable "$ACCOUNTS_UNROUTABLE" \
+  --arg sends_if_per_rule  "$SENDS_IF_PER_RULE" \
+  --arg accounts_json      "$ACCOUNT_PLAN" \
   --arg grace_days       "$GRACE_DAYS" \
   --arg campaign_start_date "$CAMPAIGN_START" \
   --arg notify_days      "$NOTIFY_DAYS_JSON" \
