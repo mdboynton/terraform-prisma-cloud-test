@@ -1038,8 +1038,25 @@ jobs:
 
           host = os.environ["SMTP_SERVER"]
           port = int(os.environ.get("SMTP_PORT") or 587)
-          with smtplib.SMTP(host, port, timeout=30) as s:
-              s.starttls(context=ssl.create_default_context())
+          ctx = ssl.create_default_context()
+
+          # 465 is implicit TLS: the connection is encrypted from the first
+          # byte and there is no STARTTLS to issue. 587 is submission with
+          # STARTTLS - plaintext connect, then upgrade. Calling starttls() on
+          # a 465 connection fails, and hardcoding one of the two would make
+          # SMTP_PORT a setting that silently only works at one value.
+          #
+          # Port 25 is deliberately absent: GitHub-hosted runners block
+          # outbound 25, so a relay that only listens there is unreachable
+          # from here regardless of what this code does.
+          if port == 465:
+              conn = smtplib.SMTP_SSL(host, port, timeout=30, context=ctx)
+          else:
+              conn = smtplib.SMTP(host, port, timeout=30)
+
+          with conn as s:
+              if port != 465:
+                  s.starttls(context=ctx)
               s.login(os.environ["SMTP_USERNAME"], os.environ["SMTP_PASSWORD"])
               s.send_message(msg)
           print(f"sent: {subject}")

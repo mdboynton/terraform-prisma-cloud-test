@@ -387,6 +387,107 @@ after they are promoted into the CSPM alert stream, where the promoted copy
 carries the runtime rule name, an occurrence count and the full dismissal
 lifecycle — on the same API and auth as workflow 6.
 
+The three above are all the **digest** needs. Everything below is required only
+by the `send` job; without it the digest runs exactly as before.
+
+## Setting up sending
+
+### 1. Create the `grace-warning-send` environment
+
+**Settings → Environments → New environment**, named exactly
+`grace-warning-send` (the job references it by name; a typo means the job waits
+forever for an environment that does not exist).
+
+Then, on that environment:
+
+- **Required reviewers** — add at least one person. **This is the whole point
+  of the environment.** An environment with no reviewers does not pause; the
+  job runs straight through and the approval gate silently is not one.
+  Add someone other than the usual dispatcher if you can — a reviewer who is
+  always the person who clicked "Run workflow" is a rubber stamp.
+- **Deployment branches** — restrict to your default branch, so the send path
+  cannot be run from an unreviewed branch.
+
+The repo already has a `test-tenant` environment (workflows 1, 2 and 9) — this
+is the same mechanism, deliberately under a different name. `test-tenant` gates
+*writes to the tenant*; this one gates *contacting humans*. Different blast
+radius, different reviewers, so they should not share a gate.
+
+### 2. Add the five SMTP secrets
+
+Repository (or environment) secrets:
+
+| Secret | Example | Notes |
+|---|---|---|
+| `SMTP_SERVER` | `smtp.sendgrid.net` | Hostname only, no scheme, no port |
+| `SMTP_PORT` | `587` | See the port note below |
+| `SMTP_USERNAME` | `apikey` | Provider-specific — often a literal, not your address |
+| `SMTP_PASSWORD` | *(token)* | An API key or app password, **not** a login password |
+| `SMTP_FROM` | `prisma-campaign@…` | The envelope sender; must be one the relay is allowed to send as |
+
+Putting them on the **environment** rather than the repository is stricter: they
+then exist only for jobs that have passed the approval gate, so nothing else in
+the repo can read them even by accident. The workflow reads them the same way
+either way.
+
+### ⚠️ Which relay — the part that needs a decision
+
+**A corporate relay that authorises by source IP will not work here.** A
+GitHub-hosted runner is an arbitrary cloud address that changes every run, so
+there is nothing to allowlist. The relay has to authenticate with the
+*credentials* above. That rules out most internal "just relay from our subnet"
+servers unless they also accept SMTP AUTH from outside.
+
+Realistic options, roughly in order of least friction:
+
+1. **A transactional provider** (SendGrid, Mailgun, Amazon SES, Postmark).
+   Designed for exactly this: credential auth, works from anywhere, free tiers
+   cover a campaign of this size. Usually the fastest path.
+2. **Google Workspace / Microsoft 365 app password**, if your account allows
+   one. Sends as a real person, which is either useful or misleading depending
+   on how you want the warning to read. Often blocked by admin policy — check
+   before planning around it.
+3. **An internal relay that accepts authenticated submission from the
+   internet.** Best deliverability inside the company, most paperwork.
+4. **A self-hosted runner inside the network**, if an IP-authorised relay is
+   the only option. This changes where the job runs, not what it does.
+
+> [!NOTE]
+> **Port 25 is blocked on GitHub-hosted runners**, so a relay that only
+> listens there is unreachable from here. Use `587` or `465`.
+>
+> Both are supported and both are tested: the send step uses `SMTP_SSL` for
+> `465` (implicit TLS, encrypted from the first byte) and `SMTP` +
+> `starttls()` for everything else. Writing this section is what exposed
+> that only `587` worked — the step called `starttls()` unconditionally, so
+> `465` could only ever fail. Rather than document the trap, it was fixed,
+> and both paths are now exercised against a real local SMTP server that
+> asserts on the delivered envelope.
+
+**Not the Prisma Cloud tenant.** Measured: `/settings/smtp` returns 404 on this
+tenant, so there is no relay to borrow. Mail leaves from the runner or not at
+all.
+
+### 3. Prove it with the smallest possible send
+
+Do not make the first run a real campaign run. In order:
+
+1. Dispatch with `plan_warnings` on and `send_warnings` **off**. Read the
+   summary: `emails_today` is the number of messages a send would produce.
+   If that number surprises you, stop.
+2. Download the artifact and read `warning_accounts[].recipient`. Every one
+   must be the override address. (The run already fails if not — this is you
+   checking the check.)
+3. Re-dispatch with `send_warnings` on. Approve the environment. Every message
+   goes to the override recipient, so the worst case is a small pile of mail in
+   one inbox.
+4. Read one. The body carries the real owners under `TEST MODE:` — that is the
+   addressing you would be using for real, and this is the last cheap moment to
+   discover it is wrong.
+
+Only after that is it worth discussing sending to real owners, which is a
+change to the pinned recipient and a separate conversation.
+
 ## Troubleshooting
 
 | Symptom | Cause |
