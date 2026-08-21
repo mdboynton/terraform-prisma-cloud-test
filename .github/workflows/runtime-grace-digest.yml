@@ -782,6 +782,32 @@ jobs:
           emails_today="$(jq -r '.warning_plan.emails_today // 0' runtime-grace-digest.json)"
           notify_status="$(jq -r '.notify_status // "disabled"' runtime-grace-digest.json)"
 
+          # ------------------------------------------------------------------
+          # WHY THREE MORE VALUES ARE READ HERE
+          #
+          # `emails_today == 0` has THREE distinct causes and the zero alone
+          # cannot tell them apart:
+          #
+          #   a) NO PLAN AT ALL      - warning_plan is null. Normally
+          #      `no_campaign_start`: planning ran but had no day 0 to measure
+          #      from, so it computed nothing. due_today is 0 because nothing
+          #      was ever evaluated, NOT because nothing is due.
+          #   b) NOTHING DUE         - due_today == 0. No group's age_days
+          #      landed on a reminder day. A genuinely quiet day.
+          #   c) DUE BUT UNSENDABLE  - due_today > 0 and every account rolled
+          #      up from those groups carries no owner address.
+          #
+          # An earlier version of this step printed (b) unconditionally. Under
+          # (a) that sends the reader hunting for findings when the real answer
+          # is an unset input; under (c) it reports a quiet day when people ARE
+          # due a warning today and nobody is being told - the exact silent
+          # delivery gap this campaign exists to prevent.
+          # ------------------------------------------------------------------
+          due_today="$(jq -r '.warning_plan.due_today // 0' runtime-grace-digest.json)"
+          acct_unroutable="$(jq -r '.warning_plan.accounts_unroutable // 0' runtime-grace-digest.json)"
+          notify_detail="$(jq -r '.notify_status_detail // ""' runtime-grace-digest.json)"
+          plan_present="$(jq -r 'if (.warning_plan // null) == null then "no" else "yes" end' runtime-grace-digest.json)"
+
           should_send=false
           if [ "$IS_DISPATCH" = "true" ] \
              && [ "$SEND_REQUESTED" = "true" ] \
@@ -792,7 +818,12 @@ jobs:
 
           echo "emails_today=$emails_today" >> "$GITHUB_OUTPUT"
           echo "should_send=$should_send"   >> "$GITHUB_OUTPUT"
-          echo "should_send=$should_send emails_today=$emails_today"
+          # The console line carries the DISCRIMINATING numbers, not just the
+          # zero. Reading `emails_today=0` off the log and having to open the
+          # artifact to learn why is how a diagnosis turns into a guess.
+          echo "should_send=$should_send emails_today=$emails_today" \
+               "due_today=$due_today accounts_unroutable=$acct_unroutable" \
+               "notify_status=$notify_status plan=$plan_present"
 
           {
             echo
@@ -808,9 +839,33 @@ jobs:
               echo "> [!WARNING]"
               echo "> Sending was requested but \`plan_warnings\` was off, so there is no"
               echo "> plan to send. Nothing will be sent - re-run with both switched on."
+            elif [ "$plan_present" != "yes" ]; then
+              echo "> [!WARNING]"
+              echo "> Sending was requested, but **no warning plan was produced**, so there"
+              echo "> is nothing to send. Status: \`$notify_status\`."
+              [ -n "$notify_detail" ] && echo ">"
+              [ -n "$notify_detail" ] && echo "> $notify_detail"
+              echo ">"
+              echo "> This is **not** the same as \"nothing is due\" - nothing was"
+              echo "> evaluated. The most common cause is an empty"
+              echo "> \`campaign_start_date\`, which leaves the countdown with no day 0."
+            elif [ "$emails_today" -eq 0 ] && [ "$due_today" -gt 0 ]; then
+              echo "> [!WARNING]"
+              echo "> **$due_today rule group(s) are due a reminder today, but no email can"
+              echo "> be sent.** The $acct_unroutable account(s) they roll up into carry no"
+              echo "> owner address, so there is nobody to tell."
+              echo ">"
+              echo "> Their countdown continues regardless. This is a **delivery gap**, not"
+              echo "> a quiet day - these are the findings that reach the deadline with no"
+              echo "> warning having been given."
             elif [ "$emails_today" -eq 0 ]; then
               echo "Sending was requested, but **nothing is due today**: no group's age"
-              echo "lands on a reminder day. Nothing will be sent."
+              echo "lands on a reminder day (\`age_days\` matched none of the reminder"
+              echo "days). Nothing will be sent."
+              echo
+              echo "Day 0 is \`max(firstSeen, campaign_start_date)\`, so the reminder day a"
+              echo "group lands on is set by whichever is LATER. To reach day 3, set"
+              echo "\`campaign_start_date\` to 3 days before today (UTC)."
             else
               echo "Nothing was sent."
             fi
