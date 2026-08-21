@@ -184,6 +184,10 @@ data "external" "notify" {
     grace_days          = tostring(var.grace_days)
     override_recipient  = var.warning_recipient_override
     campaign_start_date = var.campaign_start_date
+
+    # JSON, for the same reason as `severities` above: `external` query values
+    # must be strings.
+    notify_days = jsonencode(var.notify_days)
   }
 }
 
@@ -223,6 +227,20 @@ locals {
 
     distinct_owners = tonumber(local.notify_raw.distinct_owners)
     max_recipients  = tonumber(local.notify_raw.max_recipients)
+
+    # The reminder schedule, echoed back from the script so the report
+    # describes the run that happened rather than the configuration intended.
+    notify_days = jsondecode(local.notify_raw.notify_days)
+
+    # Groups whose age lands on a reminder day TODAY. This is the number a
+    # send path would act on - `planned` is the whole population, most of
+    # which is mid-period and correctly silent.
+    due_today = tonumber(local.notify_raw.due_today)
+
+    # Of those, how many could actually be delivered. The DIFFERENCE between
+    # this and due_today is the count of people who are due a warning today
+    # and will not receive one, which is the number worth watching.
+    due_today_routable = tonumber(local.notify_raw.due_today_routable)
 
     override_recipient = local.notify_raw.override_recipient
 

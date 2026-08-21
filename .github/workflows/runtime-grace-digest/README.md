@@ -58,9 +58,39 @@ Actions → **8. Runtime Grace Digest (read-only)** → Run workflow.
 | `plan_warnings` | off | Also work out **who would be warned** that a rule is heading for escalation. Sends nothing. |
 | `grace_days` | `14` | Days an alert may stay open before its rule becomes a candidate. Only used with `plan_warnings`. |
 
-It also runs **automatically every Monday at 08:00 UTC** with the defaults.
-`plan_warnings` is **off** on that schedule: a weekly cron does not need to
-re-derive a recipient list nobody asked for.
+The reminder days themselves (1, 3, 5, 7, 10, 13) are **not** a dispatch input.
+They are a property of the campaign, agreed once — varying them per run would
+silently move everyone's reminder days mid-flight. Changing them is a code
+review.
+
+It also runs **automatically every day at 08:00 UTC** with the defaults.
+
+### Why daily
+
+The campaign contacts owners on days **1, 3, 5, 7, 10 and 13** of a 14-day
+grace period, then escalates on day 14. A weekly cron cannot deliver that: it
+only ever observes two of those days, and days 3 and 10 are mid-week by
+construction. Seeing the schedule at all requires looking every day.
+
+**Daily does not mean daily email.** The plan is a pure function of each
+finding's age — on most days a group is mid-period and reports nothing. The
+cost of a run is one read-only pass over the alerts API.
+
+A consequence worth knowing: because the schedule is a set of exact days and
+nothing records what was sent, **a missed run is a missed notice**. If the cron
+does not fire on day 3, the next contact is day 5.
+
+### ⚠️ The scheduled run does not plan warnings yet
+
+`plan_warnings` is still **off** on the schedule, so the daily run reports
+recurrence but does not compute who is due a reminder. The campaign currently
+only runs when someone dispatches the workflow with `plan_warnings` on.
+
+That is deliberate. Turning it on makes an unattended daily job resolve live
+owner mailboxes into an artifact — and that artifact is what a send path would
+mail. The safe order is: build the send path, review its addressing against the
+override recipient, then let the schedule drive it. It gets switched on in the
+slice that adds sending.
 
 ### An empty report is not the same as a clean tenant
 

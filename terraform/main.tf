@@ -228,6 +228,7 @@ module "runtime_grace_digest" {
   # alerts. See the module README.
   notify_enabled             = var.runtime_grace_digest_notify_enabled
   grace_days                 = var.runtime_grace_digest_grace_days
+  notify_days                = var.runtime_grace_digest_notify_days
   warning_recipient_override = var.runtime_grace_digest_warning_recipient
 
   # Day 0 for anything already open when the campaign was announced. An empty

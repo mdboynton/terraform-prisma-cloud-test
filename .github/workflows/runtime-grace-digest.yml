@@ -114,10 +114,23 @@ on:
         type: string
         default: ""
 
-  # A digest is only useful if it arrives without being asked for. Monday 08:00
-  # UTC, before the working week starts in most of the covered regions.
+  # DAILY, not weekly.
+  #
+  # The reminder schedule is a set of exact days - 1, 3, 5, 7, 10, 13 of a
+  # 14-day grace - matched against each finding's age. A weekly cron can only
+  # ever observe two of those: whichever weekday it runs on lands on days 7 and
+  # 14 for a finding first seen that same weekday, and misses the rest entirely.
+  # Day 3 and day 10 are mid-week by construction. So the cadence the campaign
+  # promises is only deliverable by looking every day.
+  #
+  # Running daily does NOT mean mailing daily. The plan is a pure function of
+  # age: on most days a given group is mid-period and `notify_today` is false,
+  # so the run reports and does nothing. The cost is one read-only pass over
+  # the alerts API.
+  #
+  # 08:00 UTC, before the working week starts in most of the covered regions.
   schedule:
-    - cron: "0 8 * * 1"
+    - cron: "0 8 * * *"
 
 concurrency:
   group: runtime-grace-digest-${{ github.ref }}
@@ -153,11 +166,30 @@ env:
   # promotes everything as `high`, so the narrowing would be invisible here and
   # would only bite on a tenant with custom promoting policies.
 
-  # Grace warning planning. OFF on the schedule: a weekly cron does not need to
-  # re-derive a recipient list nobody asked for, and the plan output contains
-  # live personal email addresses.
+  # Grace warning planning. STILL OFF on the schedule.
+  #
+  # ⚠️ THIS IS THE REMAINING GAP IN THE CAMPAIGN, AND IT IS DELIBERATE.
+  #
+  # The cron is now daily so the 1/3/5/7/10/13 reminder days are observable,
+  # but the scheduled run does not PLAN warnings, so it does not compute
+  # `due_today` either. Today the campaign only runs when someone dispatches it
+  # with plan_warnings on.
+  #
+  # It is left off because turning it on makes an unattended daily job resolve
+  # live owner mailboxes into an artifact, and the artifact is the thing that
+  # would then be mailed. The order that keeps that safe is: build the send
+  # path, review its addressing against the override, THEN let the schedule
+  # drive it. Flipping this first would give a daily job that is one config
+  # change away from mailing real people, with no reviewed send path behind it.
+  #
+  # Turn this on in the slice that adds sending, not before.
   TF_VAR_runtime_grace_digest_notify_enabled: ${{ inputs.plan_warnings || 'false' }}
   TF_VAR_runtime_grace_digest_grace_days: ${{ inputs.grace_days || '14' }}
+
+  # Left at the module default [1,3,5,7,10,13] rather than being exposed as a
+  # dispatch input. The schedule is a property of the CAMPAIGN, agreed once -
+  # not something to vary per run, where changing it would silently move
+  # everyone's reminder days mid-flight. Changing it is a code review.
 
   # No fallback value on purpose. An empty string leaves the module in
   # `no_campaign_start`, which reports what is missing; any default here would
@@ -450,6 +482,9 @@ jobs:
               w_send=$(printf    '%s' "$warning_plan" | jq -r '.sendable')
               w_people=$(printf  '%s' "$warning_plan" | jq -r '.distinct_owners')
               w_maxrcpt=$(printf '%s' "$warning_plan" | jq -r '.max_recipients')
+              w_ndays=$(printf   '%s' "$warning_plan" | jq -r '.notify_days | join(", ")')
+              w_due=$(printf     '%s' "$warning_plan" | jq -r '.due_today')
+              w_duerout=$(printf '%s' "$warning_plan" | jq -r '.due_today_routable')
 
               {
                 echo "> [!IMPORTANT]"
@@ -458,11 +493,13 @@ jobs:
                 echo "> message is addressed to a single override recipient, and the"
                 echo "> real owner addresses are recorded for review only."
                 echo
-                echo "**Grace window:** ${w_grace} days"
+                echo "**Grace window:** ${w_grace} days · **Reminders on day:** ${w_ndays}"
                 echo
                 echo "| Metric | Value |"
                 echo "|---|---|"
                 echo "| Rule groups with an open alert | $w_planned |"
+                echo "| **Due a reminder TODAY** | **$w_due** |"
+                echo "| ...of those, actually addressable | $w_duerout |"
                 echo "| Past the grace window | $w_overdue |"
                 echo "| No owner on the alert (unroutable) | $w_unroute |"
                 echo "| Not escalatable (built-in model) | $w_notesc |"
@@ -471,9 +508,24 @@ jobs:
                 echo "| Most recipients on a single group | $w_maxrcpt |"
               } >> "$GITHUB_STEP_SUMMARY"
 
-              # The clock runs from each alert's own alertTime. Against an
-              # existing backlog that means the deadline passed long ago, so a
-              # first send would announce an expiry rather than give notice.
+              # A reminder that is due but cannot be delivered is the quiet
+              # failure this campaign has to avoid: the countdown continues,
+              # the rule is escalated on day 14, and the owner was never told
+              # because the alert carried no address to tell.
+              if [ "$w_due" -gt "$w_duerout" ]; then
+                {
+                  echo
+                  echo "> [!WARNING]"
+                  echo "> **$(( w_due - w_duerout )) of $w_due groups due a reminder today have nobody to send it to.**"
+                  echo "> Their countdown continues regardless. Unless a fallback"
+                  echo "> recipient is declared, those rules reach the deadline with"
+                  echo "> no warning having been given."
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+
+              # Day 0 is max(firstSeen, campaign_start_date), so a backlog no
+              # longer arrives pre-expired. Reaching this state now means the
+              # campaign start itself is more than grace_days in the past.
               if [ "$notify_status" = "all_overdue" ]; then
                 {
                   echo

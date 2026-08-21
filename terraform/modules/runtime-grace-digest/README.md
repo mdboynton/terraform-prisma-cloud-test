@@ -108,6 +108,7 @@ module "runtime_grace_digest" {
 | `enabled` | bool | `false` | Off by default, so the module costs nothing in workflows that don't need it. |
 | `window_days` | number | `14` | Recurrence window, 1–3650. A rule with a promoted alert inside it is "still firing". **The default is deliberately short and can legitimately return zero** — see "Two windows that must agree" below before using this for a grace campaign. |
 | `alert_status` | string | `"open"` | One of `open`, `resolved`, `dismissed`, `snoozed`. |
+| `notify_days` | list(number) | `[1,3,5,7,10,13]` | Which days of the grace period get a reminder, matched on `age_days` exactly. Every entry must be `< grace_days`. See "The reminder schedule". |
 | `severities` | list(string) | `[]` | Restrict to alerts whose **policy** carries one of these severities. Empty = no filter. Lowercase only. See "Severity is a pass-through filter". |
 | `max_alerts` | number | `2000` | Cap on alerts fetched for grouping, 1–10000. Does **not** cap the totals. |
 | `cspm_url` | string | `null` | CSPM API host, e.g. `api2.prismacloud.io`. Required when enabled. |
@@ -278,6 +279,50 @@ The guard is threefold, because no single layer is sufficient:
 **The row count is never evidence the filter applied.** `severities_verified`
 on the `scope` output is — it is true only when a filter was requested, rows
 came back, and all of them were inside the requested set.
+
+## The reminder schedule
+
+`notify_days` is the set of grace-period days on which a group is due a
+reminder — by default 1, 3, 5, 7, 10 and 13 of a 14-day period, with the
+deadline itself handled by escalation rather than another email.
+
+It is a **set of exact days matched against `age_days`**, not a "remind every N
+days" rule. That keeps the plan a pure function of the finding's age: the same
+input on the same day yields the same output, and no state has to be carried
+between runs.
+
+**The cost of that is worth stating plainly: a missed run is a missed notice.**
+If the scheduled run does not fire on day 3, nobody gets a day-3 reminder — the
+next contact is day 5. Catching up would need a record of what was actually
+sent, and `firstSeen` cannot supply it: it says when the finding appeared, not
+when anyone was told. That ledger is deliberately not built yet, so the density
+of the schedule is the safety margin — it never leaves more than three days
+between contacts.
+
+Two properties that are easy to get wrong, and are tested:
+
+- **`notify_today` is independent of `routable`.** A group with no owner is
+  still reported as due. Filtering those out would hide exactly the findings
+  that get escalated with nobody warned. `due_today` and `due_today_routable`
+  are both reported, and the difference between them is the number of people
+  who will not hear from you.
+- **The clock is the GRACE age, not the finding age.** A 365-day-old finding in
+  a campaign announced 3 days ago is on grace day 3, so it gets the day-3
+  reminder. Tracking the finding's own age would sail every backlog item past
+  all six reminder days before the campaign began.
+
+Every entry must be strictly less than `grace_days`. `[1,7,14]` with a 14-day
+grace is **rejected**, not quietly accepted: a reminder on the deadline would
+never fire, and silently dropping it would leave someone believing in a final
+warning that does not exist.
+
+### ⚠️ The date is interpreted in UTC
+
+`campaign_start_date` is converted at **UTC midnight**, and "now" is UTC. West
+of Greenwich, "today" locally is often already tomorrow in UTC, so a date typed
+from a local calendar can land one day off and shift every reminder day with
+it. This cost a confusing test result during development — the schedule looked
+inverted until the dates were recomputed in UTC. Use `date -u +%F`.
 
 ## Severity is a pass-through filter
 

@@ -114,13 +114,21 @@ output "notify_status_detail" {
 }
 
 output "warning_plan" {
-  description = "Counts for the planned grace warning: planned, overdue, unroutable, not_escalatable, sendable, distinct_owners, max_recipients. Null when planning is disabled. `sendable` is the only set a send path could honestly mail: overdue AND addressable AND pointing at an escalatable rule."
+  description = "Counts for the planned grace warning: planned, overdue, backlog, unroutable, not_escalatable, sendable, due_today, due_today_routable, notify_days, distinct_owners, max_recipients. Null when planning is disabled. `sendable` is the only set a send path could honestly mail: overdue AND addressable AND pointing at an escalatable rule."
   value       = local.warning_plan
 }
 
 output "warning_messages" {
-  description = "Per-rule-group warning plan: age_days, days_remaining, overdue, escalatable, routable, would_notify (the REAL owner addresses, for review only) and recipient (always the override). Empty list when planning is disabled. Contains live personal email addresses - do not publish this verbatim."
+  description = "Per-rule-group warning plan: age_days, days_remaining, overdue, notify_today, escalatable, routable, would_notify (the REAL owner addresses, for review only) and recipient (always the override). Empty list when planning is disabled. Contains live personal email addresses - do not publish this verbatim."
   value       = local.warning_messages
+}
+
+# The subset a daily run would act on. Separate from `warning_messages` so a
+# caller does not have to re-implement the schedule filter and risk drifting
+# from it - the definition of "due today" lives in one place.
+output "due_today_messages" {
+  description = "The subset of `warning_messages` whose age_days lands on a notify_days entry today. This is what a send path iterates. Empty list when planning is disabled or nothing is due. Contains live personal email addresses."
+  value       = [for m in local.warning_messages : m if m.notify_today]
 }
 
 output "top_rule" {

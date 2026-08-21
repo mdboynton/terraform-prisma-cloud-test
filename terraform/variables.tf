@@ -470,6 +470,21 @@ variable "runtime_grace_digest_campaign_start_date" {
   }
 }
 
+variable "runtime_grace_digest_notify_days" {
+  description = "(Optional) Which days of the grace period get a reminder, matched against age_days exactly. Default [1,3,5,7,10,13]. Every entry must be strictly less than runtime_grace_digest_grace_days - a reminder on or after the deadline never fires, because at that age the finding is overdue and belongs to the escalation path."
+  type        = list(number)
+  default     = [1, 3, 5, 7, 10, 13]
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for d in var.runtime_grace_digest_notify_days :
+      d < var.runtime_grace_digest_grace_days
+    ])
+    error_message = "Every runtime_grace_digest_notify_days entry must be strictly less than runtime_grace_digest_grace_days."
+  }
+}
+
 variable "runtime_grace_digest_warning_recipient" {
   description = "(Required when runtime_grace_digest_notify_enabled) The single address every planned warning is addressed to. Real owner addresses are reported as would_notify for review but never used as recipients."
   type        = string

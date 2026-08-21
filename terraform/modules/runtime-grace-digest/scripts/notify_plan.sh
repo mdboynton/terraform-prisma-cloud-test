@@ -36,7 +36,8 @@
 # CONTRACT (Terraform external data source)
 # ---------------------------------------------------------------------------
 # stdin : {"rules_json","grace_days","override_recipient",
-#          "campaign_start_date"(YYYY-MM-DD),"now_ms"(optional)}
+#          "campaign_start_date"(YYYY-MM-DD),"notify_days"(optional JSON array),
+#          "now_ms"(optional)}
 # stdout: a FLAT MAP OF STRINGS — the external provider rejects anything else.
 #
 set -euo pipefail
@@ -55,6 +56,8 @@ GRACE_DAYS="$(get grace_days)"
 OVERRIDE="$(get override_recipient)"
 NOW_MS="$(get now_ms)"
 CAMPAIGN_START="$(get campaign_start_date)"
+NOTIFY_DAYS_JSON="$(get notify_days)"
+[ -n "$NOTIFY_DAYS_JSON" ] || NOTIFY_DAYS_JSON='[1,3,5,7,10,13]'
 
 [ -n "$RULES_JSON" ] || fail "rules_json is required (the grouped table from digest.sh)"
 [ -n "$GRACE_DAYS" ] || fail "grace_days is required"
@@ -134,6 +137,43 @@ case "$GRACE_DAYS" in
   ''|*[!0-9]*) fail "grace_days must be a whole number of days, got: $GRACE_DAYS" ;;
 esac
 
+# ---------------------------------------------------------------------------
+# THE NOTIFY DAYS — which days of the grace period get a reminder.
+#
+# The schedule is a SET OF EXACT DAYS, matched against age_days, not a
+# "notify every N days" rule. That makes the plan a pure function of the
+# finding's age: the same input on the same day produces the same output, with
+# no memory of whether a previous run happened.
+#
+# ⚠️ THE COST OF THAT, STATED PLAINLY: a missed run is a missed notice. If the
+# cron does not fire on day 3, nobody gets a day-3 warning - day 5 is the next
+# one. Catching up would require a record of what was actually sent, which
+# firstSeen cannot provide (it says when the finding appeared, not when anyone
+# was told). That ledger is deliberately NOT built here; until it exists, the
+# gap between reminders is the safety margin, which is why the set is dense
+# early and never leaves more than 3 days between contacts.
+# ---------------------------------------------------------------------------
+jq -e 'type == "array"' >/dev/null 2>&1 <<<"$NOTIFY_DAYS_JSON" \
+  || fail "notify_days must be a JSON array, got: $NOTIFY_DAYS_JSON"
+
+jq -e 'all(type == "number" and . >= 0 and floor == .)' >/dev/null 2>&1 <<<"$NOTIFY_DAYS_JSON" \
+  || fail "notify_days must contain only non-negative whole numbers, got: $NOTIFY_DAYS_JSON"
+
+jq -e 'length == (unique | length)' >/dev/null 2>&1 <<<"$NOTIFY_DAYS_JSON" \
+  || fail "notify_days must not contain duplicates, got: $NOTIFY_DAYS_JSON"
+
+# A notify day at or beyond the deadline is unreachable: at age >= grace_days
+# the finding is overdue and belongs to the escalation path, not the reminder
+# path. Silently ignoring such an entry would let someone configure
+# notify_days=[1,7,14] with grace_days=14 and believe a final warning goes out
+# on the deadline day when it never does.
+BAD_DAYS="$(jq -r --argjson g "$GRACE_DAYS" '[.[] | select(. >= $g)] | join(", ")' <<<"$NOTIFY_DAYS_JSON")"
+[ -z "$BAD_DAYS" ] || fail \
+  "notify_days contains $BAD_DAYS, which is not before grace_days ($GRACE_DAYS).
+ A reminder on or after the deadline would never be sent: at that age the
+ finding is overdue and handled by the escalation path instead. Use a day
+ strictly less than $GRACE_DAYS."
+
 # `now` is injectable so the age arithmetic is testable against a fixed clock.
 # Without this every assertion about "days remaining" would drift daily.
 if [ -z "$NOW_MS" ]; then NOW_MS="$(( $(date +%s) * 1000 ))"; fi
@@ -181,6 +221,7 @@ PLANNED="$(jq -c \
   --argjson now "$NOW_MS" \
   --argjson grace "$GRACE_DAYS" \
   --argjson cstart "$CAMPAIGN_START_MS" \
+  --argjson ndays "$NOTIFY_DAYS_JSON" \
   --arg override "$OVERRIDE" '
   [ .[]
     | select(.open_alerts > 0 and .open_first > 0)
@@ -223,6 +264,16 @@ PLANNED="$(jq -c \
         days_remaining: ($grace - $age),
         overdue:     ($age >= $grace),
 
+        # Is TODAY one of the reminder days for this group?
+        #
+        # An exact set membership test on age_days, so the whole plan stays a
+        # pure function of age. Note this is independent of `routable` and
+        # `escalatable`: a group can be due a reminder today and still be
+        # unmailable. Conflating the two would hide the unroutable ones, and
+        # those are exactly the findings that would otherwise be blocked with
+        # nobody warned.
+        notify_today: ($ndays | index($age) != null),
+
         # `default` is the built-in learned model, not a named rule, so no
         # escalation can be aimed at it. Warning about it promises a
         # consequence that cannot be carried out.
@@ -259,9 +310,23 @@ NOT_ESCALATABLE="$(jq -r '[.[] | select(.escalatable | not)] | length' <<<"$PLAN
 SENDABLE="$(jq -r '[.[] | select(.overdue and .routable and .escalatable)] | length' <<<"$PLANNED")"
 MAX_RECIPIENTS="$(jq -r '[.[].would_notify | length] | max // 0' <<<"$PLANNED")"
 
+# Groups whose age lands on a reminder day today.
+DUE_TODAY="$(jq -r '[.[] | select(.notify_today)] | length' <<<"$PLANNED")"
+
+# Of those, the ones a send path could actually deliver.
+#
+# Reported SEPARATELY from due_today rather than replacing it: the difference
+# between the two numbers is the count of people who are due a warning today
+# and will not get one. That gap is the thing worth watching, so it must not be
+# arithmetic the reader has to do themselves.
+DUE_TODAY_ROUTABLE="$(jq -r '[.[] | select(.notify_today and .routable)] | length' <<<"$PLANNED")"
+
 jq -nc \
   --arg grace_days       "$GRACE_DAYS" \
   --arg campaign_start_date "$CAMPAIGN_START" \
+  --arg notify_days      "$NOTIFY_DAYS_JSON" \
+  --arg due_today        "$DUE_TODAY" \
+  --arg due_today_routable "$DUE_TODAY_ROUTABLE" \
   --arg planned          "$TOTAL" \
   --arg overdue          "$OVERDUE" \
   --arg backlog          "$BACKLOG" \

@@ -31,6 +31,35 @@ variable "campaign_start_date" {
   }
 }
 
+variable "notify_days" {
+  description = "(Optional) Which days of the grace period get a reminder, matched against age_days exactly. Default [1,3,5,7,10,13] against a 14-day grace. Every entry must be strictly less than grace_days: at grace_days the finding is overdue and belongs to the escalation path, so a reminder there would never fire. An empty list plans no reminders at all."
+  type        = list(number)
+  default     = [1, 3, 5, 7, 10, 13]
+  nullable    = false
+
+  validation {
+    condition = alltrue([
+      for d in var.notify_days : d >= 0 && floor(d) == d
+    ])
+    error_message = "notify_days must contain only non-negative whole numbers."
+  }
+
+  validation {
+    condition     = length(var.notify_days) == length(distinct(var.notify_days))
+    error_message = "notify_days must not contain duplicates."
+  }
+
+  # Cross-variable check. This cannot live in the script alone: by the time the
+  # script runs, the plan has already accepted a schedule with a reminder day
+  # that can never be reached, and the operator has no reason to doubt it.
+  validation {
+    condition = alltrue([
+      for d in var.notify_days : d < var.grace_days
+    ])
+    error_message = "Every notify_days entry must be strictly less than grace_days. A reminder on or after the deadline never fires - at that age the finding is overdue and is handled by escalation instead."
+  }
+}
+
 variable "max_alerts" {
   description = "(Optional) Cap on how many alerts are fetched for grouping. The window and tenant TOTALS are never capped by this - only the grouped table, which reports when it is incomplete."
   type        = number
