@@ -977,8 +977,39 @@ it is specific to `network.*`.
    document, so a 400 means the server rejected it entirely and **nothing was
    partially written**. Re-reading afterwards confirmed `enforced=0`, unchanged.
 
-**Still unmeasured:** whether `network.denyListEffect` accepts `disable`, and
-whether the container `network.*` group carries the same restriction.
+**Still unmeasured:** whether `network.denyListEffect` accepts `disable`.
+
+### The container policy answers "why", and rules out the obvious guesses [product]
+
+Measured the same way across all 147 container rules:
+
+| Container site | Values held |
+|---|---|
+| `network.defaultEffect` | `alert`=144, **`block`=3** |
+| `network.deniedIPsEffect` | `alert`=14, **`block`=3**, `disable`=130 |
+| `network.portScanEffect` | `alert`=142, **`block`=5** |
+| `processes.cryptoMinersEffect` | `alert`=126, `block`=2, `disable`=8, **`prevent`=11** |
+
+So the constraint is **not** "networking cannot be enforced" — container
+networking enforces with `block`. And it is not "deny lists cannot be
+enforced" — `network.deniedIPsEffect` blocks, and host `dns.denyListEffect`
+prevents.
+
+Two further measurements pin it down:
+
+- **`block` appears 0 times across all 81 host rules.** Host has no `block`.
+- **`prevent` appears 0 times in the container `network.*` group**, though it
+  appears 15× under `processes.defaultEffect` and elsewhere.
+
+Putting it together: **host `network.*` has no enforcing value at all.** Its
+workload's enforcing verb is `prevent`, which that section rejects; the verb
+that section would take, `block`, does not exist on host. The site is
+alert-only by construction, and no combination of inputs will escalate it.
+
+**This is the shape of the answer for every site: the allowed set is a
+property of (workload × section), and only the live documents expose it.**
+There is no schema endpoint — `/openapi.json`, `/api/v1/swagger.json`,
+`/api/v1/_docs` and three other candidates all return 404 on this Console.
 
 ### The join key: names DO resolve, but they are not unique
 
