@@ -259,6 +259,10 @@ jobs:
       emails_today: ${{ steps.sendgate.outputs.emails_today }}
       should_send:  ${{ steps.sendgate.outputs.should_send }}
 
+      # How many groups have reached day 14 and CAN be escalated. Drives the
+      # escalation-plan job, which calls workflow 9 in its read-only mode.
+      esc_ready:    ${{ steps.sendgate.outputs.esc_ready }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -610,8 +614,11 @@ jobs:
                   echo "## Day 14 — reached the deadline"
                   echo
                   echo "These rule groups have used their full ${w_grace}-day grace period."
-                  echo "**Nothing has been escalated.** Workflow 9 applies escalations, it is"
-                  echo "human-gated, and this run did not call it."
+                  echo "**Nothing has been escalated.** If anything below is escalatable,"
+                  echo "this run calls workflow 9 in its READ-ONLY mode to enumerate the"
+                  echo "candidate effect sites. Applying one is still a human action:"
+                  echo "workflow 9's apply path needs a manual dispatch, a site chosen by"
+                  echo "hand, the word APPLY typed in, and an environment approval."
                 } >> "$GITHUB_STEP_SUMMARY"
 
                 if [ "$esc_ready" -gt 0 ]; then
@@ -931,6 +938,17 @@ jobs:
           notify_detail="$(jq -r '.notify_status_detail // ""' runtime-grace-digest.json)"
           plan_present="$(jq -r 'if (.warning_plan // null) == null then "no" else "yes" end' runtime-grace-digest.json)"
 
+          # How many groups have reached day 14 AND are escalatable. This
+          # decides whether the escalation-plan job calls workflow 9.
+          #
+          # ⚠️ READ HERE, NOT IN THE RENDER STEP. This step runs AFTER the
+          # artifact is written (~line 838); the render step runs BEFORE it.
+          # A previous version of the day-14 code read this file from the
+          # render step and, because `run:` executes under `bash -e`, the
+          # missing file aborted the whole step. Reading it here is safe;
+          # moving this line earlier would not be.
+          esc_ready="$(jq -r '(.escalation_handoff // []) | length' runtime-grace-digest.json)"
+
           should_send=false
           if [ "$IS_DISPATCH" = "true" ] \
              && [ "$SEND_REQUESTED" = "true" ] \
@@ -941,12 +959,14 @@ jobs:
 
           echo "emails_today=$emails_today" >> "$GITHUB_OUTPUT"
           echo "should_send=$should_send"   >> "$GITHUB_OUTPUT"
+          echo "esc_ready=$esc_ready"       >> "$GITHUB_OUTPUT"
           # The console line carries the DISCRIMINATING numbers, not just the
           # zero. Reading `emails_today=0` off the log and having to open the
           # artifact to learn why is how a diagnosis turns into a guess.
           echo "should_send=$should_send emails_today=$emails_today" \
                "due_today=$due_today accounts_unroutable=$acct_unroutable" \
-               "notify_status=$notify_status plan=$plan_present"
+               "notify_status=$notify_status plan=$plan_present" \
+               "esc_ready=$esc_ready"
 
           {
             echo
@@ -1297,3 +1317,98 @@ jobs:
             echo "All messages were addressed to the override recipient. The real owner"
             echo "addresses appear in each body for review and were not used as recipients."
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # DAY 14 -> WORKFLOW 9 (read-only)
+  #
+  # When something has used its full grace period AND can actually be
+  # escalated, call workflow 9 in its read-only mode so the candidate effect
+  # sites are enumerated and waiting for a human, rather than someone having
+  # to notice the digest and go run it by hand.
+  #
+  # ⚠️ THIS DOES NOT ESCALATE ANYTHING. Workflow 9's `workflow_call` trigger
+  # declares no escalate_* and no confirm input, so this caller has no way to
+  # name a target or to confirm a write; its apply job additionally refuses to
+  # run for a workflow_call event. Both are asserted by
+  # .testtmp/test_wf9_callable.sh, including under mutation.
+  #
+  # Keeping the flip human is a recorded decision (see
+  # plans/policy-escalation-findings.md, "Workflow 9 must stay human-gated").
+  # For runtime rules the runner IS the enforcement, so an unattended flip can
+  # start blocking production traffic with nobody watching.
+  # ---------------------------------------------------------------------------
+  escalation_gate:
+    name: Check for a pending escalation approval
+    needs: digest
+    runs-on: ubuntu-latest
+    if: needs.digest.outputs.esc_ready != '' && needs.digest.outputs.esc_ready != '0'
+    permissions:
+      contents: read
+      # Needed to read OTHER workflows' run states. The workflow-level default
+      # is `contents: read` only.
+      actions: read
+    outputs:
+      proceed: ${{ steps.pending.outputs.proceed }}
+      waiting: ${{ steps.pending.outputs.waiting }}
+    steps:
+      - name: Look for a workflow 9 run already awaiting approval
+        id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # THE REQUESTER'S RULE: "we don't want another gated apply
+          # triggering if the approval is pending."
+          #
+          # A run parked on an environment approval has status `waiting`. If
+          # one exists, a human has already been asked to make this exact
+          # decision and has not answered yet; queueing another plan behind it
+          # adds noise to the same question and makes the daily cron look like
+          # it is nagging.
+          #
+          # ⚠️ FAILS OPEN, DELIBERATELY. If this query fails (token scope, API
+          # blip) we proceed with the READ-ONLY plan rather than skip it. The
+          # thing being suppressed is a duplicate report, not a write - no
+          # escalation can happen on this path either way, so the safe default
+          # is the informative one. `|| true` keeps `bash -e` from aborting.
+          waiting="$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/runtime-rule-effects.yml/runs?status=waiting&per_page=1" \
+            --jq '.total_count' 2>/dev/null || echo "query_failed")"
+
+          if [ "$waiting" = "query_failed" ]; then
+            echo "::warning::Could not check for pending workflow 9 approvals; continuing with the read-only plan."
+            waiting=0
+          fi
+
+          proceed=true
+          [ "$waiting" -gt 0 ] && proceed=false
+
+          echo "waiting=$waiting"   >> "$GITHUB_OUTPUT"
+          echo "proceed=$proceed"   >> "$GITHUB_OUTPUT"
+          echo "workflow 9 runs awaiting approval: $waiting -> proceed=$proceed"
+
+          if [ "$proceed" = "false" ]; then
+            {
+              echo
+              echo "## Escalation plan skipped"
+              echo
+              echo "$waiting workflow 9 run(s) are already waiting on an approval."
+              echo "Someone has been asked this question and has not answered yet, so"
+              echo "this run did not queue another plan behind it."
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  escalation_plan:
+    name: Enumerate escalation targets (read-only)
+    needs: [digest, escalation_gate]
+    if: needs.escalation_gate.outputs.proceed == 'true'
+    # A reusable-workflow call. It cannot be given `steps`, and it inherits
+    # nothing implicitly - hence `secrets: inherit`, since workflow 9 reads
+    # both the CSPM and the Compute Console credentials.
+    uses: ./.github/workflows/runtime-rule-effects.yml
+    secrets: inherit
+    with:
+      # Match the digest's own window so both workflows describe the same
+      # population. Workflow 9's default is 14 days, which on this tenant
+      # returns nothing - the backlog is older than six months.
+      window_days: ${{ inputs.window_days || '14' }}
+      alert_status: "open"

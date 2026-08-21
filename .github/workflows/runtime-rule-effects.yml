@@ -101,6 +101,47 @@ on:
         type: string
         default: ""
 
+  # ---------------------------------------------------------------------
+  # READ-ONLY ENTRY POINT for workflow 8's day-14 handoff.
+  #
+  # Workflow 8 can prove a rule is overdue, but it CANNOT choose what to
+  # escalate: an escalation targets an effect SITE, and the alert stream
+  # carries no `effect` field at any depth (measured across 100 promoted
+  # alerts). A container rule has 27 candidate sites and a host rule 19.
+  # So this entry point enumerates the sites and stops. A human still picks
+  # one and types APPLY on a workflow_dispatch run.
+  #
+  # ⚠️ THE WRITE INPUTS ARE DELIBERATELY NOT DECLARED HERE. A caller has no
+  # way to name a rule, a site, an effect, or the confirmation word, because
+  # the fields simply do not exist on this trigger. That is the guarantee -
+  # not a condition that could be edited away later. The undeclared
+  # `inputs.escalate_*` and `inputs.confirm` evaluate to empty on this path,
+  # which is exactly the read-only form. The `apply` job additionally
+  # refuses to run for a `workflow_call` event; see its `if:`.
+  #
+  # Keeping the flip human-gated is a recorded decision, not an oversight:
+  # plans/policy-escalation-findings.md - "Workflow 9 must stay human-gated
+  # (confirmed with requester)". For runtime rules the runner IS the
+  # enforcement, so an unattended flip can start blocking production traffic
+  # with nobody watching.
+  # ---------------------------------------------------------------------
+  workflow_call:
+    inputs:
+      window_days:
+        description: "How far back to look for promoted runtime alerts."
+        type: string
+        required: false
+        default: "14"
+      alert_status:
+        description: "Which alert lifecycle state to report on."
+        type: string
+        required: false
+        default: "open"
+    outputs:
+      escalation_status:
+        description: "Status reported by the plan. For a called run this is never will_apply."
+        value: ${{ jobs.plan.outputs.escalation_status }}
+
 concurrency:
   group: runtime-rule-effects-${{ github.ref }}
   cancel-in-progress: false
@@ -298,7 +339,17 @@ jobs:
     runs-on: ubuntu-latest
     # Three independent conditions. The environment approval below is a
     # fourth, and the script's own APPLY check is a fifth.
-    if: needs.plan.outputs.escalation_status == 'will_apply'
+    #
+    # The event-name test is a SECOND, independent lock on the automated
+    # path. Workflow 8 reaches this file through `workflow_call`, whose
+    # trigger declares no escalate_* or confirm inputs at all - so a called
+    # run cannot produce `will_apply` in the first place. This line means
+    # that even if someone later adds those inputs to `workflow_call`, an
+    # unattended caller still cannot write to a live runtime policy: the
+    # flip stays a human, typed, approved action.
+    if: >-
+      needs.plan.outputs.escalation_status == 'will_apply'
+      && github.event_name != 'workflow_call'
     environment:
       name: test-tenant
     steps:
