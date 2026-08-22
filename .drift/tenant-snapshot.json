@@ -1,7 +1,7 @@
 {
   "counts": {
-    "roles": 171,
-    "roles_unassigned": 75,
+    "roles": 172,
+    "roles_unassigned": 74,
     "users": 855,
     "users_enabled": 855,
     "users_disabled": 0,
@@ -342,6 +342,12 @@
       "role_type": "Developer",
       "account_group_count": 0,
       "assigned_user_count": 0
+    },
+    {
+      "name": "NYC-OTI-ruben-test HELLO YOU",
+      "role_type": "Account Group Read Only",
+      "account_group_count": 0,
+      "assigned_user_count": 1
     },
     {
       "name": "NYC-OTI-ruben-test SVC",
@@ -953,7 +959,7 @@
       "name": "ruben-test-Role",
       "role_type": "Appsec Admin",
       "account_group_count": 0,
-      "assigned_user_count": 0
+      "assigned_user_count": 1
     },
     {
       "name": "rubena-asdfd-adfas",
@@ -4007,7 +4013,7 @@
       "id": "7ead5600447c",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
-      "role_count": 3
+      "role_count": 5
     },
     {
       "id": "7eff49a83594",
