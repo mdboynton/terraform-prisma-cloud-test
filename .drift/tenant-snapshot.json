@@ -1,11 +1,11 @@
 {
   "counts": {
-    "roles": 172,
+    "roles": 173,
     "roles_unassigned": 74,
-    "users": 856,
-    "users_enabled": 856,
+    "users": 858,
+    "users_enabled": 858,
     "users_disabled": 0,
-    "service_accounts": 212,
+    "service_accounts": 214,
     "permission_groups": 62,
     "integrations": 145,
     "reports": 297,
@@ -13,6 +13,12 @@
     "trusted_alert_ips": 27
   },
   "roles": [
+    {
+      "name": "504test",
+      "role_type": "504 Build and Deploy Security",
+      "account_group_count": 237,
+      "assigned_user_count": 1
+    },
     {
       "name": "ADAM",
       "role_type": "Account Group Read Only",
@@ -113,7 +119,7 @@
       "name": "Build and Deploy Security",
       "role_type": "Build and Deploy Security",
       "account_group_count": 0,
-      "assigned_user_count": 2
+      "assigned_user_count": 3
     },
     {
       "name": "Build and Deploy Security-dmensah-test",
@@ -1048,6 +1054,13 @@
   ],
   "permission_groups": [
     {
+      "name": "504 Build and Deploy Security",
+      "permission_group_type": "Custom",
+      "custom": true,
+      "accept_account_groups": true,
+      "accept_resource_lists": true
+    },
+    {
       "name": "AIAJfrogPG",
       "permission_group_type": "Custom",
       "custom": true,
@@ -1385,13 +1398,6 @@
     },
     {
       "name": "llatorre-only-view-users",
-      "permission_group_type": "Custom",
-      "custom": true,
-      "accept_account_groups": true,
-      "accept_resource_lists": true
-    },
-    {
-      "name": "npolagani-reg-role",
       "permission_group_type": "Custom",
       "custom": true,
       "accept_account_groups": true,
@@ -3068,6 +3074,12 @@
       "role_count": 7
     },
     {
+      "id": "51f1eb153a46",
+      "account_type": "SERVICE_ACCOUNT",
+      "enabled": true,
+      "role_count": 1
+    },
+    {
       "id": "527c1e39506e",
       "account_type": "SERVICE_ACCOUNT",
       "enabled": true,
@@ -4662,6 +4674,12 @@
       "account_type": "USER_ACCOUNT",
       "enabled": true,
       "role_count": 3
+    },
+    {
+      "id": "a2b4d0269918",
+      "account_type": "SERVICE_ACCOUNT",
+      "enabled": true,
+      "role_count": 1
     },
     {
       "id": "a2bc53f4c80e",
