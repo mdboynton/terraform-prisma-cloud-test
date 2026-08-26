@@ -1,26 +1,13 @@
 name: 9. Runtime Rule Effects (escalation)
 
-# Answers "which firing rules are still only ALERTING?" — and, behind a manual
-# gate, raises one of them to prevent/block.
+# "Which firing rules are still only ALERTING?" - and, behind a manual gate,
+# raises one to prevent/block. ONLY workflow that writes to a live runtime policy.
 #
-# THIS IS THE ONLY WORKFLOW IN THE REPOSITORY THAT CHANGES ENFORCEMENT ON A
-# LIVE RUNTIME SECURITY POLICY. Everything it does by default is read-only;
-# writing requires a deliberate dispatch, a typed confirmation word, and an
-# environment approval.
+# Reads two APIs: CSPM alert carries no `effect` field at any depth (verified,
+# 100 promoted alerts). Enforcement state lives only in Compute Console policy.
 #
-# WHY IT READS TWO APIS. VERIFIED against 100 promoted alerts: the CSPM alert
-# carries no `effect` field at any depth. Enforcement state lives only in the
-# Compute Console policy objects, so "is this firing rule still only alerting?"
-# needs the alert stream from CSPM joined to the rule state from Compute.
-#
-# WHAT AN ESCALATION TARGETS. Not a rule — an EFFECT SITE. A container rule
-# carries 27 independent effect sites and a host rule 19, a different
-# set, so "escalate this rule" is ambiguous. The plan lists sites as
-# (kind, rule, site); an escalation names one of them exactly.
-#
-# ESCALATION DOES NOT SILENCE WORKFLOW 8. Effect controls enforcement, not
-# telemetry: a blocked action still records an incident by design. A rule that
-# keeps appearing in the digest after escalation is working, not broken.
+# Targets an EFFECT SITE, not a rule - container has 27, host 19. Escalation
+# does not silence workflow 8 (effect != telemetry; a blocked action still incidents).
 #
 # Docs: .github/workflows/runtime-rule-effects/README.md
 #
@@ -32,17 +19,6 @@ on:
   workflow_dispatch:
     inputs:
       window_days:
-        # A choice, not free text: a typo like "1O" would only surface as a
-        # Terraform variable-validation error partway through the run.
-        # MEASURED on the reference tenant: 0 open workload_incident alerts in
-        # 14 days, 111 across all time. A range that stopped at 180 made the
-        # existing backlog UNREACHABLE from this form - so the longer options
-        # are not a convenience, they are what makes the workflow usable
-        # against a tenant whose alerts are older than six months.
-        #
-        # The default stays at 14 deliberately: it is the honest "what is
-        # happening now" question. When it returns nothing, the run says how
-        # many alerts a wider window would reach rather than implying all-clear.
         description: "How far back to look for promoted runtime alerts. If a short window looks empty, the summary says how many exist overall."
         type: choice
         default: "14"
@@ -65,13 +41,8 @@ on:
           - "resolved"
           - "snoozed"
 
-      # ---------------------------------------------------------------
-      # The write path. Leave all four blank for a read-only run.
-      #
-      # These are four separate fields rather than one pasted JSON blob on
-      # purpose: a mistyped blob is a bad way to choose which rule starts
-      # blocking traffic, and a dropdown cannot be typo'd at all.
-      # ---------------------------------------------------------------
+      # Write path. Leave all four blank for a read-only run. Four separate
+      # fields, not one JSON blob, so a dropdown can't be typo'd.
       escalate_kind:
         description: "ESCALATE: which policy the rule lives in. Leave blank for a read-only run."
         type: choice
@@ -101,30 +72,14 @@ on:
         type: string
         default: ""
 
-  # ---------------------------------------------------------------------
-  # READ-ONLY ENTRY POINT for workflow 8's day-14 handoff.
+  # Read-only entry point for workflow 8's day-14 handoff. Enumerates sites
+  # and stops - a human still picks one and types APPLY on a dispatch run.
   #
-  # Workflow 8 can prove a rule is overdue, but it CANNOT choose what to
-  # escalate: an escalation targets an effect SITE, and the alert stream
-  # carries no `effect` field at any depth (measured across 100 promoted
-  # alerts). A container rule has 27 candidate sites and a host rule 19.
-  # So this entry point enumerates the sites and stops. A human still picks
-  # one and types APPLY on a workflow_dispatch run.
-  #
-  # ⚠️ THE WRITE INPUTS ARE DELIBERATELY NOT DECLARED HERE. A caller has no
-  # way to name a rule, a site, an effect, or the confirmation word, because
-  # the fields simply do not exist on this trigger. That is the guarantee -
-  # not a condition that could be edited away later. The undeclared
-  # `inputs.escalate_*` and `inputs.confirm` evaluate to empty on this path,
-  # which is exactly the read-only form. The `apply` job additionally
-  # refuses to run for a `workflow_call` event; see its `if:`.
-  #
-  # Keeping the flip human-gated is a recorded decision, not an oversight:
-  # plans/policy-escalation-findings.md - "Workflow 9 must stay human-gated
-  # (confirmed with requester)". For runtime rules the runner IS the
-  # enforcement, so an unattended flip can start blocking production traffic
-  # with nobody watching.
-  # ---------------------------------------------------------------------
+  # ⚠️ Write inputs are NOT declared here - a caller has no way to name a
+  # rule/site/effect/confirm; that's the guarantee, not an editable condition.
+  # `apply` job additionally refuses to run for `workflow_call` (see its `if:`).
+  # Keeping the flip human-gated: plans/policy-escalation-findings.md,
+  # "Workflow 9 must stay human-gated".
   workflow_call:
     inputs:
       window_days:
@@ -163,14 +118,10 @@ env:
   TF_VAR_runtime_rule_effects_window_days: ${{ inputs.window_days }}
   TF_VAR_runtime_rule_effects_alert_status: ${{ inputs.alert_status }}
 
-  # Every other module stays off: this workflow targets one module, and a
-  # sibling left enabled would make unrelated API calls on every run.
   TF_VAR_tenant_inventory_enabled: "false"
   TF_VAR_runtime_grace_digest_enabled: "false"
 
-  # -target keeps an apply from sweeping in unrelated resources that happen to
-  # be pending in the shared root state. VERIFIED: without it a confirmed run
-  # plans 4 resource changes; with it, exactly 1.
+  # Verified: without -target a confirmed run plans 4 resource changes; with it, 1.
   TF_TARGETS: "-target=module.runtime_rule_effects"
 
 defaults:
@@ -196,15 +147,9 @@ jobs:
         run: terraform fmt -check -recursive
         continue-on-error: true
 
-      # Built here rather than in the apply job so the plan output shows
-      # exactly what a subsequent apply would write.
       - name: Encode the requested escalation
-        # `escalations` is a list(object), so its TF_VAR_ must be JSON. All
-        # four fields blank yields [] and the module writes nothing.
-        #
-        # The confirmation word is passed through UNCHANGED. It is deliberately
-        # not normalised: accepting "apply" or "Apply" would defeat the point
-        # of requiring a specific typed string.
+        # Confirmation word passed through unchanged - accepting "apply"/"Apply" would
+        # defeat requiring an exact typed string.
         run: |
           json="$(jq -n -c \
             --arg kind   "${{ inputs.escalate_kind }}" \
@@ -218,9 +163,8 @@ jobs:
           echo "TF_VAR_runtime_rule_effects_escalations=${json}" >> "$GITHUB_ENV"
           echo "Requested escalations: ${json}"
 
-          # A half-filled form is a mistake, not a read-only run. Failing here
-          # is much kinder than silently reporting "nothing_requested" on a run
-          # the operator believed would escalate something.
+          # Half-filled = mistake, not read-only. Fail loud rather than silently
+          # report "nothing_requested".
           filled=0
           for v in "${{ inputs.escalate_kind }}" "${{ inputs.escalate_rule }}" \
                    "${{ inputs.escalate_site }}" "${{ inputs.escalate_effect }}"; do
@@ -245,75 +189,36 @@ jobs:
       - name: Read the escalation status
         id: status
         run: |
-          # ⚠️ DO NOT READ THIS FROM `.planned_values.outputs`.
-          #
-          # MEASURED on run 32517954430: an operator supplied all four
-          # escalate_* fields and typed APPLY, Terraform planned the write
-          # (`null_resource.escalate[0]: create`), and this step still
-          # reported `unknown` - so the apply job's `will_apply` condition
-          # was never met and the escalation silently did not happen.
-          #
-          # CAUSE: the plan runs with `-target=module.runtime_rule_effects`,
-          # which makes it PARTIAL ("complete": false). Terraform prunes root
-          # outputs whose dependencies sit outside the target graph. On that
-          # run 52 configured outputs became 10, and the three pruned
-          # runtime_rule_effects outputs were EXACTLY the three that depend on
-          # null_resource.escalate - escalation_status, escalation_detail and
-          # planned_escalations. Their siblings, which depend only on the data
-          # source, survived. That asymmetry is why the summary rendered
-          # `sites: 146` perfectly while the verdict came back empty.
-          #
-          # The key was absent from `output_changes` as well, which rules out
-          # "unknown at plan time" - an unknown output is still listed there.
-          #
-          # THE RESOURCE ITSELF IS NOT PRUNED, because it IS the target. So we
-          # derive the verdict from `resource_changes`, which is authoritative
-          # for what an apply would do, and fall back to the output only when
-          # the plan is complete (no -target) and the output survived.
+          # ⚠️ DO NOT READ FROM `.planned_values.outputs` - BUG (run 32517954430):
+          # -target makes the plan PARTIAL; Terraform prunes root outputs whose
+          # deps sit outside the target graph, including escalation_status. The
+          # resource itself is never pruned (it IS the target), so derive the
+          # verdict from resource_changes and fall back to the output only when
+          # the plan is complete.
           escalates="$(jq -r '[.resource_changes[]?
                        | select(.address | test("null_resource\\.escalate"))
                        | select(.change.actions != ["no-op"])] | length' plan.json)"
 
           out="$(jq -r '.planned_values.outputs.runtime_rule_effects_escalation_status.value // ""' plan.json)"
 
-          # What the OPERATOR asked for, read back from the plan's own record
-          # of its inputs. `.variables` is NOT pruned by -target, so this is
-          # readable on every run - unlike the outputs.
-          #
-          # ⚠️ THIS BRANCH EXISTS BECAUSE OF A REAL ARTIFACT, NOT A GUESS.
-          # Run 32303297872 was a genuine read-only run: escalations=[],
-          # apply="", zero escalate resources - AND the status output was
-          # pruned all the same. An earlier version of this fix treated
-          # "no resource + no output" as unreadable and exited 1, which would
-          # have failed every read-only run, including workflow 8's day-14
-          # call. Absence of a request is a perfectly readable answer.
+          # `.variables` is NOT pruned by -target, unlike outputs - readable on every run.
+          # Run 32303297872: genuine read-only run, status output pruned too - absence
+          # of a request is a readable answer, not an error.
           requested="$(jq -r '(.variables.runtime_rule_effects_escalations.value // []) | length' plan.json)"
           confirmed="$(jq -r '.variables.runtime_rule_effects_apply.value // ""' plan.json)"
 
           if [ "$escalates" -gt 0 ]; then
-            # A planned create IS the write. Nothing else produces one: the
-            # module only builds this resource when `escalations` is non-empty
-            # AND apply_escalations == "APPLY".
             s="will_apply"
           elif [ -n "$out" ]; then
-            # Complete (non-targeted) plan: trust the module's own richer
-            # verdict, which distinguishes disabled / not_confirmed / etc.
             s="$out"
           elif [ "$requested" -eq 0 ]; then
             s="nothing_requested"
           elif [ "$confirmed" != "APPLY" ]; then
             s="not_confirmed"
           else
-            # A target WAS named and APPLY WAS typed, yet no write is planned
-            # and no output is readable. That combination should be
-            # impossible, and it is precisely the shape of the bug this step
-            # was rewritten to catch.
-            #
-            # ⚠️ NO SILENT DEGRADATION. The original code substituted
-            # "unknown" here; it flowed on and skipped the apply exactly as
-            # if the module had refused, which is how a fully authorised
-            # escalation went unnoticed. A verdict we cannot read is never a
-            # safe "no".
+            # Impossible combination = the bug this step was rewritten to catch.
+            # No silent "unknown" fallback - that's how an authorised escalation
+            # went unnoticed before.
             echo "::error::Escalation requested ($requested target(s), confirm=$confirmed) but the plan shows no write and no readable status. Refusing to guess - inspect the runtime-rule-effects-plan artifact."
             exit 1
           fi
@@ -321,10 +226,6 @@ jobs:
           echo "escalation_status=$s" >> "$GITHUB_OUTPUT"
           echo "escalation_status=$s (planned writes: $escalates, requested: $requested)"
 
-      # PROVES the plan is read-only. A `data` source runs at plan time, so if
-      # the write had been built as one, this count would be irrelevant and the
-      # tenant would already have changed. It is a null_resource provisioner,
-      # so a planned create here means "an apply would write", not "we wrote".
       - name: Assert the plan changed nothing
         run: |
           n="$(jq '[.resource_changes[]? | select(.change.actions != ["no-op"])] | length' plan.json)"
@@ -332,8 +233,6 @@ jobs:
           jq -r '.resource_changes[]? | select(.change.actions != ["no-op"])
                  | "  \(.address): \(.change.actions|join(","))"' plan.json
 
-          # Anything other than the escalation resource means -target is not
-          # holding and an apply would touch something unrelated.
           stray="$(jq -r '[.resource_changes[]?
                    | select(.change.actions != ["no-op"])
                    | select(.address | test("null_resource\\.escalate") | not)
@@ -343,26 +242,11 @@ jobs:
             exit 1
           fi
 
-      # This page answers ONE question: what would an apply write?
-      #
-      # It used to answer a different one. The old version led with the tenant
-      # read - the same `sites: 146 / alerting: 103` figures workflow 8
-      # reports - then printed one row per alerting site (103 of them here),
-      # and put the pending write last. The operator's verdict was that
-      # workflow 9 "is the exact same as wf8", which was fair: the only part
-      # unique to this workflow was the final line.
-      #
-      # ⚠️ THAT LAYOUT IS ALSO HOW BUG 3 HID. The summary rendered the tenant
-      # statistics perfectly while the verdict beneath them was empty, so the
-      # page looked healthy on a run where a fully authorised escalation had
-      # been silently dropped. Leading with the write means a missing verdict
-      # is the first thing you see, not a footnote.
-      #
-      # ⚠️ IT MUST NOT READ THE escalation_* OUTPUTS. `-target` prunes them
-      # (see the "Read the escalation status" step above). The requested write
-      # comes from `.variables`, the current effect from `alerting_sites` /
-      # `disabled_sites` / `enforced_sites`, and the verdict from the status
-      # step - all three survive a partial plan.
+      # Leads with the pending write, not the tenant read - the old layout
+      # (tenant stats first) is how bug 3 hid: the verdict was empty underneath
+      # a healthy-looking summary. Must not read escalation_* outputs (pruned
+      # by -target) - uses .variables, alerting/disabled/enforced_sites, and
+      # the status step output instead.
       - name: Render the summary
         env:
           STATUS: ${{ steps.status.outputs.escalation_status }}
@@ -395,17 +279,10 @@ jobs:
               ' plan.json
               echo
 
-              # ⚠️ disable -> anything is NOT a tightening. A site at `disable`
-              # is detecting nothing; escalating it switches a dormant
-              # detection ON at full enforcement, with no observation period
-              # behind it. 58 sites on this tenant sit at `disable`, so this
-              # is a live hazard, not a corner case.
-              # ⚠️ BIND THE ELEMENT BEFORE index(). Inside `index(...)` the
-              # input `.` is the ARRAY being searched, not the element being
-              # filtered, so a bare `.kind` there indexes an array and jq dies
-              # with "Cannot index array with string". Under `set -e` - which
-              # is how Actions runs every `run:` block - that aborted the whole
-              # step and the summary stopped at the table.
+              # disable -> anything is NOT a tightening (switches a dormant
+              # detection ON with no observation period; 58 sites sit at disable).
+              # Bind $e before index() - `.` inside index() is the array, not the
+              # element; a bare .kind there breaks jq under set -e.
               woke="$(jq -r '
                 ([ (.planned_values.outputs.runtime_rule_effects_disabled_sites.value // [])[] ]
                  | map("\(.kind)|\(.rule)|\(.site)")) as $off
@@ -447,8 +324,6 @@ jobs:
             esac
             echo
 
-            # The tenant read is still worth carrying - it is the evidence the
-            # target was chosen from - but it is context now, not the headline.
             echo "<details><summary>Tenant read (context)</summary>"
             echo
             status="$(jq -r '.planned_values.outputs.runtime_rule_effects_status.value // "unknown"' plan.json)"
@@ -467,10 +342,6 @@ jobs:
             echo "</details>"
             echo
 
-            # An empty result has two very different causes, and the dangerous
-            # reading - "nothing is firing, all clear" - is the likelier one.
-            # This stays OUTSIDE the fold: it is a correction to the numbers
-            # above, and a warning nobody expands is not a warning.
             wstatus="$(jq -r '.planned_values.outputs.runtime_rule_effects_window_status.value // "unknown"' plan.json)"
             wdetail="$(jq -r '.planned_values.outputs.runtime_rule_effects_window_detail.value // ""' plan.json)"
             if [ "$wstatus" = "empty_window_but_alerts_exist" ]; then
@@ -497,16 +368,8 @@ jobs:
     name: Apply the escalation (gated)
     needs: plan
     runs-on: ubuntu-latest
-    # Three independent conditions. The environment approval below is a
-    # fourth, and the script's own APPLY check is a fifth.
-    #
-    # The event-name test is a SECOND, independent lock on the automated
-    # path. Workflow 8 reaches this file through `workflow_call`, whose
-    # trigger declares no escalate_* or confirm inputs at all - so a called
-    # run cannot produce `will_apply` in the first place. This line means
-    # that even if someone later adds those inputs to `workflow_call`, an
-    # unattended caller still cannot write to a live runtime policy: the
-    # flip stays a human, typed, approved action.
+    # event-name check is a second, independent lock: even if workflow_call
+    # later grows escalate_* inputs, this line still blocks an unattended write.
     if: >-
       needs.plan.outputs.escalation_status == 'will_apply'
       && github.event_name != 'workflow_call'
@@ -534,11 +397,8 @@ jobs:
       - name: Terraform init
         run: terraform init -input=false
 
-      # Approving the environment gate does NOT re-run the plan's checks, so
-      # without this an approver can green-light a run whose target stopped
-      # existing, or which was never confirmed in the first place.
-      #
-      # This re-reads live state and refuses BEFORE any write.
+      # Environment approval doesn't re-run the plan's checks. Re-reads live
+      # state and refuses before any write.
       - name: Preflight — refuse an escalation that cannot succeed
         env:
           TF_VAR_runtime_rule_effects_apply: ${{ inputs.confirm }}
@@ -546,19 +406,9 @@ jobs:
           terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan >/dev/null
           terraform show -json tfplan > preflight.json
 
-          # ⚠️ SAME -target PRUNING AS THE PLAN JOB. READ resource_changes.
-          #
-          # This step re-plans, so it hits the identical problem: with
-          # `-target=module.runtime_rule_effects` the plan is partial and
-          # Terraform drops root outputs that depend on null_resource.escalate
-          # - including escalation_status. Reading it here yielded the jq null
-          # for a missing key, and on run 32523578068 the approver's write was
-          # refused with "Escalation status is 'null', not 'will_apply'".
-          #
-          # The guard meant to protect the write became the thing that blocked
-          # it. The resource itself is never pruned (it IS the target), so a
-          # planned create is the authoritative signal that an apply will
-          # write. Fall back to the output only when the plan is complete.
+          # ⚠️ Same -target pruning as the plan job (site 2, run 32523578068:
+          # the guard meant to protect the write blocked a valid one). Read
+          # resource_changes first, fall back to the output only if complete.
           escalates="$(jq -r '[.resource_changes[]?
                        | select(.address | test("null_resource\\.escalate"))
                        | select(.change.actions != ["no-op"])] | length' preflight.json)"
@@ -570,9 +420,6 @@ jobs:
           elif [ -n "$out" ] && [ "$out" != "null" ]; then
             status="$out"
           else
-            # Neither signal says a write will happen. Whatever the operator
-            # intended, refusing here is correct: this is the last checkpoint
-            # before a live policy changes.
             status="no_write_planned"
           fi
 
@@ -584,9 +431,6 @@ jobs:
 
           echo "Preflight: the plan still contains $escalates escalation write(s)."
 
-          # The rule must still exist and must still be at `alert`. If someone
-          # escalated it by hand since the plan, the write is redundant; if the
-          # rule was renamed or deleted, the script would fail mid-flight.
           want_kind='${{ inputs.escalate_kind }}'
           want_rule='${{ inputs.escalate_rule }}'
           want_site='${{ inputs.escalate_site }}'

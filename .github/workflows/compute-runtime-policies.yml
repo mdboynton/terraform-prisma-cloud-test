@@ -1,27 +1,13 @@
 name: 2. Compute Runtime Policies
 
-# Two capabilities for Prisma Cloud Compute runtime policies (Container + Host):
-#
-#   LIST  (read-only) — dump the rules, index them by collection, and resolve
-#                       which rules apply to named clusters.
-#   APPLY (gated)     — append an RBAC collection to an EXISTING rule. It never
-#                       creates or redefines policies; it only adds a collection
-#                       to a matched rule, preserving what is already there.
-#
-# SCOPE: -target keeps this run to the compute module only, so RBAC resources
-# don't appear in the diff and can't be changed from here.
+# LIST (read-only): dump rules, index by collection, resolve rules for named clusters.
+# APPLY (gated): append an RBAC collection to an EXISTING rule. Never creates/redefines.
 #
 # Docs: .github/workflows/compute-runtime-policies/README.md
 #
 # Required secrets: PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME,
 #                   PRISMACLOUD_PASSWORD, PRISMA_COMPUTE_CONSOLE_URL
 
-# PATH FILTERS: a run is triggered only when a commit touches one of these
-# paths. "terraform/*.tf" matters as much as the module directory itself —
-# the root wires this module's inputs (main.tf) and declares its variables,
-# so a root-only change can alter this plan without touching modules/.
-# Docs-only changes (**.md) are deliberately excluded so README edits don't
-# burn CI minutes.
 on:
   pull_request:
     branches: [main, tuan_test, tuan_test_compute_policies]
@@ -69,25 +55,14 @@ env:
   TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
-  # The compute module authenticates to the Console directly and reuses the
-  # CSPM access key / secret key above; it only needs the Console URL as well.
   TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
 
-  # Listing defaults to on so a push surfaces the current rules.
   TF_VAR_compute_runtime_list_enabled: ${{ github.event.inputs.list_compute_runtime || 'true' }}
   TF_VAR_compute_runtime_list_collection: ${{ github.event.inputs.list_collection || '' }}
 
-  # Consumed by the "Encode list_clusters" step, which converts it into the JSON
-  # array a list(string) TF_VAR_ requires.
-  #
-  # NO DEFAULT FALLBACK ON PURPOSE. A `|| 'some,clusters'` here would silently
-  # re-introduce clusters whenever the field is cleared, and push/PR events carry
-  # no dispatch inputs at all — so this resolves to empty for them, which the
-  # encode step turns into [] (cluster resolution skipped). Cluster resolution is
-  # opt-in per run.
+  # No fallback: push/PR carry no dispatch inputs, so this resolves empty -> [] (skip).
   COMPUTE_LIST_CLUSTERS_CSV: ${{ github.event.inputs.list_clusters }}
 
-  # Tenant inventory is a separate, read-only workflow.
   TF_VAR_tenant_inventory_enabled: "false"
 
   TF_TARGETS: "-target=module.compute_runtime_policies"
@@ -116,14 +91,8 @@ jobs:
         continue-on-error: true
 
       - name: Encode list_clusters
-        # compute_runtime_list_clusters is list(string), and a TF_VAR_ for a list
-        # type must be a JSON array. Convert the comma-separated input; empty
-        # input yields [] (no cluster resolution).
-        #
-        # Uses `jq -n --arg` rather than piping into `jq -R`: with a completely
-        # empty string there is no input line at all, so `jq -R` emits NOTHING
-        # (not "[]"), which would set the TF_VAR_ to an empty string and make
-        # Terraform reject it as an invalid list(string).
+        # jq -n --arg, not `jq -R`: an empty string has no input line, so -R emits
+        # nothing rather than "[]", which Terraform would reject as an invalid list.
         run: |
           json="$(jq -n -c --arg csv "${COMPUTE_LIST_CLUSTERS_CSV}" \
             '$csv | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
@@ -153,15 +122,8 @@ jobs:
         run: terraform show -no-color tfplan || true
 
       - name: Association dry run (what the apply would actually change)
-        # THE PLAN CANNOT SHOW THIS. The association write runs inside a
-        # null_resource script, so `terraform plan` only ever reports
-        # "N to add" for the bookkeeping resource — never the policy diff.
-        # These two outputs are the real preview, computed against the LIVE
-        # policy at plan time.
-        #
-        # `rule_not_found` is called out as a ::warning because it is the
-        # dangerous case: the apply matches no rule, changes nothing, and
-        # still exits 0 — a green run that silently did nothing.
+        # terraform plan can't show this - the write runs inside a null_resource
+        # script. These outputs are the real preview against the LIVE policy.
         if: always()
         run: |
           plan_json="$(terraform show -json tfplan 2>/dev/null || echo '{}')"
@@ -173,11 +135,6 @@ jobs:
               || echo "(unavailable)"
           done
 
-          # Surface every non-applyable status as an annotation on the run.
-          #
-          #   rule_not_found            -> apply is a silent no-op (green, did nothing)
-          #   collection_not_found      -> API rejects the PUT with HTTP 400
-          #   collection_invalid_name   -> API rejects the PUT with HTTP 400
           printf '%s' "$plan_json" | jq -r '
             [ .output_changes.compute_container_preview.after,
               .output_changes.compute_host_preview.after ]
@@ -196,9 +153,6 @@ jobs:
           ' 2>/dev/null || true
 
       - name: Runtime policy listing
-        # `terraform output` reads STATE, which is empty on a plan-only run, so
-        # the planned values are read from the plan file instead — every output
-        # is carried under .output_changes.<name>.after.
         if: always()
         run: |
           plan_json="$(terraform show -json tfplan 2>/dev/null || echo '{}')"
@@ -227,7 +181,6 @@ jobs:
     name: Apply (gated)
     needs: plan
     runs-on: ubuntu-latest
-    # Only a deliberate manual dispatch with apply=true writes anything.
     if: github.event_name == 'workflow_dispatch' && inputs.apply == true
     environment:
       name: test-tenant
@@ -241,8 +194,6 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
 
       - name: Encode list_clusters
-        # See the note on the matching step in the plan job: `jq -n --arg` is
-        # required so a fully empty value still yields [] rather than nothing.
         run: |
           json="$(jq -n -c --arg csv "${COMPUTE_LIST_CLUSTERS_CSV}" \
             '$csv | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length>0))')"
@@ -252,18 +203,8 @@ jobs:
         run: terraform init -input=false
 
       - name: Preflight — refuse to apply an association that cannot succeed
-        # Approving the environment gate does NOT re-validate the dry run, so
-        # without this an approver can green-light an apply that is guaranteed
-        # to fail (HTTP 400) or to silently do nothing (rule_not_found).
-        #
-        # This re-runs the read-only preview and stops BEFORE any write:
-        #   rule_not_found                    -> no-op but still reports success
-        #   collection_not_found              -> API rejects the PUT
-        #   collection_invalid_name           -> API rejects the PUT
-        #   collection_cluster_scoped_on_host -> API rejects the PUT (host only)
-        #
-        # A partial failure is otherwise genuinely awkward here: container and
-        # host are two independent PUTs, so one can land while the other 400s.
+        # Environment approval doesn't re-validate the dry run. Re-runs the
+        # preview and stops before any write.
         run: |
           terraform plan -input=false -no-color ${TF_TARGETS} -out=tfplan >/dev/null
           plan_json="$(terraform show -json tfplan)"
@@ -282,16 +223,12 @@ jobs:
             echo "Refusing to apply. These associations cannot succeed:"
             echo "$bad"
             echo
-            echo "add_collection must already exist AND match ^[A-Za-z0-9_:-]+\$"
-            echo "(no spaces or parentheses), so RBAC collections named"
-            echo "'<name> - Access Group (RBAC)' are rejected by this endpoint."
+            echo "add_collection must exist and match ^[A-Za-z0-9_:-]+\$ (no RBAC \" - Access Group (RBAC)\" names)."
             echo "Nothing was changed."
             exit 1
           fi
 
           echo "Preflight OK — every association is applyable."
 
-      # The append is non-destructive and idempotent: an association that is
-      # already present is a no-op, and existing collections on a rule are kept.
       - name: Terraform apply
         run: terraform apply -input=false -no-color -auto-approve ${TF_TARGETS}

@@ -1,23 +1,9 @@
 name: 7. Compute Alert Summary (read-only)
 
-# Answers "how many runtime incidents and image vulnerabilities does this
-# COMPUTE collection have?".
+# Runtime incidents + image vulnerabilities for a COMPUTE collection.
+# Sibling of workflow 6 (CSPM collections) - different objects, don't add counts.
 #
-# THIS IS THE SIBLING OF WORKFLOW 6, NOT A REPLACEMENT.
-#
-# Prisma has two unrelated collection systems. Workflow 6 scopes CSPM alerts by a
-# CSPM Collection, which it resolves to cloud accounts. The "<name> - Access
-# Group (RBAC)" collections a Resource List spawns are COMPUTE objects that do
-# not exist on the CSPM side at all (verified: 0 of 46 CSPM collections), and
-# 2,056 of 2,186 Compute collections are accountIDs:["*"] - so for a tenant that
-# onboards no cloud accounts, workflow 6 has nothing to scope by.
-#
-# The two report DIFFERENT OBJECTS and the numbers are NOT comparable. Never add
-# a count from this workflow to one from workflow 6.
-#
-# READ-ONLY BY CONSTRUCTION. The compute-alert-summary module contains only
-# Terraform `data` blocks - no `resource` blocks - so this workflow cannot change
-# the tenant. There is deliberately no apply job and no environment gate.
+# Read-only: module has data blocks only. No apply job, no environment gate.
 #
 # Docs: .github/workflows/compute-alert-summary/README.md
 #
@@ -32,8 +18,6 @@ on:
         type: string
         required: true
       max_images:
-        # A choice, not free text: a typo like "100O" would only surface as a
-        # Terraform variable-validation error partway through the run.
         description: "Max images to scan for the CVE severity rollup. Incident and image COUNTS are never capped by this."
         type: choice
         default: "1000"
@@ -56,23 +40,16 @@ env:
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
 
-  # The Compute Console URL must include any path segment the tenant requires
-  # (e.g. https://<region>.cloud.twistlock.com/<id>). Stripping it yields a
-  # successful-looking auth call that returns an empty token.
+  # Must include any path segment the tenant requires - stripped, auth "succeeds" with an empty token.
   TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
-
-  # The CSPM provider is still configured at the root, so it needs a URL even
-  # though this workflow never calls it.
   TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
 
   TF_VAR_compute_alert_summary_enabled: "true"
   TF_VAR_compute_alert_summary_collection_name: ${{ inputs.collection_name }}
   TF_VAR_compute_alert_summary_max_images: ${{ inputs.max_images }}
 
-  # Everything else off: this workflow asks one question and should not pay for
-  # unrelated API calls.
   TF_VAR_alert_summary_enabled: "false"
   TF_VAR_access_audit_enabled: "false"
   TF_VAR_tenant_inventory_enabled: "false"
@@ -86,10 +63,6 @@ jobs:
   summary:
     name: Count Compute findings for a collection
     runs-on: ubuntu-latest
-
-    # The image rollup pages 100 at a time and each page is ~48 MB on the wire
-    # before reduction, so a large collection on a slow tenant takes a while.
-    # The slowest real run measured ~8s; 20 minutes is generous.
     timeout-minutes: 20
 
     steps:
@@ -106,26 +79,16 @@ jobs:
 
       - name: Read Compute finding counts
         id: plan
-        # -target keeps this to the compute module, so no other module is
-        # evaluated and no unrelated API calls are made.
-        #
-        # Output is teed to a file so the failure step below can quote the real
-        # error on the summary page rather than leaving it in the raw log.
         run: |
           set -o pipefail
           terraform plan -input=false -no-color \
             -target=module.compute_alert_summary -out=tfplan 2>&1 | tee plan-output.txt
 
       - name: Render report
-        # The collection name reaches bash as an ENVIRONMENT VARIABLE, never as
-        # a `${{ }}` interpolation. Interpolation pastes the raw string into the
-        # script before bash parses it, so a collection named `$(...)` or with a
-        # backtick would execute - verified locally. `env:` passes it as data.
+        # env:, never ${{ }} interpolation - a collection named `$(...)` would execute.
         env:
           COLLECTION_NAME: ${{ inputs.collection_name }}
         run: |
-          # Reads the PLAN file, not state: state is empty on a plan-only run,
-          # so `terraform output` would return nothing.
           plan_json="$(terraform show -json tfplan)"
 
           get() { printf '%s' "$plan_json" | jq -c --arg k "$1" '.output_changes[$k].after'; }
@@ -134,15 +97,7 @@ jobs:
           detail="$(get compute_alert_summary_status_detail | jq -r '. // ""')"
           summary="$(get compute_alert_summary)"
 
-          # BRANCH ON status, NOT ON THE EXIT CODE.
-          #
-          # The module's `check` blocks emit warnings but do NOT fail the plan,
-          # and `terraform show -json` omits the `checks` array from a plan file
-          # entirely - so a warning is invisible to any caller trusting the exit
-          # code. Both behaviours verified against the live tenant.
-          #
-          # `missing_credentials` and `disabled` mean we never looked. Rendering
-          # zeros for those would imply "nothing found", which is a lie.
+          # Branch on status, not exit code - check-block warnings don't fail the plan.
           if [ "$status" = "disabled" ] || [ "$status" = "missing_credentials" ]; then
             {
               echo "## Compute alert summary - no counts produced"
@@ -156,9 +111,6 @@ jobs:
               echo "No counts were produced. **Do not read this as \"no findings\".**"
             } >> "$GITHUB_STEP_SUMMARY"
 
-            # Tells the failure step to stay quiet: this case is already
-            # explained above. Without the marker the run shows two stacked
-            # failure blocks saying roughly the same thing.
             touch handled-failure.marker
 
             echo "::error title=Compute alert summary failed::$status - $detail"
@@ -179,7 +131,6 @@ jobs:
           med=$(printf  '%s' "$summary" | jq -r '.vuln_medium')
           low=$(printf  '%s' "$summary" | jq -r '.vuln_low')
 
-          # Share of the tenant, so a bare number has context.
           inc_pct=$(awk -v t="$incidents" -v n="$inc_tenant" 'BEGIN { if (n > 0) printf "%.1f", (t / n) * 100; else print "0.0" }')
 
           {
@@ -213,9 +164,6 @@ jobs:
             echo "> CVE instances, not affected images: one image with three critical CVEs counts as three."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # A partial scan is reported prominently rather than tucked away: the
-          # severity numbers above are a SAMPLE when this fires, and a reader who
-          # misses that will under-report.
           if [ "$complete" != "true" ]; then
             {
               echo
@@ -226,9 +174,6 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # The scoped counts equalling the tenant totals is what a silently
-          # dropped filter looks like. It is legitimate for an all-selecting
-          # collection, so it warns rather than fails - but it always says so.
           if [ "$status" = "tenant_wide_scope" ]; then
             {
               echo
@@ -239,23 +184,15 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # Full result to the artifact, including the fields not rendered above.
           printf '%s' "$summary" | jq '.' > compute-alert-summary.json
           echo "===== artifact ====="
-          # `wc -c` pads its output with spaces on some platforms; strip them so
-          # the log line reads "bytes=379" rather than "bytes=     379".
           echo "bytes=$(wc -c < compute-alert-summary.json | tr -d ' ')"
 
-      # Runs ONLY when something above failed. Every other step writes to the
-      # summary page on the success path, so without this a failed run produces a
-      # blank summary - a red X and nothing else.
       - name: Report failure
         if: failure()
         env:
           COLLECTION_NAME: ${{ inputs.collection_name }}
         run: |
-          # The render step explains a disabled/uncredentialed run better than
-          # this generic block can, and marks it handled.
           if [ -f handled-failure.marker ]; then
             echo "Failure already reported on the summary page."
             exit 0
@@ -276,13 +213,6 @@ jobs:
               echo "### What went wrong"
               echo
 
-              # The actionable sentence for this module comes from the script,
-              # and Terraform prints it as "Error Message:" roughly fourteen
-              # lines below the "Error:" header - past any fixed -A window.
-              # Verified: a context-only excerpt cut off immediately before
-              # "no Compute collection named ... did you mean ...", which is
-              # precisely the line the Common causes table tells people to
-              # look for. Hoist it, then show the context underneath.
               script_msg="$(grep -m1 '^Error Message:' plan-output.txt || true)"
               if [ -n "$script_msg" ]; then
                 echo "**${script_msg#Error Message: }**"
@@ -316,9 +246,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
-        # NOT always(): the artifact is written by the render step, so on an
-        # earlier failure the path does not exist and upload-artifact prints
-        # "No files were found" - a spurious warning stacked on the real error.
         if: success()
         uses: actions/upload-artifact@v4
         with:

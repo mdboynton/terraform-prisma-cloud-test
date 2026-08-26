@@ -1,19 +1,9 @@
 name: 6. Alert Summary (read-only)
 
-# Answers "how many open alerts does this collection have?" for a CSPM
-# Collection, broken down by severity.
+# Open alert counts by severity for a CSPM Collection. Read-only: data blocks only.
 #
-# READ-ONLY BY CONSTRUCTION. The alert-summary module contains only Terraform
-# `data` blocks - no `resource` blocks - so this workflow cannot change the
-# tenant. There is deliberately no apply job and no environment gate.
-#
-# COUNTS come from the provider data source, which returns no resource or policy
-# fields. `limit = 1` reads the server-side total without the payload.
-#
-# DETAIL (optional) comes from a separate script, because those fields exist only
-# on the REST endpoint. Critical-severity detail is rendered in the summary
-# below; everything else that is fetched goes to the JSON artifact only, to keep
-# this page readable on a collection with thousands of alerts.
+# COUNTS from the provider data source (limit=1, server-side total, no payload).
+# DETAIL (optional) from a separate REST script - critical rendered here, rest to the artifact.
 #
 # Docs: .github/workflows/alert-summary/README.md
 #
@@ -65,10 +55,6 @@ on:
           - critical,high,medium,low
           - critical,high,medium,low,informational
       detail_limit:
-        # A choice, not free text. The module validates the range anyway, but a
-        # typo like "50O" would only surface as a Terraform variable-validation
-        # error partway through the run. A fixed list removes the mistake
-        # instead of catching it. Values match the module's 1..5000 bound.
         description: "Max alert detail rows to fetch (bounds runtime and artifact size). Counts are never capped by this."
         type: choice
         default: "500"
@@ -103,12 +89,7 @@ env:
 
   TF_VAR_alert_summary_include_detail: ${{ inputs.include_detail }}
   TF_VAR_alert_summary_detail_limit: ${{ inputs.detail_limit }}
-  # The choice input is a comma-joined string; the Terraform variable is a
-  # list(string). Converted in the step below rather than here, because
-  # `env:` cannot run shell.
 
-  # Everything else off: this workflow asks one question and should not pay for
-  # unrelated API calls.
   TF_VAR_access_audit_enabled: "false"
   TF_VAR_tenant_inventory_enabled: "false"
   TF_VAR_compute_runtime_list_enabled: "false"
@@ -121,10 +102,6 @@ jobs:
   summary:
     name: Count alerts for a collection
     runs-on: ubuntu-latest
-
-    # The detail fetch pages up to 200 times with a 1s pause between, so a
-    # rate-limited tenant could stall the job against the 6-hour default.
-    # The slowest real run measured 13.5s; 15 minutes is generous.
     timeout-minutes: 15
 
     steps:
@@ -140,9 +117,6 @@ jobs:
         run: terraform init -input=false
 
       - name: Build severity list
-        # The choice input is a comma-joined string because workflow_dispatch has
-        # no list type. A list(string) Terraform variable is set from the
-        # environment as JSON, so convert here.
         run: |
           json=$(printf '%s' "${{ inputs.detail_severities }}" \
             | jq -Rc 'split(",") | map(select(length > 0))')
@@ -151,12 +125,6 @@ jobs:
 
       - name: Read alert counts
         id: plan
-        # -target keeps this to the alert module, so no other module is
-        # evaluated and no unrelated API calls are made.
-        #
-        # Output is teed to a file so the failure step below can quote the real
-        # error on the summary page. Without this the message exists only in the
-        # raw log, which is where the useful text goes to die.
         run: |
           set -o pipefail
           terraform plan -input=false -no-color \
@@ -164,8 +132,6 @@ jobs:
 
       - name: Render report
         run: |
-          # Reads the PLAN file, not state: state is empty on a plan-only run,
-          # so `terraform output` would return nothing.
           plan_json="$(terraform show -json tfplan)"
 
           get() { printf '%s' "$plan_json" | jq -c --arg k "$1" '.output_changes[$k].after'; }
@@ -178,20 +144,9 @@ jobs:
           detail_status="$(get alert_summary_detail_status | jq -r '. // "not_requested"')"
           detail_json="$(get alert_summary_detail)"
 
-          # How many critical rows to render inline. Beyond this the table stops
-          # being readable and the artifact is the better tool.
           DETAIL_TABLE_MAX=50
 
-          # BRANCH ON status, NOT ON THE EXIT CODE.
-          #
-          # The module's `check` blocks emit warnings but do NOT fail the plan -
-          # a nonexistent collection name still exits 0. And `terraform show
-          # -json` omits the `checks` array from a plan file entirely, so the
-          # failure is invisible to any caller that trusts the exit code.
-          # Verified both behaviours against the live tenant.
-          #
-          # Without this branch the job would go green and print nothing,
-          # implying "no alerts" when the truth is "we never looked".
+          # Branch on status, not exit code - check-block warnings don't fail the plan.
           if [ "$status" != "ok" ]; then
             {
               echo "## Alert summary - no counts produced"
@@ -205,10 +160,6 @@ jobs:
               echo "No alert counts were produced. **Do not read the tenant-wide total as this collection's number.**"
             } >> "$GITHUB_STEP_SUMMARY"
 
-            # Tells the failure step to stay quiet: this case is already
-            # explained above, in terms specific to the collection. Without the
-            # marker the run would show two stacked failure blocks saying
-            # roughly the same thing.
             touch handled-failure.marker
 
             echo "::error title=Alert summary failed::$status - $detail"
@@ -220,7 +171,6 @@ jobs:
           accts=$(printf '%s' "$summary"  | jq -r '.account_count')
           suspect=$(printf '%s' "$summary" | jq -r '.suspect_unfiltered')
 
-          # Share of the tenant, so a bare number has context.
           pct=$(awk -v t="$total" -v n="$tenant" 'BEGIN { if (n > 0) printf "%.1f", (t / n) * 100; else print "0.0" }')
 
           {
@@ -239,21 +189,14 @@ jobs:
             echo
             echo "| Severity | Count |"
             echo "|---|---|"
-            # Severity order is spelled out rather than sorted. Inside
-            # `sort_by(...)` the `.` is the array being indexed, not the element,
-            # so `index(.key)` raises "Cannot index array with string" - caught
-            # by dry-running this step against a real plan. Driving the fixed
-            # order directly is also what a reader expects: critical first.
+            # Fixed order (critical first) - jq `.` inside sort_by/select is the
+            # array, not the element, so index(.key) breaks; bind $s/$k first.
             printf '%s' "$summary" | jq -r '
               . as $s
               | ["critical","high","medium","low","informational"][]
               | select($s.by_severity[.] != null)
               | "| \(.) | \($s.by_severity[.]) |"'
 
-            # Anything outside the known list still gets shown, so the table can
-            # never silently omit alerts. The known list is bound to $k FIRST:
-            # inside `select(...)` the `.` is the entry, so referring to the
-            # literal array there hits the same rebinding problem as above.
             printf '%s' "$summary" | jq -r '
               ["critical","high","medium","low","informational"] as $k
               | .by_severity
@@ -270,12 +213,7 @@ jobs:
               echo
             fi
 
-            # ---------------- Critical alert detail ----------------
-            #
-            # ONLY critical is rendered here, regardless of how many severities
-            # were fetched. Everything fetched lands in the JSON artifact. On a
-            # collection with thousands of alerts a full table would bury the
-            # counts above, which are the point of this page.
+            # Only critical is rendered here; everything fetched lands in the artifact.
             if [ "$detail_status" = "ok" ]; then
               crit_total=$(printf '%s' "$detail_json" | jq -r '[.rows[] | select(.severity == "critical")] | length')
 
@@ -289,8 +227,6 @@ jobs:
 
                 echo "| Policy | Resource | Type | Account | Region |"
                 echo "|---|---|---|---|---|"
-                # Long policy names are truncated so the table stays readable;
-                # the untruncated value is in the artifact.
                 printf '%s' "$detail_json" | jq -r --argjson n "$shown" '
                   [.rows[] | select(.severity == "critical")][:$n][]
                   | "| \(.policy // "-" | if length > 70 then .[0:67] + "..." else . end) | \(.resource // "-") | \(.type // "-") | \(.account // "-") | \(.region // "-") |"'
@@ -302,9 +238,6 @@ jobs:
                 fi
               fi
 
-              # Any non-critical severities were fetched but deliberately not
-              # rendered. Say so explicitly - otherwise this page looks like it
-              # is missing data the user asked for.
               other=$(printf '%s' "$detail_json" | jq -r '[.by_severity | to_entries[] | select(.key != "critical") | "\(.key): \(.value)"] | join(", ")')
               if [ -n "$other" ]; then
                 echo "_Also fetched (in the JSON artifact only): $other._"
@@ -316,9 +249,6 @@ jobs:
                 matching=$(printf '%s' "$detail_json" | jq -r '.total_matching')
                 reason=$(printf '%s' "$detail_json" | jq -r '.stop_reason // "unknown"')
 
-                # "We capped it deliberately" and "the API stopped early on us"
-                # are different situations and must not read the same. Only the
-                # first is expected; the others mean rows are missing.
                 if [ "$reason" = "cap" ]; then
                   echo "> **Detail was capped.** Fetched $fetched of $matching matching alerts (detail_limit)."
                   echo "> Raise \`detail_limit\` to see more."
@@ -344,10 +274,6 @@ jobs:
             printf '%s' "$scope" | jq .
             echo '```'
             echo
-            echo "A collection cannot be passed to the alerts API directly - it is"
-            echo "translated into its cloud accounts. This shows that translation,"
-            echo "so an unexpected count can be traced to the scope that produced it."
-            echo
             echo "</details>"
             echo
             if [ "$detail_status" = "not_requested" ]; then
@@ -366,9 +292,6 @@ jobs:
           echo "===== scope ====="
           printf '%s' "$scope" | jq .
 
-          # The artifact carries EVERY fetched severity, not just the critical
-          # rows rendered above. That split is the whole point: the summary page
-          # stays readable, and the full data is still one download away.
           printf '%s' "$plan_json" | jq '{
             status:        .output_changes.alert_summary_status.after,
             status_detail: .output_changes.alert_summary_status_detail.after,
@@ -381,18 +304,9 @@ jobs:
           echo "===== artifact ====="
           echo "bytes=$(wc -c < alert-summary.json) detail_rows=$(jq '.detail.fetched // 0' alert-summary.json)"
 
-      # Runs ONLY when something above failed.
-      #
-      # Every other step writes to the summary page on the success path, so a
-      # failed run used to produce a completely blank summary - a red X and
-      # nothing else, forcing the user into the raw logs to discover something
-      # as mundane as a mistyped number. Terraform's variable-validation
-      # messages are good; they were just invisible.
       - name: Report failure
         if: failure()
         run: |
-          # The render step explains a resolved-but-unusable collection better
-          # than this generic block can, and marks it handled.
           if [ -f handled-failure.marker ]; then
             echo "Failure already reported on the summary page."
             exit 0
@@ -408,15 +322,11 @@ jobs:
             echo
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # Quote the actual Terraform error when we captured one. Input
-          # validation failures land here and are usually self-explanatory.
           if [ -f plan-output.txt ] && grep -q "Error:" plan-output.txt; then
             {
               echo "### What went wrong"
               echo
               echo '```'
-              # Trim to the first error and a few lines of context - the full
-              # plan output is long and the first error is the actionable one.
               grep -m1 -A8 "Error:" plan-output.txt
               echo '```'
               echo
@@ -441,9 +351,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
-        # NOT always(): the artifact is written by the render step, so on an
-        # earlier failure the path does not exist and upload-artifact prints
-        # "No files were found" - a spurious warning stacked on the real error.
         if: success()
         uses: actions/upload-artifact@v4
         with:

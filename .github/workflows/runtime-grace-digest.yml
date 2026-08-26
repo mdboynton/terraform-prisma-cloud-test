@@ -1,34 +1,17 @@
 name: 8. Runtime Grace Digest
 
-# Answers "which runtime rules are STILL FIRING?" — grouped by rule, workload
-# scope and cloud account, with occurrence counts.
+# "Which runtime rules are STILL FIRING?" - grouped by rule, workload scope,
+# cloud account, with occurrence counts. Reports RECURRENCE, not age: a runtime
+# incident is an event, not a resolvable state - "older than N days" trends to
+# everything ever recorded (measured 14,398 of 14,410). A fixed workload stops
+# firing, so recurrence clears itself.
 #
-# THIS REPORTS RECURRENCE, NOT AGE.
+# READ-ONLY on the tenant: module has data blocks only. Workflow 9 is the
+# gated writer, fully decoupled.
 #
-# The original ask was "escalate a rule if a finding goes unresolved for 14
-# days". That works for a vulnerability — the CVE is present until patched —
-# but not for a runtime finding. A runtime incident is a timestamped EVENT: it
-# happened, and no API call makes it un-happen. There is no "resolved" state to
-# age against and incidents never expire from the store, so "older than N days"
-# trends toward everything ever recorded (measured: 14,398 of 14,410) and only
-# really reports whether somebody clicked acknowledge.
-#
-# So this workflow asks the answerable question instead. A fixed workload stops
-# firing, so the signal clears itself.
-#
-# IT CHANGES NOTHING IN THE TENANT. The runtime-grace-digest module contains
-# only Terraform `data` blocks — no `resource` blocks — so no run of this
-# workflow can alter a policy, a rule or an alert. The gated escalator that
-# does write is workflow 9, and the two are fully decoupled.
-#
-# ⚠️ IT CAN, HOWEVER, SEND EMAIL — and that is the one irreversible thing here.
-#
-# The `send` job mails the grace warnings. It is off unless someone dispatches
-# the workflow with `send_warnings`, it can never run on the schedule, and it
-# sits behind an environment approval. Every message goes to a single override
-# recipient; the real owner addresses travel in the body for review only. See
-# the "Sending" section of the README for the full list of gates and why each
-# one exists.
+# ⚠️ CAN SEND EMAIL - the one irreversible thing here. `send` job needs
+# `send_warnings`, never runs on schedule, sits behind an environment approval.
+# Every message goes to a single override recipient. See README "Sending".
 #
 # Docs: .github/workflows/runtime-grace-digest/README.md
 #
@@ -40,13 +23,8 @@ on:
   workflow_dispatch:
     inputs:
       window_days:
-        # A choice, not free text: a typo like "1O" would only surface as a
-        # Terraform variable-validation error partway through the run.
-        #
-        # The long options exist because a tenant's backlog can be older than
-        # six months - measured on the reference tenant, 0 open alerts in 14
-        # days but 111 across all time. Capping at 180 made that backlog
-        # unreachable from this form.
+        # Long options exist because a backlog can exceed 180d - measured 0
+        # open in 14d, 111 in all-time.
         description: "Recurrence window. A rule that produced an incident inside this many days is 'still firing'."
         type: choice
         default: "14"
@@ -78,21 +56,9 @@ on:
           - "5000"
           - "10000"
       severities:
-        # A CHOICE, AND NOT NEGOTIABLE.
-        #
-        # Every other input uses a choice because a typo would surface as a
-        # Terraform validation error partway through the run. This one is
-        # different in kind: `policy.severity` FAILS OPEN. Measured live, an
-        # unrecognised value ("nonsense", or "High" with a capital H) returns
-        # HTTP 200 and EVERY severity in the tenant, at a count that looks
-        # perfectly reasonable. A free-text box here would let one typo widen a
-        # blocking campaign to the whole estate with nothing in the report
-        # saying so.
-        #
-        # The comma-joined spelling is absent from these options for the same
-        # reason - "high,critical" as a single value is silently ignored, and
-        # the multi-value form is two separate filter objects. See the module
-        # README and digest.sh.
+        # `policy.severity` FAILS OPEN - unrecognised value returns HTTP 200 and
+        # EVERY severity. Choice only. Comma-joined form absent: silently
+        # ignored server-side; see digest.sh for the repeated-object form.
         description: "Restrict to alerts promoted by a policy of this severity. 'all severities' is the default and applies NO filter."
         type: choice
         default: "all severities"
@@ -120,34 +86,16 @@ on:
         type: string
         default: ""
       send_warnings:
-        # THE ONLY SWITCH IN THIS REPO THAT CONTACTS A HUMAN BEING.
-        #
-        # Every other dangerous control here changes the tenant, and a wrong
-        # write is undone by another write. A sent email cannot be recalled.
-        #
-        # Default false, and false is also what a scheduled run gets: sending
-        # is a decision someone takes, not something a cron drifts into. It
-        # additionally requires plan_warnings, an environment approval, and a
-        # re-check of the addressing after that approval - see the `send` job.
+        # Only switch in this repo that contacts a human - a sent email can't
+        # be recalled. Off by default (also on schedule). Requires
+        # plan_warnings + environment approval + re-check post-approval (see `send` job).
         description: "ACTUALLY SEND the grace warning emails. Requires plan_warnings. Every message goes to the fixed override recipient, never to the real owners. Off by default and never on for scheduled runs."
         type: boolean
         default: false
 
-  # DAILY, not weekly.
-  #
-  # The reminder schedule is a set of exact days - 1, 3, 5, 7, 10, 13 of a
-  # 14-day grace - matched against each finding's age. A weekly cron can only
-  # ever observe two of those: whichever weekday it runs on lands on days 7 and
-  # 14 for a finding first seen that same weekday, and misses the rest entirely.
-  # Day 3 and day 10 are mid-week by construction. So the cadence the campaign
-  # promises is only deliverable by looking every day.
-  #
-  # Running daily does NOT mean mailing daily. The plan is a pure function of
-  # age: on most days a given group is mid-period and `notify_today` is false,
-  # so the run reports and does nothing. The cost is one read-only pass over
-  # the alerts API.
-  #
-  # 08:00 UTC, before the working week starts in most of the covered regions.
+  # Daily, not weekly: reminder days (1,3,5,7,10,13) are exact and a weekly
+  # cron only ever lands on two of them. Daily != mailing daily - most days the
+  # plan is a no-op (age-based). 08:00 UTC.
   schedule:
     - cron: "0 8 * * *"
 
@@ -175,63 +123,30 @@ env:
   TF_VAR_runtime_grace_digest_alert_status: ${{ inputs.alert_status || 'open' }}
   TF_VAR_runtime_grace_digest_max_alerts: ${{ inputs.max_alerts || '2000' }}
 
-  # NOT set here, unlike every other input above. A `list(string)` TF_VAR has to
-  # be a JSON literal - `["high"]`, not `high` - and the dropdown shows a human
-  # label instead. The translation happens in the "Resolve severity filter" step
-  # below, which is also where the label-to-JSON mapping can be commented.
-  #
-  # The default is deliberately the empty list, i.e. NO filter. Defaulting to
-  # high+critical would quietly narrow the digest, and the reference tenant
-  # promotes everything as `high`, so the narrowing would be invisible here and
-  # would only bite on a tenant with custom promoting policies.
+  # list(string) TF_VAR needs a JSON literal; "Resolve severity filter" step
+  # below translates the dropdown label. Default [] (no filter) - the
+  # reference tenant promotes everything as `high`, so a narrower default
+  # would be invisible here and only bite tenants with custom promoting policies.
 
-  # Grace warning planning. Still off on the SCHEDULE, and the reason has
-  # changed - it is now a hard dependency rather than a safety decision.
-  #
-  # THE SAFETY ARGUMENT IS SETTLED. The send job cannot run on a scheduled
-  # event at all (see "Decide whether to send"), so a planning cron can no
-  # longer be one config change away from mailing anybody. That was the
-  # original reason this stayed off, and it no longer applies.
-  #
-  # WHAT BLOCKS IT NOW: `campaign_start_date` has no default, deliberately -
-  # today would restart every countdown on every run, and a fixed past date
-  # would tell owners their grace expired before anyone told them it existed.
-  # A scheduled run therefore passes an empty date, and the module's
-  # `should_plan` requires `campaign_start_set`, so planning would report
-  # `no_campaign_start` and compute nothing. Setting this to `true` here would
-  # produce a daily run that LOOKS like it is running the campaign and is in
-  # fact doing nothing - worse than being visibly off.
-  #
-  # To put the campaign on the cron, the start date has to become a committed
-  # value (a repository variable, say) rather than a per-run input. That is a
-  # decision about the campaign, not a workflow tweak, so it is not made here.
+  # plan_warnings off on schedule: `campaign_start_date` has no default (today
+  # would restart every countdown; a fixed past date ambushes owners), so a
+  # scheduled run reports no_campaign_start and computes nothing. To put the
+  # campaign on the cron, the start date needs to become a committed repo
+  # variable - a campaign decision, not a workflow tweak.
   TF_VAR_runtime_grace_digest_notify_enabled: ${{ inputs.plan_warnings || 'false' }}
   TF_VAR_runtime_grace_digest_grace_days: ${{ inputs.grace_days || '14' }}
 
-  # Left at the module default [1,3,5,7,10,13] rather than being exposed as a
-  # dispatch input. The schedule is a property of the CAMPAIGN, agreed once -
-  # not something to vary per run, where changing it would silently move
-  # everyone's reminder days mid-flight. Changing it is a code review.
+  # Reminder days left at module default [1,3,5,7,10,13] - a campaign property,
+  # not a per-run input.
 
-  # No fallback value on purpose. An empty string leaves the module in
-  # `no_campaign_start`, which reports what is missing; any default here would
-  # silently pick a clock. Today would restart every countdown on every run so
-  # nothing ever escalates; a fixed past date would tell owners their grace
-  # period expired before they were told it existed.
+  # No fallback: empty leaves the module in no_campaign_start rather than
+  # silently picking a clock.
   TF_VAR_runtime_grace_digest_campaign_start_date: ${{ inputs.campaign_start_date }}
 
-  # EVERY PLANNED WARNING IS ADDRESSED HERE, always, no exceptions.
-  #
-  # This is not a dry-run toggle that someone can flip. The module has no send
-  # path at all - no SMTP client, no webhook, no mail command - so this value is
-  # only ever rendered into a report. It exists so the addressing can be
-  # reviewed before a send path is written, because the owner addresses read
-  # from the alerts are live mailboxes of real people, including external ones,
-  # and a sent email cannot be recalled.
+  # Every planned warning is addressed here, always. Module has no send path
+  # at all (no SMTP client) - exists so addressing can be reviewed before send exists.
   TF_VAR_runtime_grace_digest_warning_recipient: "tule@paloaltonetworks.com"
 
-  # Everything else off: this workflow asks one question and should not pay for
-  # unrelated API calls.
   TF_VAR_alert_summary_enabled: "false"
   TF_VAR_compute_alert_summary_enabled: "false"
   TF_VAR_access_audit_enabled: "false"
@@ -247,20 +162,12 @@ jobs:
     name: Report runtime rules still firing
     runs-on: ubuntu-latest
 
-    # One paged query against the alerts API. The slowest measured run was a few
-    # seconds; 20 minutes covers a large window on a rate-limited tenant.
     timeout-minutes: 20
 
     outputs:
-      # Whether the SEND job should run at all. Computed from the plan data
-      # rather than from the inputs, so a run that asked to send but planned
-      # nothing does not reach the gate and does not ask anyone to approve an
-      # empty mailing.
       emails_today: ${{ steps.sendgate.outputs.emails_today }}
       should_send:  ${{ steps.sendgate.outputs.should_send }}
-
-      # How many groups have reached day 14 and CAN be escalated. Drives the
-      # escalation-plan job, which calls workflow 9 in its read-only mode.
+      # Day-14 groups escalatable; drives escalation-plan's call into workflow 9.
       esc_ready:    ${{ steps.sendgate.outputs.esc_ready }}
 
     steps:
@@ -276,24 +183,8 @@ jobs:
         run: terraform init -input=false
 
       - name: Resolve severity filter
-        # Translates the dropdown label into the JSON list a `list(string)`
-        # TF_VAR requires. `high` on its own is not valid HCL for a list and
-        # Terraform would reject it, so the JSON form is mandatory.
-        #
-        # `inputs.severities` is EMPTY on a scheduled run, and the `*)` arm
-        # below turns that into `[]` - no filter, the whole population. That is
-        # the right default for a digest: the weekly report should describe
-        # everything that is firing, not a slice of it.
-        #
-        # Two severities become TWO filter objects downstream, never the
-        # comma-joined string "high,critical" - that spelling is silently
-        # ignored by the API and returns every severity. digest.sh builds the
-        # repeated form and asserts on the response; this step only picks the
-        # set.
-        #
-        # The label is matched against a closed set and anything unrecognised
-        # falls through to `[]`, so nothing typed here can reach the API as a
-        # severity value.
+        # `*)` arm -> [] on a scheduled run (inputs.severities is empty) - no
+        # filter, the whole population.
         env:
           SEVERITY_CHOICE: ${{ inputs.severities }}
         run: |
@@ -308,28 +199,14 @@ jobs:
 
       - name: Read runtime incident recurrence
         id: plan
-        # -target keeps this to the digest module, so no other module is
-        # evaluated and no unrelated API calls are made.
-        #
-        # Output is teed to a file so the failure step below can quote the real
-        # error on the summary page rather than leaving it in the raw log.
         run: |
           set -o pipefail
           terraform plan -input=false -no-color \
             -target=module.runtime_grace_digest -out=tfplan 2>&1 | tee plan-output.txt
 
       - name: Render report
-        # NOTHING IS INTERPOLATED INTO THIS SCRIPT. There is deliberately no
-        # `${{ }}` in the body: interpolation pastes a raw string in before bash
-        # parses it, so a crafted input could execute. The window and status
-        # shown in the report are read out of the plan data instead, which is
-        # both injection-free and the value that was actually queried.
+        # No ${{ }} interpolation in the body - a crafted input could execute.
         env:
-          # The address every planned warning must be addressed to, passed as an
-          # ENV VAR rather than interpolated into the body, for the reason
-          # above. Same value the module is given, so the assertion below
-          # compares the plan against the workflow's own intent rather than
-          # against a second copy of the address that could drift from it.
           WARNING_RECIPIENT: ${{ env.TF_VAR_runtime_grace_digest_warning_recipient }}
         run: |
           # Reads the PLAN file, not state: state is empty on a plan-only run,
@@ -368,9 +245,6 @@ jobs:
               echo "**Do not read this as \"nothing is firing\".** Nothing was checked."
             } >> "$GITHUB_STEP_SUMMARY"
 
-            # Tells the failure step to stay quiet: this case is already
-            # explained above. Without the marker the run shows two stacked
-            # failure blocks saying roughly the same thing.
             touch handled-failure.marker
 
             echo "::error title=Runtime grace digest failed::$status - $detail"
@@ -386,18 +260,9 @@ jobs:
           occurrences=$(printf '%s' "$summary" | jq -r '.occurrences')
           unnamed=$(printf     '%s' "$summary" | jq -r '.unnamed_rule_alerts')
 
-          # What was actually queried, as reported by the module.
           window_days=$(printf   '%s' "$summary" | jq -r '.window_days')
           status_filter=$(printf '%s' "$summary" | jq -r '.alert_status')
 
-          # The severity scope, rendered for the header line below.
-          #
-          # This has to be VISIBLE. A filtered digest and an unfiltered one look
-          # identical apart from the counts, and nobody can tell a small number
-          # caused by a narrow filter from a small number caused by a quiet
-          # tenant. Saying "all severities" out loud is the point - it stops a
-          # reader assuming the campaign's high/critical scope was applied when
-          # it was not.
           sev_list=$(printf '%s' "$summary" | jq -r '(.severities // []) | join(", ")')
           if [ -z "$sev_list" ]; then
             severity_filter="all severities"
@@ -407,14 +272,8 @@ jobs:
 
           rule_count=$(printf '%s' "$rules" | jq -r 'length')
 
-          # WHEN THE FETCH WAS CAPPED, THE GROUPED NUMBERS DESCRIBE THE SAMPLE,
-          # NOT THE TENANT — and the warning has to come BEFORE them.
-          #
-          # `distinct_rules` and `occurrences` are computed from the alerts that
-          # were actually fetched, so a cap makes them undercounts; only
-          # `alerts_in_window` and `alerts_all_time` are server-side totals. A
-          # caveat printed under the table arrives after the reader has already
-          # taken "Rules still firing" as a tenant fact.
+          # Capped fetch -> grouped numbers describe the sample, not the
+          # tenant; warning must come before the table.
           if [ "$complete" != "true" ]; then
             {
               echo "## Runtime grace digest"
@@ -432,10 +291,6 @@ jobs:
             sampled=""
           fi
 
-          # Window and status come from the PLAN DATA, not from the workflow
-          # inputs: the report must state what was actually queried. Echoing the
-          # input back would still print "last 14 days" if the value reaching
-          # Terraform ever diverged from the one reaching this script.
           {
             echo
             echo "**Window:** last ${window_days} days · **Status filter:** \`${status_filter}\` · **Severity:** \`${severity_filter}\`"
@@ -478,9 +333,6 @@ jobs:
             fi
           fi
 
-          # The built-in learned model is not a named rule and cannot be
-          # escalated by name, so it is excluded from the table above. Saying so
-          # explains a gap between "incidents in window" and the table's total.
           if [ "$unnamed" -gt 0 ]; then
             {
               echo
@@ -489,18 +341,8 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # ------------------------------------------------------------------
-          # The grace warning PLAN.
-          #
-          # NOTHING IS SENT. This renders who WOULD be told that a rule is
-          # heading for escalation, so the addressing can be reviewed before a
-          # send path exists.
-          #
-          # Owner addresses are deliberately NOT printed here. They are live
-          # mailboxes of real people, including external ones, and a job summary
-          # is visible to everyone with repo read access. The COUNT is what a
-          # reviewer needs; the addresses live in the artifact.
-          # ------------------------------------------------------------------
+          # The grace warning PLAN. Nothing is sent. Owner addresses are NOT
+          # printed here (summary page is repo-wide readable) - counts only.
           if [ "$notify_status" != "disabled" ]; then
             {
               echo
@@ -557,10 +399,6 @@ jobs:
                 echo "| Most recipients on a single group | $w_maxrcpt |"
               } >> "$GITHUB_STEP_SUMMARY"
 
-              # A reminder that is due but cannot be delivered is the quiet
-              # failure this campaign has to avoid: the countdown continues,
-              # the rule is escalated on day 14, and the owner was never told
-              # because the alert carried no address to tell.
               if [ "$w_due" -gt "$w_duerout" ]; then
                 {
                   echo
@@ -572,34 +410,12 @@ jobs:
                 } >> "$GITHUB_STEP_SUMMARY"
               fi
 
-              # ----------------------------------------------------------
-              # DAY 14 — the handoff to workflow 9.
-              #
-              # ⚠️ READS THE PLAN OUTPUTS, NOT runtime-grace-digest.json.
-              #
-              # This section runs at ~line 588. The artifact is not written
-              # until ~line 823, further down this same step. An earlier
-              # version of this block read the artifact, and because GitHub
-              # `run:` blocks execute under `bash -e`, the missing file
-              # aborted the ENTIRE render step - no summary, no artifact, exit
-              # 2. Caught by test_render.sh and test_artifact.sh, which run
-              # the whole step; the day-14 unit test missed it completely
-              # because it feeds the block a fixture file and so never sees
-              # the ordering.
-              #
-              # `$plan_json` is already in scope and is the same data the
-              # artifact is built from, so the page and the artifact still
-              # cannot disagree.
-              #
-              # WHY THIS IS A LIST AND NOT A BUTTON. Workflow 9 escalates an
-              # EFFECT SITE - {kind, rule, site, effect}. A container rule has
-              # 27 independent effect sites, a host rule 19, and MEASURED
-              # against 100 promoted alerts there are ZERO effect keys at any
-              # depth: enforcement state does not survive promotion. So the
-              # alert names the rule but cannot say which control should start
-              # blocking. Filling `site` in automatically would be choosing at
-              # random which production control begins denying traffic.
-              # ----------------------------------------------------------
+              # DAY 14 handoff to workflow 9. ⚠️ Reads plan outputs, NOT the
+              # artifact (written later in this same step; a missing file
+              # under `bash -e` would abort the whole render). List, not a
+              # button: escalation targets an EFFECT SITE and zero effect keys
+              # survive alert promotion (measured, 100 alerts) - filling
+              # `site` automatically would pick a control at random.
               esc_handoff="$(printf '%s' "$plan_json" | jq -c '(.output_changes.runtime_grace_digest_escalation_handoff.after   // [])')"
               esc_blocked="$(printf '%s' "$plan_json" | jq -c '(.output_changes.runtime_grace_digest_escalation_blocked.after   // [])')"
               esc_ambigl="$(printf '%s' "$plan_json" | jq -c '(.output_changes.runtime_grace_digest_escalation_ambiguous.after // [])')"
@@ -684,9 +500,6 @@ jobs:
                 fi
               fi
 
-              # Day 0 is max(firstSeen, campaign_start_date), so a backlog no
-              # longer arrives pre-expired. Reaching this state now means the
-              # campaign start itself is more than grace_days in the past.
               if [ "$notify_status" = "all_overdue" ]; then
                 {
                   echo
@@ -700,7 +513,6 @@ jobs:
                 } >> "$GITHUB_STEP_SUMMARY"
               fi
 
-              # A warning nobody receives is not a warning.
               if [ "$w_unroute" -gt 0 ]; then
                 {
                   echo
@@ -722,9 +534,6 @@ jobs:
                 } >> "$GITHUB_STEP_SUMMARY"
               fi
 
-              # Age distribution, not a bare over/under: on a tenant with a
-              # backlog every candidate is overdue, so a single count says
-              # nothing about urgency.
               msg_count=$(printf '%s' "$warning_msgs" | jq -r 'length')
               if [ "$msg_count" -gt 0 ]; then
                 {
@@ -747,9 +556,6 @@ jobs:
             fi
           fi
 
-          # Equal windowed and all-time counts is what a silently dropped time
-          # filter looks like. The alerts API returns HTTP 200 and the entire
-          # tenant for a filter name it does not recognise.
           if [ "$status" = "suspect_unfiltered" ]; then
             {
               echo
@@ -760,11 +566,6 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          # The opposite failure: a window so narrow it returns nothing while
-          # the tenant is full of alerts. Without this branch an empty window
-          # renders as a clean report - no rows, no warnings - which is exactly
-          # what a healthy tenant looks like. Measured: the 14-day default
-          # returns 0 while the tenant holds 111 all-time.
           if [ "$status" = "empty_window" ]; then
             {
               echo
@@ -794,25 +595,9 @@ jobs:
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          # Full result to the artifact, including fields not rendered above.
-          #
-          # THE WARNING KEYS ARE NOT OPTIONAL EXTRAS. The summary page tells the
-          # reader, under the age table, that "the artifact has all of them,
-          # with recipients" - and for a while that sentence was simply false.
-          # The artifact held summary/scope/rules only, so a reviewer who
-          # followed it found no ages, no days_remaining, no notify_today and
-          # no per-account rollup. The count on the summary page was the only
-          # record of who the campaign intended to contact, and a count is not
-          # reviewable.
-          #
-          # This file is the reviewable record of the campaign's addressing, and
-          # it is what a send path reads. Both need the plan, not a subset of it.
-          #
-          # `// null` on each: the notify outputs are absent from the plan JSON
-          # when planning is off, and jq would otherwise emit nothing for them.
-          # An explicit null distinguishes "planning was disabled" from "planned
-          # and found nobody" - the same not-null-versus-zero distinction the
-          # module's outputs are built around.
+          # `// null`: distinguishes "planning disabled" from "planned, found
+          # nobody" - the artifact is the reviewable record of addressing, not
+          # a subset of it.
           printf '%s' "$plan_json" | jq '{
             summary: .output_changes.runtime_grace_digest.after,
             scope:   .output_changes.runtime_grace_digest_scope.after,
@@ -822,44 +607,23 @@ jobs:
             notify_status_detail: (.output_changes.runtime_grace_digest_notify_status_detail.after // null),
             warning_plan:         (.output_changes.runtime_grace_digest_warning_plan.after         // null),
 
-            # Per RULE GROUP. Carries would_notify - the real owner mailboxes.
+            # Per RULE GROUP - carries would_notify (real owner mailboxes).
             warning_messages: (.output_changes.runtime_grace_digest_warning_messages.after // null),
 
-            # Per ACCOUNT: one entry per email. This is the unit a send path
-            # iterates, and the reason it is here rather than derived later.
+            # Per ACCOUNT - one entry per email, the unit a send path iterates.
             warning_accounts: (.output_changes.runtime_grace_digest_warning_accounts.after // null),
 
-            # THE DAY-14 HANDOFF. What workflow 9 would need, for the groups
-            # whose grace has actually elapsed. Carried in the artifact rather
-            # than only rendered to the summary page, because the summary is
-            # read by a human once and the artifact is what any downstream
-            # automation would consume.
-            #
-            # `site` and `effect` are null on every entry, by design - see the
-            # module. Three separate lists because "overdue" splits into
-            # actionable, un-escalatable and ambiguous, and one combined count
-            # would imply the whole backlog can be acted on.
+            # Day-14 handoff. site/effect null on every entry by design (see
+            # module). Three lists: actionable / un-escalatable / ambiguous.
             escalation_handoff:   (.output_changes.runtime_grace_digest_escalation_handoff.after   // null),
             escalation_blocked:   (.output_changes.runtime_grace_digest_escalation_blocked.after   // null),
             escalation_ambiguous: (.output_changes.runtime_grace_digest_escalation_ambiguous.after // null)
           }' > runtime-grace-digest.json
 
-          # THE ADDRESSING INVARIANT, ASSERTED ON THE FILE THAT WOULD BE SENT.
-          #
-          # Every planned message must be addressed to the override recipient.
-          # That is guaranteed in the module, but this artifact is what a send
-          # path reads, so the guarantee is re-checked HERE, on the actual bytes
-          # - not inferred from the module having been correct upstream.
-          #
-          # It fails the run rather than warning. A warning on a scheduled job
-          # is read by nobody, and the failure mode this guards against is
-          # mailing a real owner by accident, which cannot be undone.
-          # An UNSET expected address makes this check meaningless, and worse
-          # than meaningless: every row would compare unequal to "" and the
-          # correct address would be reported as the violation. Measured
-          # exactly that while wiring it up. So the absence of the value is
-          # itself the error - the check refuses to run blind rather than
-          # producing a confident wrong answer.
+          # Addressing invariant, re-checked on the actual artifact bytes -
+          # not inferred from the module having been correct upstream. Fails
+          # the run (a warning on a scheduled job is read by nobody). Unset
+          # expected address is itself the error - refuses to compare against "".
           if [ -z "${WARNING_RECIPIENT:-}" ]; then
             echo "::error title=Cannot verify addressing::WARNING_RECIPIENT is empty, so the override recipient cannot be checked. Refusing to produce a send-path artifact that has not been verified."
             touch handled-failure.marker
@@ -883,26 +647,11 @@ jobs:
           fi
 
           echo "===== artifact ====="
-          # `wc -c` pads with spaces on some platforms; strip them so the log
-          # line reads "bytes=1234" rather than "bytes=     1234".
           echo "bytes=$(wc -c < runtime-grace-digest.json | tr -d ' ')"
 
-      # Decides whether the SEND job runs. Every condition is ANDed, and each
-      # is here because its absence is a way to mail somebody by accident:
-      #
-      #   event    - a SCHEDULED run must never send. Sending is a decision a
-      #              person takes. This is what makes it safe to turn
-      #              plan_warnings on for the cron: the daily job can compute
-      #              who is due and still be structurally unable to tell them.
-      #   input    - the operator asked for it explicitly, on this run.
-      #   planned  - warnings were actually planned. Without this a run with
-      #              send_warnings on and plan_warnings off would reach the
-      #              approval gate with nothing behind it.
-      #   count    - there is at least one email. Nobody should be asked to
-      #              approve a mailing of zero.
-      #
-      # The environment approval on the send job is a fifth condition, and the
-      # re-verification inside that job is a sixth.
+      # 4 ANDed conditions: event=dispatch (schedule never sends), input
+      # requested, warnings planned, emails_today>0. Environment approval is a
+      # 5th; re-verification in `send` is a 6th.
       - name: Decide whether to send
         id: sendgate
         env:
@@ -912,25 +661,11 @@ jobs:
           emails_today="$(jq -r '.warning_plan.emails_today // 0' runtime-grace-digest.json)"
           notify_status="$(jq -r '.notify_status // "disabled"' runtime-grace-digest.json)"
 
-          # ------------------------------------------------------------------
-          # WHY THREE MORE VALUES ARE READ HERE
-          #
-          # `emails_today == 0` has THREE distinct causes and the zero alone
-          # cannot tell them apart:
-          #
-          #   a) NO PLAN AT ALL      - warning_plan is null. Normally
-          #      `no_campaign_start`: planning ran but had no day 0 to measure
-          #      from, so it computed nothing. due_today is 0 because nothing
-          #      was ever evaluated, NOT because nothing is due.
-          #   b) NOTHING DUE         - due_today == 0. No group's age_days
-          #      landed on a reminder day. A genuinely quiet day.
-          #   c) DUE BUT UNSENDABLE  - due_today > 0 and every account rolled
-          #      up from those groups carries no owner address.
-          #
-          # An earlier version of this step printed (b) unconditionally. Under
-          # (a) that sends the reader hunting for findings when the real answer
-          # is an unset input; under (c) it reports a quiet day when people ARE
-          # due a warning today and nobody is being told - the exact silent
+          # emails_today==0 has 3 causes the zero alone can't distinguish:
+          # (a) no plan at all - warning_plan null, no_campaign_start
+          # (b) nothing due - due_today==0, genuinely quiet
+          # (c) due but unsendable - due_today>0, no owner address to send to.
+          # (c) especially must not read as (b), the exact silent
           # delivery gap this campaign exists to prevent.
           # ------------------------------------------------------------------
           due_today="$(jq -r '.warning_plan.due_today // 0' runtime-grace-digest.json)"
@@ -1014,15 +749,9 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Runs ONLY when something above failed. Every other step writes to the
-      # summary page on the success path, so without this a failed run produces
-      # a blank summary — a red X and nothing else. That matters more here than
-      # elsewhere: this workflow runs on a schedule, so nobody is watching.
       - name: Report failure
         if: failure()
         run: |
-          # The render step explains a disabled/uncredentialed run better than
-          # this generic block can, and marks it handled.
           if [ -f handled-failure.marker ]; then
             echo "Failure already reported on the summary page."
             exit 0
@@ -1040,10 +769,6 @@ jobs:
               echo "### What went wrong"
               echo
 
-              # The actionable sentence comes from the script, and Terraform
-              # prints it as "Error Message:" roughly fourteen lines below the
-              # "Error:" header — past any fixed -A window. Hoist it, then show
-              # the surrounding context underneath.
               script_msg="$(grep -m1 '^Error Message:' plan-output.txt || true)"
               if [ -n "$script_msg" ]; then
                 echo "**${script_msg#Error Message: }**"
@@ -1075,9 +800,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload report
-        # NOT always(): the artifact is written by the render step, so on an
-        # earlier failure the path does not exist and upload-artifact prints
-        # "No files were found" — a spurious warning stacked on the real error.
         if: success()
         uses: actions/upload-artifact@v4
         with:
@@ -1086,27 +808,10 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-  # ---------------------------------------------------------------------------
-  # THE ONLY JOB IN THIS REPO THAT CONTACTS A HUMAN BEING.
-  #
-  # It is a separate job, not a step, for one reason: `environment:` gates a
-  # JOB. A step cannot wait for approval, so a send bolted onto the digest job
-  # would run the moment the plan finished.
-  #
-  # Everything else in this repository writes to the tenant, and a wrong write
-  # is undone by another write. An email is not undoable. So the gates are:
-  #
-  #   1. `plan_warnings` on           (there is a plan at all)
-  #   2. `send_warnings` on           (asked for, explicitly)
-  #   3. workflow_dispatch only       (never a scheduled run)
-  #   4. emails_today > 0             (there is something to send)
-  #   5. environment approval         (a second human)
-  #   6. re-verification below        (the plan is re-checked AFTER approval)
-  #
-  # Gate 6 exists because approving an environment does NOT re-run the checks
-  # from the plan job. Without it, an approver clicking through hours later
-  # would release whatever the artifact happened to contain.
-  # ---------------------------------------------------------------------------
+  # Only job in this repo that contacts a human. Separate job, not step:
+  # `environment:` gates a JOB, not a step. Gates 1-4 are ANDed in sendgate
+  # above; 5 is the environment approval; 6 is the re-verification below
+  # (approving an environment does not re-run the plan job's checks).
   send:
     name: Send the grace warnings (gated)
     needs: digest
@@ -1116,13 +821,8 @@ jobs:
       name: grace-warning-send
     timeout-minutes: 15
 
-    # OVERRIDES the workflow-level `working-directory: terraform`.
-    #
-    # That default exists because every other job runs Terraform. This job runs
-    # none, and `download-artifact` ignores `defaults.run` anyway - it unpacks
-    # to the workspace ROOT. Inheriting the default would leave every step in
-    # this job looking in `terraform/` for a file sitting one level up, and the
-    # first symptom would be a jq parse error rather than a missing file.
+    # Overrides workflow-level working-directory: terraform - this job runs no
+    # Terraform, and download-artifact unpacks to the workspace root anyway.
     defaults:
       run:
         working-directory: .
@@ -1133,15 +833,8 @@ jobs:
         with:
           name: runtime-grace-digest
 
-      # RE-VERIFICATION AFTER APPROVAL.
-      #
-      # The addressing was already asserted in the digest job, before the
-      # artifact was uploaded. It is asserted AGAIN here, on the bytes that
-      # actually arrived, because between those two points sit an artifact
-      # round-trip and a human approval that can be granted hours later.
-      #
-      # Re-checking costs nothing. Not re-checking means the last word on who
-      # gets mailed was said by a step that ran before anyone looked at it.
+      # Re-verification after approval: re-asserted on the bytes that actually
+      # arrived post-round-trip, not assumed from the digest job's earlier check.
       - name: Verify the addressing before sending
         env:
           WARNING_RECIPIENT: ${{ env.TF_VAR_runtime_grace_digest_warning_recipient }}
@@ -1151,8 +844,6 @@ jobs:
             exit 1
           fi
 
-          # Same shape as the digest-job assertion, deliberately: a divergence
-          # between the two would mean one of them is not testing what it says.
           bad="$(jq -r --arg p "$WARNING_RECIPIENT" '
             [ (.warning_accounts // [])[] | select(.recipient != $p) | .recipient ]
             | unique | join(", ")' runtime-grace-digest.json)"
@@ -1161,17 +852,13 @@ jobs:
             exit 1
           fi
 
-          # `would_notify` holds REAL owner mailboxes and must never become a
-          # To: header. Proven here rather than assumed from the send step
-          # reading the right field, because that is a one-character mistake.
           n="$(jq -r '[.warning_accounts[]? | select(.routable)] | length' runtime-grace-digest.json)"
           [ "$n" -gt 0 ] || { echo "::error::Nothing routable to send."; exit 1; }
 
           echo "Verified: $n message(s), all addressed to $WARNING_RECIPIENT"
 
-      # Builds one file per account. Writing the bodies to disk rather than
-      # into the matrix keeps the real owner addresses out of workflow
-      # expressions, which are echoed into logs.
+      # Bodies to disk, not the matrix - keeps real owner addresses out of
+      # workflow expressions (echoed into logs).
       - name: Compose the messages
         run: |
           mkdir -p outbox
@@ -1183,7 +870,6 @@ jobs:
 
       - name: Send
         env:
-          # Secrets, never interpolated into a script body.
           SMTP_SERVER:   ${{ secrets.SMTP_SERVER }}
           SMTP_PORT:     ${{ secrets.SMTP_PORT }}
           SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
@@ -1192,9 +878,8 @@ jobs:
           WARNING_RECIPIENT: ${{ env.TF_VAR_runtime_grace_digest_warning_recipient }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          # A record of what ACTUALLY went, appended only after the sender
-          # returns 0. The report step below reads THIS, not outbox/ - see
-          # the comment there for why that distinction matters.
+          # What actually went, appended only after the sender returns 0. The
+          # report step reads THIS, not outbox/.
           : > sent.log
 
           for f in outbox/*.json; do
@@ -1202,8 +887,6 @@ jobs:
             days=$(jq -r '.min_days_remaining' "$f")
             rules=$(jq -r '.rule_count' "$f")
 
-            # The REAL owners are named in the BODY, for review, but the
-            # envelope goes to the override recipient only.
             intended=$(jq -r '.would_notify | join(", ")' "$f")
 
             subject="[Action needed] $account: $rules runtime rule(s), $days day(s) before enforcement"
@@ -1234,8 +917,7 @@ jobs:
           msg = EmailMessage()
           msg["Subject"] = subject
           msg["From"] = os.environ["SMTP_FROM"]
-          # THE ONLY PLACE A RECIPIENT IS SET, and it is the override. There is
-          # deliberately no code path here that reads `would_notify`.
+          # Only place a recipient is set - the override, never would_notify.
           msg["To"] = os.environ["WARNING_RECIPIENT"]
           msg.set_content(open(body_path).read())
 
@@ -1243,15 +925,8 @@ jobs:
           port = int(os.environ.get("SMTP_PORT") or 587)
           ctx = ssl.create_default_context()
 
-          # 465 is implicit TLS: the connection is encrypted from the first
-          # byte and there is no STARTTLS to issue. 587 is submission with
-          # STARTTLS - plaintext connect, then upgrade. Calling starttls() on
-          # a 465 connection fails, and hardcoding one of the two would make
-          # SMTP_PORT a setting that silently only works at one value.
-          #
-          # Port 25 is deliberately absent: GitHub-hosted runners block
-          # outbound 25, so a relay that only listens there is unreachable
-          # from here regardless of what this code does.
+          # 465=implicit TLS (SMTP_SSL); 587=STARTTLS. Port 25 absent -
+          # GitHub runners block outbound 25.
           if port == 465:
               conn = smtplib.SMTP_SSL(host, port, timeout=30, context=ctx)
           else:
@@ -1265,24 +940,14 @@ jobs:
           print(f"sent: {subject}")
           PY
 
-            # Reached only if python exited 0. `run:` blocks execute under
-            # `bash -e`, so a failed send aborts the loop here and the
-            # remaining accounts are never attempted - measured, not assumed.
             jq -r '"\(.account)\t\(.min_days_remaining)\t\(.rule_count)"' "$f" >> sent.log
           done
 
       - name: Report what was sent
         if: always()
         run: |
-          # ⚠️ THIS READS sent.log, NOT outbox/.
-          #
-          # outbox/ is what was COMPOSED; sent.log is what was DELIVERED.
-          # Because this step is `if: always()`, it also runs after a failed
-          # send - and it used to iterate outbox/, so a run that died on
-          # message 3 of 5 still printed all five under the heading "sent".
-          # That is a report that lies precisely when it matters most, and
-          # an authentication failure part-way through is the LIKELY first
-          # experience with a new relay, not an exotic edge case.
+          # Reads sent.log (delivered), not outbox/ (composed) - a run that
+          # dies mid-send must not report undelivered messages as sent.
           planned=$(ls outbox/*.json 2>/dev/null | wc -l | tr -d ' ')
           sent=$(wc -l < sent.log 2>/dev/null | tr -d ' '); sent=${sent:-0}
 
@@ -1318,76 +983,37 @@ jobs:
             echo "addresses appear in each body for review and were not used as recipients."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------------------------------------------------------------------------
-  # DAY 14 -> WORKFLOW 9 (read-only)
-  #
-  # When something has used its full grace period AND can actually be
-  # escalated, call workflow 9 in its read-only mode so the candidate effect
-  # sites are enumerated and waiting for a human, rather than someone having
-  # to notice the digest and go run it by hand.
-  #
-  # ⚠️ THIS DOES NOT ESCALATE ANYTHING. Workflow 9's `workflow_call` trigger
-  # declares no escalate_* and no confirm input, so this caller has no way to
-  # name a target or to confirm a write; its apply job additionally refuses to
-  # run for a workflow_call event. Both are asserted by
-  # .testtmp/test_wf9_callable.sh, including under mutation.
-  #
-  # Keeping the flip human is a recorded decision (see
-  # plans/policy-escalation-findings.md, "Workflow 9 must stay human-gated").
-  # For runtime rules the runner IS the enforcement, so an unattended flip can
-  # start blocking production traffic with nobody watching.
-  # ---------------------------------------------------------------------------
+  # Day 14 -> workflow 9 (read-only). Calls workflow 9's read-only mode so
+  # candidate effect sites are enumerated for a human, instead of relying on
+  # someone noticing the digest. ⚠️ Does not escalate anything - workflow_call
+  # declares no escalate_*/confirm inputs, and its apply job refuses
+  # workflow_call events (asserted, .testtmp/test_wf9_callable.sh). Keeping
+  # the flip human-gated: plans/policy-escalation-findings.md.
   escalation_gate:
     name: Check for a pending escalation approval
     needs: digest
     runs-on: ubuntu-latest
     if: needs.digest.outputs.esc_ready != '' && needs.digest.outputs.esc_ready != '0'
-    # ⚠️ THIS JOB HAS NO CHECKOUT, SO IT MUST NOT INHERIT `terraform`.
-    #
-    # The workflow sets `defaults.run.working-directory: terraform`, which
-    # applies to every job. This one only calls the GitHub API and never checks
-    # the repo out, so that directory does not exist and the runner cannot even
-    # START bash:
-    #
-    #   Error: An error occurred trying to start process '/usr/bin/bash' with
-    #   working directory '.../terraform'. No such file or directory
-    #
-    # It fails BEFORE the first line of script, so none of the error handling
-    # in the step can catch it. Set at JOB level, matching the `send` job,
-    # which has the same no-checkout shape and has run in production - so any
-    # step added here later is covered automatically.
+    # ⚠️ No checkout - must not inherit workflow-level working-directory:
+    # terraform, or bash can't even start ("No such file or directory").
     defaults:
       run:
         working-directory: .
     permissions:
       contents: read
-      # Needed to read OTHER workflows' run states. The workflow-level default
-      # is `contents: read` only.
-      actions: read
+      actions: read # to read OTHER workflows' run states
     outputs:
       proceed: ${{ steps.pending.outputs.proceed }}
       waiting: ${{ steps.pending.outputs.waiting }}
     steps:
-      # The working directory is set at JOB level above - see the note there.
       - name: Look for a workflow 9 run already awaiting approval
         id: pending
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # THE REQUESTER'S RULE: "we don't want another gated apply
-          # triggering if the approval is pending."
-          #
-          # A run parked on an environment approval has status `waiting`. If
-          # one exists, a human has already been asked to make this exact
-          # decision and has not answered yet; queueing another plan behind it
-          # adds noise to the same question and makes the daily cron look like
-          # it is nagging.
-          #
-          # ⚠️ FAILS OPEN, DELIBERATELY. If this query fails (token scope, API
-          # blip) we proceed with the READ-ONLY plan rather than skip it. The
-          # thing being suppressed is a duplicate report, not a write - no
-          # escalation can happen on this path either way, so the safe default
-          # is the informative one. `|| true` keeps `bash -e` from aborting.
+          # Fails open, deliberately: a query failure proceeds with the
+          # read-only plan rather than skipping. Suppressing a duplicate
+          # REPORT, not a write, so the safe default is the informative one.
           waiting="$(gh api \
             "/repos/${GITHUB_REPOSITORY}/actions/workflows/runtime-rule-effects.yml/runs?status=waiting&per_page=1" \
             --jq '.total_count' 2>/dev/null || echo "query_failed")"
@@ -1419,14 +1045,10 @@ jobs:
     name: Enumerate escalation targets (read-only)
     needs: [digest, escalation_gate]
     if: needs.escalation_gate.outputs.proceed == 'true'
-    # A reusable-workflow call. It cannot be given `steps`, and it inherits
-    # nothing implicitly - hence `secrets: inherit`, since workflow 9 reads
-    # both the CSPM and the Compute Console credentials.
     uses: ./.github/workflows/runtime-rule-effects.yml
     secrets: inherit
     with:
-      # Match the digest's own window so both workflows describe the same
-      # population. Workflow 9's default is 14 days, which on this tenant
-      # returns nothing - the backlog is older than six months.
+      # Match the digest's own window - workflow 9's 14d default returns
+      # nothing on this tenant (backlog older than 6 months).
       window_days: ${{ inputs.window_days || '14' }}
       alert_status: "open"

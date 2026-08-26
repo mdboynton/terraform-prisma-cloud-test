@@ -1,16 +1,6 @@
 name: 3. Tenant Inventory (read-only)
 
-# Lists tenant-level Prisma Cloud settings and configuration.
-#
-# READ-ONLY BY CONSTRUCTION. The tenant-inventory module contains only
-# Terraform `data` blocks — no `resource` blocks at all — so this workflow
-# cannot create, modify or delete anything in the tenant. There is deliberately
-# NO apply job and NO environment gate, because there is nothing to apply.
-#
-# This is intentionally SEPARATE from terraform.yml: that workflow manages
-# RBAC + compute runtime policies and can apply changes behind an approval
-# gate. Keeping the read-only listing apart means you can inspect the tenant
-# freely without touching the change-capable pipeline.
+# Lists tenant-level Prisma Cloud settings. Read-only: module has data blocks only.
 #
 # Required repository secrets (same as terraform.yml):
 #   PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
@@ -55,12 +45,8 @@ env:
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
 
-  # Turn the inventory module on for this run and pass the chosen scope.
   TF_VAR_tenant_inventory_enabled: "true"
   TF_VAR_tenant_inventory_scope: ${{ inputs.scope }}
-
-  # Keep the compute runtime listing out of this run — it's a separate concern
-  # handled by terraform.yml, and it would add unrelated API calls here.
   TF_VAR_compute_runtime_list_enabled: "false"
 
 defaults:
@@ -84,12 +70,6 @@ jobs:
         run: terraform init -input=false
 
       - name: Read tenant configuration
-        # -target restricts the run to the read-only inventory module, so the
-        # RBAC/compute resources managed by terraform.yml are not evaluated and
-        # their pending changes don't show up as noise here.
-        #
-        # This is still only a PLAN. Even without -target, nothing could be
-        # written: the module has no resources. -target is for signal, not safety.
         run: |
           terraform plan -input=false -no-color \
             -target=module.tenant_inventory \
@@ -117,8 +97,6 @@ jobs:
           fi
 
       - name: Write summary to the run page
-        # Puts the counts on the Actions run summary page so you can read the
-        # result without opening the job log.
         run: |
           plan_json="$(terraform show -json inventory.tfplan)"
           {
@@ -138,7 +116,6 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload inventory JSON
-        # Full machine-readable snapshot, handy for diffing between runs.
         run: terraform show -json inventory.tfplan | jq '.output_changes.tenant_inventory.after' > tenant-inventory.json
 
       - uses: actions/upload-artifact@v4

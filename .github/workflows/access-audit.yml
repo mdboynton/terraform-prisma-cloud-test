@@ -1,12 +1,6 @@
 name: 4. Access Audit (read-only)
 
-# Answers "who has access to this tenant, and how" - roles, user profiles, and
-# permission groups, plus the subset of rows an access review acts on.
-#
-# READ-ONLY BY CONSTRUCTION. The access-audit module contains only Terraform
-# `data` blocks - no `resource` blocks at all - so this workflow cannot create,
-# modify or delete anything. There is deliberately NO apply job and NO
-# environment gate, because there is nothing to apply.
+# Roles, user profiles, permission groups. Read-only: module has data blocks only.
 #
 # Docs: .github/workflows/access-audit/README.md
 #
@@ -63,7 +57,6 @@ env:
   TF_VAR_access_audit_redact_usernames: ${{ inputs.redact_usernames }}
   TF_VAR_access_audit_stale_login_days: ${{ inputs.stale_login_days }}
 
-  # The other areas stay off so this run makes no unrelated API calls.
   TF_VAR_compute_runtime_list_enabled: "false"
   TF_VAR_tenant_inventory_enabled: "false"
 
@@ -88,14 +81,9 @@ jobs:
         run: terraform init -input=false
 
       - name: Read access configuration
-        # -target keeps this to the audit module: no other module is evaluated,
-        # so the run makes no API calls on their behalf and the plan stays clean.
         run: terraform plan -input=false -no-color -target=module.access_audit -out=tfplan
 
       - name: Render report
-        # Reads the PLAN file, not state: state is empty on a plan-only run, so
-        # `terraform output` would return nothing. Planned values live under
-        # .output_changes.<name>.after.
         run: |
           plan_json="$(terraform show -json tfplan)"
           fmt="${{ inputs.output_format }}"
@@ -177,7 +165,6 @@ jobs:
             done
           fi
 
-          # Full detail always goes to the artifact regardless of print format.
           printf '%s' "$plan_json" | jq '{
             summary:           .output_changes.access_audit_summary.after,
             findings:          .output_changes.access_audit_findings.after,

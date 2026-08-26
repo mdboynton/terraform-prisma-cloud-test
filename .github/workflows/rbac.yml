@@ -2,21 +2,12 @@ name: 1. RBAC (teams)
 
 # Reconciles per-team Prisma Cloud RBAC artifacts from
 # terraform/config/teams.yaml — Account Groups, Resource Lists, Roles, optional
-# Service Accounts and Alert Rules, all bound to a shared Permission Group.
-#
-# SCOPE: this workflow touches ONLY the RBAC resources (see TF_TARGETS below).
-# Compute runtime policies and the tenant inventory are handled by their own
-# workflows, and -target keeps their resources out of this plan so the diff
-# stays readable and this pipeline can't change them.
+# Service Accounts and Alert Rules, bound to a shared Permission Group.
 #
 # Docs: .github/workflows/rbac/README.md
 #
 # Required secrets: PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
 
-# PATH FILTERS: a run is triggered only when a commit touches one of these
-# paths. They cover the RBAC module, every root .tf (the root wires the module
-# and defines its variables/providers), and the team config. Docs-only changes
-# (**.md) are deliberately excluded so README edits don't burn CI minutes.
 on:
   pull_request:
     branches: [main, tuan_test, tuan_test_compute_policies]
@@ -49,25 +40,16 @@ env:
   TF_IN_AUTOMATION: "true"
   TF_INPUT: "false"
 
-  # providers.tf sets url/username/password from these TF variables explicitly,
-  # so they must arrive as TF_VAR_* rather than the provider's own env vars.
   TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
   TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
   TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
 
-  # Required because a team may declare compute_collection.enabled, which
-  # creates a Compute-native Collection. The root always CONFIGURES the compute
-  # provider, so this must be set even for teams that don't use the feature.
+  # Set even for teams without compute_collection.enabled - root always configures the provider.
   TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
 
-  # The other two areas stay switched off here so this run makes no API calls
-  # on their behalf.
   TF_VAR_compute_runtime_list_enabled: "false"
   TF_VAR_tenant_inventory_enabled: "false"
 
-  # Restricts every plan/apply below to the RBAC resources only. The team's
-  # Compute Collection lives inside module.prisma_cloud_rbac, so it is already
-  # covered — attaching that Collection to a runtime RULE remains workflow 2.
   TF_TARGETS: >-
     -target=prismacloud_permission_group.app_owner_readonly_singleton
     -target=module.prisma_cloud_rbac
@@ -161,11 +143,7 @@ jobs:
     name: Apply (gated)
     needs: plan
     runs-on: ubuntu-latest
-    # Apply ONLY on a deliberate manual dispatch with apply=true. Pushes and PRs
-    # plan only, so routine pushes can never change the tenant.
     if: github.event_name == 'workflow_dispatch' && inputs.apply == true
-    # Requires a protected Environment named test-tenant with a required
-    # reviewer — this is the manual approval gate.
     environment:
       name: test-tenant
     steps:
@@ -180,12 +158,8 @@ jobs:
       - name: Terraform init
         run: terraform init -input=false
 
-      # State is local to this job (no remote backend), so a plan artifact from
-      # the plan job would reference state this job doesn't have. We therefore
-      # re-plan and apply here rather than applying a saved plan file.
-      #
-      # -parallelism=1 serializes creation so the dashboard Collection isn't
-      # created at the same instant the Resource List auto-spawns its own
-      # Collection (that race produced a transient "object already exists").
+      # Re-plan + apply (no remote backend to reuse the plan job's state).
+      # -parallelism=1: avoids a race where the dashboard Collection and the
+      # Resource List's auto-spawned Collection collide ("object already exists").
       - name: Terraform apply
         run: terraform apply -input=false -no-color -auto-approve -parallelism=1 ${TF_TARGETS}
