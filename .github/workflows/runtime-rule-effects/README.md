@@ -1,14 +1,6 @@
 # Workflow 9 — Runtime Rule Effects (escalation)
 
-Reports **which firing rules are still only watching**, and — behind a manual gate — turns one of them into a blocking rule.
-
-**The only workflow in the repository that changes enforcement on a live runtime security policy.** Run with the escalation fields blank and it is a read-only report.
-
-## Structurally read-only unless armed
-
-- The escalation runs in a `null_resource` provisioner, which only executes during `terraform apply` (a `data` source would run during plan).
-- The plan job asserts the plan changes nothing outside this module, and fails the run if it would.
-- The workflow makes no API calls itself — no `curl`.
+Reports **which firing rules are still only watching**, and — behind a manual gate — turns one of them into a blocking rule. Run with the escalation fields blank and it is a read-only report.
 
 ## An escalation targets a SITE, not a rule
 
@@ -20,8 +12,6 @@ A container runtime rule carries 27 independent effect sites, a host rule 19 —
 | `escalate_rule` | exact rule name — copy it |
 | `escalate_site` | site path, e.g. `processes.deniedList.effect` — copy verbatim |
 | `escalate_effect` | `prevent`, or `block` for containers only |
-
-Four separate form fields rather than one pasted blob.
 
 ## How to use it
 
@@ -41,9 +31,7 @@ All four escalation fields, plus `APPLY` (exact case) in `confirm`. Filling in s
 
 ### Step 4 — Approve the environment gate
 
-Apply job waits on the `test-tenant` environment. Approval runs a **preflight** that re-reads live state and refuses if the escalation status is no longer `will_apply`, or the target is no longer an alerting site (renamed, deleted, already escalated).
-
-Only then does the write happen.
+Apply job waits on the `test-tenant` environment. Approval runs a preflight that re-reads live state and refuses if the escalation status is no longer `will_apply`, or the target is no longer an alerting site (renamed, deleted, already escalated).
 
 ## Five things must line up before anything is written
 
@@ -53,11 +41,7 @@ Only then does the write happen.
 4. `test-tenant` environment approved by a human
 5. The script's own independent `APPLY` check
 
-Verified: `""`, `true`, `yes`, `apply` all leave the run read-only.
-
-## Escalation does NOT silence workflow 8
-
-Effect and logging are orthogonal — escalating changes enforcement, not telemetry. A blocked action still records an incident.
+## Reading the report
 
 | output | meaning |
 |---|---|
@@ -65,17 +49,9 @@ Effect and logging are orthogonal — escalating changes enforcement, not teleme
 | `enforced_sites` | already blocking, still firing — expected |
 | `disabled_sites` | detection is off — not a candidate |
 
-## `disable` is not a candidate
+A rule reappearing in the digest after escalation is working, not broken — effect and logging are separate settings.
 
-`disable` (611 of 805 container values measured) means detection is off. `disable → prevent` would switch on a detection that was never running — excluded on purpose, writer refuses it.
-
-## `block` is container-only
-
-Host rule rejects `block`; use `prevent`. Caught at plan time.
-
-## Some rules cannot be escalated at all
-
-The built-in `default` model has no rule object — nothing to PUT. `default` is also sometimes a real rule name, so an alert naming it can't be assumed to be the built-in model. Reported separately.
+`disable` (detection off) is never an escalation candidate. `block` is container-only; host rules use `prevent`. The built-in `default` model has no rule object and cannot be escalated — reported separately.
 
 ## When the run fails on purpose
 
@@ -96,13 +72,9 @@ The built-in `default` model has no rule object — nothing to PUT. `default` is
 
 `test-tenant` environment with required reviewers. Credentials need write access to runtime policies for step 3; read access is enough for the report.
 
-## Why it needs two APIs
-
-The promoted CSPM alert carries no `effect` field at any depth. Enforcement state lives only in Compute Console policy objects — the alert stream (CSPM) is joined to rule state (Compute) by rule name.
-
 ## Relationship to workflow 8
 
-Workflow 8 reports recurrence; it can't see enforcement state. Workflow 9 adds enforcement state and the ability to change it. Neither references the other; join key is the rule name.
+Workflow 8 reports recurrence; it can't see enforcement state. Workflow 9 adds enforcement state and the ability to change it.
 
 ## More detail
 

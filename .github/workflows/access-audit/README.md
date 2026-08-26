@@ -4,8 +4,6 @@
 
 Roles, user profiles, and permission groups, plus the subset of rows an access review acts on.
 
-**Can it change the tenant?** No — `data` blocks only, zero `resource` blocks. No apply job, no approval gate.
-
 ## How to use it
 
 1. **Actions** → **4. Access Audit (read-only)** → **Run workflow**

@@ -4,8 +4,6 @@
 
 Creates and maintains per-team Prisma Cloud RBAC artifacts — Account Groups, Resource Lists, Roles, optional Service Accounts and Alert Rules — bound to one shared Permission Group. Driven by [`terraform/config/teams.yaml`](../../../terraform/config/teams.yaml).
 
-**Can it change the tenant?** Yes — behind an approval gate.
-
 ## Step 1 — Run a plan (safe, do this first)
 
 1. **Actions** tab → **1. RBAC (teams)** in the sidebar

@@ -5,11 +5,7 @@
 Two capabilities for Prisma Cloud **Compute** runtime policies (Container + Host):
 
 - **List** (read-only) — see which rules exist and where they apply
-- **Apply** (gated) — attach an RBAC collection to an **existing** rule
-
-**Can it change the tenant?** Yes — behind an approval gate. It never creates, redefines, or deletes a policy — only appends a collection to a rule, preserving everything already on it.
-
-Terraform provider ships no data source for runtime policies — this module talks to the Compute Console API directly via shell scripts (unlike workflows 1 and 3, which use provider resources).
+- **Apply** (gated) — attach an RBAC collection to an **existing** rule, appending only, never creating/redefining/deleting a policy
 
 ## Just want to look? (most common)
 
@@ -68,7 +64,7 @@ Runs automatically on every run, including pushes and PRs. Open the run → **Pl
 
 > HOST rules require the collection's `clusters` to be empty or `["*"]` — hosts aren't cluster members. Use `clusters: ["*"]` for host associations.
 
-> RBAC collections can't attach to runtime rules — `add_collection` must match `^[A-Za-z0-9_:-]+$`, and RBAC-spawned collections (`<resource-list> - Access Group (RBAC)`) contain spaces/parentheses. Compute API restriction, not a module limitation.
+> RBAC collections can't attach to runtime rules — `add_collection` must match `^[A-Za-z0-9_:-]+$`, and RBAC-spawned collections (`<resource-list> - Access Group (RBAC)`) contain spaces/parentheses.
 
 `rule_not_found` is a green run that did nothing — the workflow raises a warning annotation for it. `existing_collections` is also printed, confirming the append is additive.
 

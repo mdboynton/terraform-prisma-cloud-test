@@ -4,25 +4,7 @@
 
 Runtime incident and image vulnerability counts for a **Compute** collection — counts, CVE severity breakdown, share of tenant.
 
-**Can it change the tenant?** No — `data` blocks only, zero `resource` blocks, no apply job.
-
-## This is not workflow 6
-
-Two unrelated collection systems:
-
-| | Workflow 6 — Alert Summary | Workflow 7 — this one |
-|---|---|---|
-| Reads | CSPM **alerts** | Compute **runtime incidents** + **image CVEs** |
-| Scoped by | a **CSPM** Collection | a **Compute** collection |
-| How the scope is applied | collection → cloud accounts → alert filter | collection name → Compute API filter |
-
-Numbers are not comparable and must never be added together.
-
-- Collection in **Compute** → **Manage** → **Collections**, or name ends `- Access Group (RBAC)` → **workflow 7**
-- Collection under **Settings** → **Collections** in the main console, posture/config alerts → **workflow 6**
-- No cloud accounts onboarded → **workflow 7**
-
-A name from one console usually won't resolve in the other; both fail rather than guess.
+Note: workflow 6 reads CSPM alerts scoped by a CSPM Collection; this reads Compute runtime incidents/image CVEs scoped by a Compute collection. Numbers are not comparable.
 
 ## How to use it
 

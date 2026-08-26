@@ -2,11 +2,7 @@
 
 **Workflow file:** [`../drift-detection.yml`](../drift-detection.yml) · **Actions name:** `5. Drift Detection (scheduled)`
 
-Detects tenant changes since yesterday and opens an issue when found.
-
-**Can it change the tenant?** No. Only writes a snapshot file committed back to this repo.
-
-No remote backend, so `terraform plan` has no prior state to compare against — every run looks like a first run. This workflow compares successive read-only snapshots instead, which also catches objects nobody manages in Terraform (e.g. a role created by hand in the console).
+Detects tenant changes since yesterday and opens an issue when found. Only writes a snapshot file committed back to this repo — compares successive read-only snapshots rather than a `terraform plan` diff.
 
 ## How it works
 
@@ -37,8 +33,6 @@ Baseline is committed to a **public** repo, enforced two ways:
 
 1. Workflow hard-codes `TF_VAR_access_audit_redact_usernames: "true"` — SHA-256 hashed before reaching the file.
 2. `snapshot.sh` greps its own output for an email address; if found, deletes the file and fails the run.
-
-Hashing is one-way and stable — trackable across snapshots without revealing identity.
 
 ## Reading the report
 

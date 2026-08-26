@@ -18,14 +18,6 @@ Nine workflows in the **Actions** tab, each with its own guide:
 | 8 | [**Runtime Grace Digest**](.github/workflows/runtime-grace-digest/README.md) | See which runtime rules are still firing | No to the tenant — can send grace warning emails, gated |
 | 9 | [**Runtime Rule Effects**](.github/workflows/runtime-rule-effects/README.md) | See which firing rules are still only watching; turn one into a blocking rule | Yes — approval gated |
 
-Plan is always safe; pushing never applies. Workflows 3–8 have no apply step.
-
-Workflows 6 and 7 read two unrelated collection systems — numbers must not be added together.
-
-Workflow 8 measures recurrence, not age — a runtime incident is an event that never closes.
-
-Workflows 8 and 9 are a pair: 8 reports which rules keep firing, 9 reports which of those are still only watching and can escalate one. Workflow 9 is the only workflow that changes enforcement on a live security policy; escalating a rule does not remove it from workflow 8 (effect controls enforcement, not telemetry).
-
 Full index: [`.github/workflows/README.md`](.github/workflows/README.md).
 
 ## Modules

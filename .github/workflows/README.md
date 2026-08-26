@@ -14,26 +14,6 @@ Nine workflows, one per area of Prisma Cloud configuration.
 | 8 | [`runtime-grace-digest.yml`](runtime-grace-digest.yml) | Which runtime rules are still firing | No to the tenant — can send email (gated) | [runtime-grace-digest/README.md](runtime-grace-digest/README.md) |
 | 9 | [`runtime-rule-effects.yml`](runtime-rule-effects.yml) | Which firing rules are still only alerting; raise one effect site to prevent/block | Yes — approval gated | [runtime-rule-effects/README.md](runtime-rule-effects/README.md) |
 
-## Which one do I want?
-
-- Onboarding a team, or changing what a team can see → 1
-- Seeing which runtime rules cover a cluster, or attaching a collection to a rule → 2
-- Tenant settings, integrations, reports, trusted IPs → 3
-- Access review — stale accounts, unassigned roles → 4
-- What changed since yesterday → 5
-- Alerts for a CSPM collection → 6
-- Compute runtime incidents and image CVEs for a collection → 7
-- Which runtime rules keep firing → 8
-- Which firing rules are still only alerting, and blocking one → 9
-
-### 6 or 7?
-
-Two unrelated collection systems — never compare the numbers.
-
-- Collection is in **Compute → Manage → Collections**, or its name ends in `- Access Group (RBAC)` → 7
-- Collection is in **Settings → Collections** → 6
-- No cloud accounts onboarded → 6 has nothing to scope by; use 7
-
 ## Rules that apply to all of them
 
 - Plan is always safe; pushes and PRs plan only.
@@ -56,7 +36,7 @@ Two unrelated collection systems — never compare the numbers.
 
 ## A note on state
 
-No remote backend — state is local per job. Apply jobs re-plan rather than reuse a saved plan file. `-target` keeps each workflow in its own lane. Workflow 5 compares snapshots rather than reading a plan diff, since there's no prior state.
+No remote backend — state is local per job. Apply jobs re-plan rather than reuse a saved plan file. `-target` keeps each workflow in its own lane. Workflow 5 compares snapshots rather than reading a plan diff.
 
 ## Git-ignored config
 

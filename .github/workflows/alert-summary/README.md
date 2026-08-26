@@ -4,8 +4,6 @@
 
 Total alerts for a collection, a severity breakdown, share of tenant, and optionally individual critical alerts with policy/resource names.
 
-**Can it change the tenant?** No — `data` blocks only, zero `resource` blocks, no apply job.
-
 ## How to use it
 
 1. **Actions** → **6. Alert Summary (read-only)** → **Run workflow**
@@ -60,9 +58,7 @@ Exits 1 rather than printing a misleading number:
 | `repository_only` | Collection selects only code repositories — no CSPM alerts. |
 | `tenant_wide` | Collection selects all accounts. |
 
-Count is reported as `null` in each case, never the tenant-wide total.
-
-The alerts API silently ignores unrecognized filter names and returns HTTP 200 with the full result set (measured: `collection=foo` returned the same 8817 rows as no filter). A wrong name fails the run rather than returning that. A **"count may be unfiltered"** warning fires when the scoped total equals the tenant total.
+Count is reported as `null` in each case, never the tenant-wide total. A **"count may be unfiltered"** warning fires when the scoped total equals the tenant total.
 
 ## How a collection becomes an alert filter
 
