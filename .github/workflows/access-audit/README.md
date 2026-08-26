@@ -2,28 +2,9 @@
 
 **Workflow file:** [`../access-audit.yml`](../access-audit.yml) · **Actions name:** `4. Access Audit (read-only)`
 
-Answers "who has access to this tenant, and how" — roles, user profiles, and
-permission groups, plus the subset of rows an access review actually acts on.
+Roles, user profiles, and permission groups, plus the subset of rows an access review acts on.
 
-**Can it change the tenant?** No — and it structurally cannot.
-
----
-
-## Why "cannot" rather than "does not"
-
-Terraform can only change things declared as a `resource`. The
-[`access-audit`](../../../terraform/modules/access-audit/README.md) module
-contains **only `data` blocks — zero `resource` blocks**:
-
-```bash
-$ grep -rc "^resource" terraform/modules/access-audit/*.tf
-0        # ← nothing to create, update or delete
-```
-
-So there is no apply job, no approval gate, and nothing to review. Run it as
-often as you like.
-
----
+**Can it change the tenant?** No — `data` blocks only, zero `resource` blocks. No apply job, no approval gate.
 
 ## How to use it
 
@@ -41,8 +22,7 @@ often as you like.
 | `users` | User profiles with enabled / stale / never-logged-in flags |
 | `permission-groups` | Permission groups and whether each is custom or built-in |
 
-Narrowing the scope genuinely **skips** the other API calls — it isn't just
-output filtering.
+Narrowing the scope skips the other API calls entirely.
 
 ### Output formats
 
@@ -56,48 +36,32 @@ output filtering.
 
 | Input | Default | Notes |
 |---|---|---|
-| `redact_usernames` | `false` | Usernames are email addresses. Leave off for an internal review; turn **on** before sharing the output anywhere. |
+| `redact_usernames` | `false` | Usernames are email addresses. Turn on before sharing output. |
 | `stale_login_days` | `90` | Days since last login before a user counts as stale. |
 
 ## Where the results appear
 
-1. **Run summary page** — counts and findings tables, visible without opening the log
+1. **Run summary page** — counts and findings tables
 2. **Job log** — full JSON under the results step
 3. **Artifact** — `access-audit.json`, downloadable and diffable between runs
 
 ## Reading the output
 
-### Summary vs findings
-
-- **`summary`** is counts only. It contains no usernames, so it is safe to paste
-  anywhere.
-- **`findings`** is the review queue — the rows a human should look at. It
-  contains usernames unless you enabled `redact_usernames`.
-
-The split exists because a reviewer should not have to scan 845 users to find
-the 234 that matter.
-
-### `null` vs `[]` matters
-
-- `null` — the category was **outside your scope** (never looked at)
-- `[]` — the category **was read** and is genuinely empty
+- **`summary`** — counts only, no usernames, safe to paste anywhere.
+- **`findings`** — the review queue. Contains usernames unless `redact_usernames` was set.
+- `null` — category outside scope, never read. `[]` — read and genuinely empty.
 
 ### What counts as a finding
 
 | Finding | Meaning |
 |---|---|
-| `unassigned_roles` | A role no user holds. Usually left over from a reorg. |
-| `never_logged_in` | The account exists but has never been used. |
-| `stale_users` | Last login is older than `stale_login_days`. |
+| `unassigned_roles` | A role no user holds. |
+| `never_logged_in` | Account exists, never used (`last_login_ts = -1`). |
+| `stale_users` | Last login older than `stale_login_days`. |
 | `disabled_users` | Disabled but still present. |
 | `users_without_roles` | Can sign in but holds no role. |
 
-**"Never logged in" and "stale" are deliberately separate.** In the API a
-never-used account has `last_login_ts = -1`, which is "older than" every
-possible cutoff. Treated naively it would be counted twice and inflate the stale
-number. It is classified as never-logged-in only.
-
-Example counts from a real run of this tenant:
+`never_logged_in` and `stale` are mutually exclusive — never-logged-in is tested first and excluded from stale.
 
 ```json
 {
@@ -107,9 +71,6 @@ Example counts from a real run of this tenant:
 }
 ```
 
-A large `never_logged_in` count is normal on a tenant that provisions users in
-bulk. It is worth reviewing rather than alarming.
-
 ## Setup requirements
 
 | Secret | Notes |
@@ -118,19 +79,18 @@ bulk. It is worth reviewing rather than alarming.
 | `PRISMACLOUD_USERNAME` | Access key UUID |
 | `PRISMACLOUD_PASSWORD` | Secret key |
 
-No Environment or reviewer needed — there's nothing to gate.
+No Environment or reviewer needed.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| Workflow missing from the sidebar | `workflow_dispatch` workflows only appear once they exist on the **default branch**. |
+| Workflow missing from the sidebar | `workflow_dispatch` workflows only appear once on the **default branch**. |
 | `invalid credentials` | Refresh `PRISMACLOUD_USERNAME` / `PRISMACLOUD_PASSWORD`. |
-| A category is `null` | It was outside the chosen scope. Re-run with `all`. |
-| Usernames appear in the artifact | Expected unless `redact_usernames` was on. Re-run with it enabled before sharing. |
-| Stale count looks too high | Lower-bound it by raising `stale_login_days`; the default of 90 is aggressive for a tenant with many service accounts. |
+| A category is `null` | Outside the chosen scope. Re-run with `all`. |
+| Usernames appear in the artifact | Expected unless `redact_usernames` was on. |
+| Stale count looks too high | Raise `stale_login_days`. |
 
 ## More detail
 
-Module internals and the full output shape:
-[`terraform/modules/access-audit/README.md`](../../../terraform/modules/access-audit/README.md)
+Module internals and full output shape: [`terraform/modules/access-audit/README.md`](../../../terraform/modules/access-audit/README.md)

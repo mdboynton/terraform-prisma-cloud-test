@@ -1,79 +1,32 @@
 # runtime-grace-digest
 
-Reports **which runtime rules are still producing promoted CSPM alerts**,
-grouped by rule, workload scope (container or host) and cloud account, ordered
-by occurrences.
+Reports which runtime rules are still producing promoted CSPM alerts, grouped by rule, workload scope (container/host), and cloud account, ordered by occurrences.
 
-Read-only: the module contains only `data` blocks, no `resource` blocks.
+Read-only: `data` blocks only, no `resource` blocks.
 
-> ### "Incident" vs "alert" — they are not interchangeable here
->
-> **Incident** is the Compute Console's noun: the raw runtime event, reachable
-> only through the Compute API. **Alert** is what CSPM creates when it promotes
-> that incident, carrying `policyType: workload_incident`.
->
-> **This module reads alerts.** It POSTs to CSPM `/v2/alert` and never contacts
-> the Compute Console. Everything it counts, filters, groups and ages is a
-> promoted alert. Where this README says "incident" it is describing the
-> underlying event; where it says "alert" it means the record actually being
-> queried — and the distinction decides which API, which credentials, and which
-> field names apply.
->
-> This document previously led with "still producing incidents", which read as
-> though the Compute API was in use. It was not, and never has been.
+> **"Incident" vs "alert".** Incident = raw runtime event, Compute API only. Alert = what CSPM creates when it promotes that incident (`policyType: workload_incident`). This module reads alerts — POSTs to CSPM `/v2/alert`, never contacts the Compute Console.
 
-This is the report-only stage of the policy-escalation pipeline. It establishes
-a baseline so a human can decide whether a rule is worth escalating to
-Prevent/Block. It sends nothing and changes nothing.
+Report-only stage of the policy-escalation pipeline. Sends nothing, changes nothing.
 
-## The headline: this reports recurrence, not age
+## Reports recurrence, not age
 
-The original ask was *"escalate a rule if a finding goes unresolved for 14
-days"*. That is the right shape for a **vulnerability** — a CVE is a state, it
-is present until patched, so age is meaningful.
-
-A **runtime incident is an event**. It happened at a point in time, and no API
-call makes it un-happen. There is no "resolved" state to age against and
-incidents never expire from the store. Measured against the reference tenant:
-
-| Query | Result |
-|---|---|
-| Runtime incidents total | 14,410 |
-| Older than 14 days | 14,398 |
-
-So "older than N days" selects essentially everything ever recorded. Worse, the
-only field that changes on a Compute incident is `acknowledged` — so an
-age-based digest does not measure whether a problem was *fixed*, it measures
-whether somebody clicked a button.
-
-**"Still firing in the last N days" is the answerable question.** It is
-defensible for an event-based finding, and it clears itself: a workload that
-gets fixed stops producing incidents, so the rule drops off the report without
-anyone updating a ticket.
+A runtime incident is an event, not a state — no "resolved" to age against, incidents never expire. Measured: 14,410 total incidents, 14,398 older than 14 days. "Still firing in the last N days" is the answerable question — clears itself when the workload is fixed.
 
 ## Why this reads CSPM, not the Compute Console
 
-Runtime incidents are promoted into the CSPM alert stream as alerts with
-`policyType: workload_incident`. The promoted copy is strictly better than the
-raw Compute incident for this purpose:
+Runtime incidents are promoted into the CSPM alert stream (`policyType: workload_incident`):
 
 | | Compute incident | Promoted CSPM alert |
 |---|---|---|
-| Runtime rule name | `audits[].ruleName` (nested, needs a second call) | `metadata.auditRuleName` |
+| Runtime rule name | `audits[].ruleName` (nested, second call) | `metadata.auditRuleName` |
 | Occurrence count | not present | `metadata.auditCount` |
 | Lifecycle | `acknowledged` only | open / dismissed / snoozed / resolved |
 | Dismissal attribution | none | `dismissedBy`, `dismissalNote`, `dismissalUntilTs` |
 | Time filtering | epoch ms params | relative time units |
 
-One API, one auth path, and the lifecycle needed for a later escalation
-decision. The module therefore takes **CSPM** credentials (`cspm_url`,
-`access_key`, `secret_key`) — the same host as `alert-summary`, *not* the
-Compute Console.
+Takes CSPM credentials (`cspm_url`, `access_key`, `secret_key`) — same host as `alert-summary`, not the Compute Console.
 
-> **`metadata.auditRuleName`, not `ruleName`.** CSPM renames the field and
-> nests it under `metadata` during promotion. Searching for Compute's field
-> name at the top level finds nothing and makes it look like the rule name was
-> lost in translation. It is not.
+> Field is `metadata.auditRuleName`, not `ruleName` — CSPM renames and nests it under `metadata` during promotion.
 
 ## Requirements
 
@@ -105,393 +58,179 @@ module "runtime_grace_digest" {
 
 | Name | Type | Default | Description |
 |---|---|---|---|
-| `enabled` | bool | `false` | Off by default, so the module costs nothing in workflows that don't need it. |
-| `window_days` | number | `14` | Recurrence window, 1–3650. A rule with a promoted alert inside it is "still firing". **The default is deliberately short and can legitimately return zero** — see "Two windows that must agree" below before using this for a grace campaign. |
-| `alert_status` | string | `"open"` | One of `open`, `resolved`, `dismissed`, `snoozed`. |
-| `notify_days` | list(number) | `[1,3,5,7,10,13]` | Which days of the grace period get a reminder, matched on `age_days` exactly. Every entry must be `< grace_days`. See "The reminder schedule". |
-| `severities` | list(string) | `[]` | Restrict to alerts whose **policy** carries one of these severities. Empty = no filter. Lowercase only. See "Severity is a pass-through filter". |
-| `max_alerts` | number | `2000` | Cap on alerts fetched for grouping, 1–10000. Does **not** cap the totals. |
-| `cspm_url` | string | `null` | CSPM API host, e.g. `api2.prismacloud.io`. Required when enabled. |
-| `access_key` | string | `null` | Access key id. Sensitive. |
-| `secret_key` | string | `null` | Secret key. Sensitive. |
-| `notify_enabled` | bool | `false` | Also PLAN the grace warning. Nothing is ever sent. |
-| `grace_days` | number | `14` | Days a finding may stay open, counted from day 0, before its rule is a candidate. 1–3650. |
-| `campaign_start_date` | string | `null` | **Required when `notify_enabled`.** `YYYY-MM-DD`. The day the campaign was announced. Day 0 is `max(firstSeen, campaign_start_date)` — see "When the clock starts". |
-| `warning_recipient_override` | string | `null` | **Required when `notify_enabled`.** Every planned message is addressed here. Not a dry-run toggle — see below. |
+| `enabled` | bool | `false` | Read the tenant. |
+| `window_days` | number | `14` | Recurrence window, 1–3650. Can legitimately return zero — see "Two windows that must agree". |
+| `alert_status` | string | `"open"` | `open` \| `resolved` \| `dismissed` \| `snoozed`. |
+| `notify_days` | list(number) | `[1,3,5,7,10,13]` | Grace-period days that get a reminder, matched on `age_days` exactly. Every entry must be `< grace_days`. |
+| `severities` | list(string) | `[]` | Restrict to alerts whose policy carries one of these severities. Empty = no filter. Lowercase only. |
+| `max_alerts` | number | `2000` | Cap on alerts fetched for grouping, 1–10000. Does not cap totals. |
+| `cspm_url` | string | `null` | CSPM API host. Required when enabled. |
+| `access_key` | string | `null` | Sensitive. |
+| `secret_key` | string | `null` | Sensitive. |
+| `notify_enabled` | bool | `false` | Also plan the grace warning. Nothing sent. |
+| `grace_days` | number | `14` | Days a finding may stay open before its rule is a candidate. 1–3650. |
+| `campaign_start_date` | string | `null` | Required with `notify_enabled`. `YYYY-MM-DD`. Day 0 is `max(firstSeen, campaign_start_date)`. |
+| `warning_recipient_override` | string | `null` | Required with `notify_enabled`. Every planned message addressed here. |
 
 ## Outputs
 
 | Name | Description |
 |---|---|
-| `status` | `ok` \| `disabled` \| `missing_credentials` \| `suspect_unfiltered` \| `empty_window` \| `partial_grouping`. **Branch on this.** |
+| `status` | `ok` \| `disabled` \| `missing_credentials` \| `suspect_unfiltered` \| `empty_window` \| `partial_grouping`. Branch on this. |
 | `status_detail` | Human-readable explanation. Null when `ok`. |
-| `summary` | Counts for the window plus the all-time total. Null when nothing was queried. |
-| `rules` | Groups, ordered by occurrences. Excludes the built-in `default` model. |
-| `actionable_rules` | Same as `rules` — the list a human acts on. |
-| `top_rule` | Highest-occurrence rule, or null. Convenience for a one-line notification. |
+| `summary` | Window counts plus all-time total. Null when nothing queried. |
+| `rules` | Groups, ordered by occurrences. Excludes built-in `default`. |
+| `actionable_rules` | Same as `rules`. |
+| `top_rule` | Highest-occurrence rule, or null. |
 | `alerts_in_window` | Server-side total for the window. Never capped by `max_alerts`. |
-| `distinct_rules` | How many distinct rules fired. |
-| `scope` | What was actually queried, for troubleshooting. |
-| `notify_status` | `ok` \| `disabled` \| `no_override` \| `no_campaign_start` \| `not_queried` \| `all_overdue` \| `has_unroutable`. **Branch on this.** |
+| `distinct_rules` | Count of distinct rules fired. |
+| `scope` | What was actually queried. |
+| `notify_status` | `ok` \| `disabled` \| `no_override` \| `no_campaign_start` \| `not_queried` \| `all_overdue` \| `has_unroutable`. Branch on this. |
 | `notify_status_detail` | Human-readable explanation. Null when `ok`. |
-| `warning_plan` | Counts for the planned warning. Null when planning is disabled. |
-| `warning_messages` | Per-rule-group plan. **Contains live personal email addresses** in `would_notify`. |
-| `due_today_messages` | The subset of `warning_messages` due a reminder today, per rule group. |
-| `warning_accounts` | **One entry per email** — per cloud account due today, with its rules in `groups`. **Live personal email addresses.** |
+| `warning_plan` | Counts for the planned warning. Null when planning disabled. |
+| `warning_messages` | Per-rule-group plan. Contains live personal email addresses in `would_notify`. |
+| `due_today_messages` | Subset of `warning_messages` due today. |
+| `warning_accounts` | One entry per email, per account, with rules in `groups`. Live personal email addresses. |
 
-**Null means "not asked".** Zero means "asked, nothing firing". Collapsing the
-two would let a misconfiguration read as a clean bill of health, which for a
-security report is the worst available failure mode.
+`null` = not asked. `0` = asked, nothing firing.
 
 ## Two windows that must agree
 
-This module and `runtime-rule-effects` (workflow 9) query the same tenant over
-**independently configured windows**. Nothing links them, and when they
-disagree the result is silent and one-directional:
+This module and `runtime-rule-effects` (workflow 9) query independently configured windows with no cross-check:
 
 | | window | open alerts returned |
 |---|---|---|
 | This module, default | 14 days | **0** |
 | Workflow 9, as run | 1825 days | **111** |
 
-Measured on the reference tenant. A grace campaign run on this module's
-defaults would plan **zero** warnings, address **nobody**, and report success —
-while workflow 9 sees 111 alerts and 8 escalatable rules over the same tenant.
+A grace campaign on this module's defaults would plan zero warnings while workflow 9 sees 111 alerts / 8 escalatable rules. Failure is asymmetric: window too narrow → nobody warned, report looks clean; escalation proceeds anyway → workloads blocked with no notice.
 
-The failure is asymmetric and that is what makes it dangerous:
-
-- **Window too narrow** → nobody is warned, and the report looks clean.
-- **Escalation proceeds anyway** → workloads are blocked with no notice.
-
-There is no cross-check between the two workflows, because neither can see the
-other's inputs. The protection is the `empty_window` status and the
-`window_returned_alerts` check, which fire when the window returns nothing
-while the tenant holds alerts. **Both are advisory** — a failed check does not
-fail the plan (see above), so a caller must branch on `status`.
-
-> **Before any grace campaign:** set `window_days` here to cover the same
-> population workflow 9 will escalate against, and confirm
-> `status != "empty_window"`. The two numbers are a policy decision about who
-> gets warned, not a tuning knob.
+Protection is `empty_window` status + `window_returned_alerts` check — both advisory (don't fail the plan). Before a campaign: set `window_days` to cover the same population workflow 9 will escalate against, confirm `status != "empty_window"`.
 
 ## Callers must branch on `status`, not the exit code
 
-The `check` blocks emit warnings, and **a failing check does not fail the
-plan**. Worse, `terraform show -json` omits the `checks` array entirely for a
-plan file, so a caller cannot detect the warning programmatically at all — it
-appears only in human-readable stderr. Both behaviours verified against the
-live tenant.
-
-`status` exists so a workflow has something machine-readable to test.
+`check` blocks warn but don't fail the plan, and `terraform show -json` omits the `checks` array entirely.
 
 ## Grouping key: rule + scope + account
 
-`scope` is derived from **`policy.name`**, not from `metadata.auditType`.
+`scope` is derived from `policy.name` (`Container workloads detected with Runtime Incidents` / `Host ...`), not `metadata.auditType` (which is the audit kind — Filesystem, Network, Processes — and doesn't say which policy owns the rule).
 
-`auditType` is the audit *kind* — Filesystem, Network, Processes — and says
-nothing about which runtime policy owns the rule. The container-vs-host split
-lives only in `policy.name`:
+Same rule name can exist in both policies (`OT-WildFire-Demo-Rule`, live example) — grouping on name alone merges two distinct rules and misdirects escalation.
 
-- `Container workloads detected with Runtime Incidents`
-- `Host workloads detected with Runtime Incidents`
-
-This matters because **the same rule name can exist in both policies**
-(`OT-WildFire-Demo-Rule` is a real example in the reference tenant). Grouping
-on the name alone merges two distinct rules into one row and would point a
-later escalation at the wrong policy.
-
-`.collections` is deliberately **not** used as a routing key: it lists every
-collection the resource matches — averaging 168 entries — so routing on it
-would notify everyone.
+`.collections` is not used as a routing key — averages 168 entries per resource, would notify everyone.
 
 ## Guards
 
-Four failure modes are specific to this API and each has a guard.
-
 ### 1. An unknown filter name returns the whole tenant
 
-The alerts API accepts a filter it does not recognise, returns HTTP 200, and
-ignores it. A typo in a filter *name* yields **18,351,682** rows — the entire
-tenant — rather than an error.
+A typo in a filter name yields 18,351,682 rows (the entire tenant) rather than an error. An unknown filter *value* usually fails closed (0 rows) — except `policy.severity` (guard 4).
 
-An unknown filter *value* usually fails closed and returns 0, which is the safe
-direction. **`policy.severity` is the exception** — see guard 4.
-
-The guard: query the window and an all-time baseline, and compare. If a short
-window returns exactly the all-time count, `status` becomes
-`suspect_unfiltered`.
-
-The window has to be genuinely short for equality to be suspicious — a long
-window legitimately covers every alert the tenant has. Caught in testing: a
-3000-day window returned all 111 alerts and was wrongly flagged. The threshold
-is now 90 days.
+Guard: compare window vs. all-time count; equality flags `suspect_unfiltered`. Threshold is 90 days (a genuinely long window legitimately matches all-time — a 3000-day window was wrongly flagged before this fix).
 
 ### 2. `limit` is a cap, not a page size
 
-When the cap is hit the remainder is simply absent — no error, no marker. The
-grouped table would silently become a sample.
-
-The guard: compare the server-side window total against the number actually
-fetched. If they differ, `complete` is false and `status` becomes
-`partial_grouping`.
-
-This matters more than it first appears: rules below the cut-off are missing
-**entirely**, not merely undercounted. A rule absent from a partial table may
-still be firing. `distinct_rules` and `occurrences` are sample-derived in this
-state; only `alerts_in_window` and `alerts_all_time` remain server-side totals.
+Remainder is silently absent past the cap — no error, no marker. Guard: compare server-side window total against fetched count; mismatch sets `complete = false`, `status = partial_grouping`. Rules below the cutoff are missing entirely, not undercounted — `distinct_rules`/`occurrences` become sample-derived; `alerts_in_window`/`alerts_all_time` stay server-side totals.
 
 ### 3. `detailed=true` is required for `totalRows`
 
-Without it the field is `0` — which looks exactly like "no alerts".
+Without it the field is `0`, indistinguishable from "no alerts".
 
 ### 4. ⚠️ `policy.severity` fails OPEN
 
-Unlike every other filter here, a bad severity *value* does not return zero
-rows. It returns **every** row. Measured live against `/v2/alert`:
-
 | request | severities returned | verdict |
 |---|---|---|
-| one object, `value: "high"` | `["high"]` | ✅ filters |
-| two objects, `"high"` + `"critical"` | `["critical","high"]` | ✅ OR — the correct multi-value form |
-| one object, `value: "high,critical"` | all five | ❌ silently ignored |
-| one object, `value: "nonsense"` | all five | ❌ silently ignored |
+| one object, `value: "high"` | `["high"]` | filters |
+| two objects, `"high"` + `"critical"` | `["critical","high"]` | OR — correct multi-value form |
+| one object, `value: "high,critical"` | all five | silently ignored |
+| one object, `value: "nonsense"` | all five | silently ignored |
 
-Two consequences, both nasty:
+Multi-value means repeating the object, not comma-joining. A typo widens the query instead of emptying it — `"High"` with a capital H is enough.
 
-**Multi-value means repeating the object, not joining with commas.** The comma
-form is the natural thing to write and it quietly disables the filter.
-
-**A typo widens the query instead of emptying it.** An empty report gets
-investigated; a report covering the whole tenant just looks busier than
-expected. On a digest that feeds a campaign which eventually *blocks*
-workloads, that is the difference between a false alarm and blocking people who
-were never in scope. `"High"` with a capital H is enough to trigger it.
-
-The guard is threefold, because no single layer is sufficient:
-
-1. **Terraform validation** rejects any value outside the lowercase set, at
-   plan time, in both the module and the root.
-2. **`digest.sh` re-validates** its own input, so a direct invocation cannot
-   bypass the above.
-3. **A post-fetch assertion** checks every returned alert's severity is in the
-   requested set, and hard-fails if not. This is the one that matters: the
-   first two catch typos, but only inspecting the response catches the filter
-   being dropped for any other reason.
-
-**The row count is never evidence the filter applied.** `severities_verified`
-on the `scope` output is — it is true only when a filter was requested, rows
-came back, and all of them were inside the requested set.
+Threefold guard: Terraform validation (lowercase set, plan time, module + root) → `digest.sh` re-validates → post-fetch assertion checks every returned alert's severity is in the requested set (the one that catches the filter being dropped for any reason). `severities_verified` on `scope` is true only when a filter was requested, rows came back, and all were in-set — row count alone is never evidence the filter applied.
 
 ## One email per ACCOUNT, not per rule
 
-Recipients come from the alert's `cloudAccountOwners`, which is a property of
-the **cloud account** — not of the runtime rule. Every rule group inside an
-account therefore has the same owners, and sending per rule group just mails
-the same people repeatedly.
-
-Measured on the reference tenant:
+`cloudAccountOwners` is a property of the cloud account, not the rule — sending per rule group repeats the same people.
 
 | | per rule group | per account |
 |---|---|---|
 | `twistlock-cto-lab` (3 rules, 5 owners) | 15 sends | **5** |
 | whole tenant | 26 sends | **9** |
 
-The extra sends carry nothing the first email did not.
+Safe because owners are constant within an account (all 11 accounts: one distinct owner set across groups) — union widens rather than drops if that ever changes.
 
-**This rollup is safe because owners are constant within an account** — all 11
-accounts report exactly one distinct owner set across their groups. It is not
-an approximation; the groups genuinely share a recipient list. Should that ever
-change, the union widens rather than dropping anyone: telling one extra person
-is recoverable, silently dropping an owner is not.
+`warning_accounts` is the send unit; `warning_messages` stays the per-rule-group view.
 
-`warning_accounts` is the unit an email is sent in. `warning_messages` remains
-the per-rule-group view — the rollup is additive, so callers wanting rule
-detail still have it, and each account entry carries its rules in `groups` for
-the body.
-
-Two things deliberately **not** done:
-
-- **No grouping by person.** That would cut 9 to 8, because one address owns
-  two accounts. An email about "your account" is actionable; one spanning
-  several accounts makes the reader work out which finding belongs where.
-- **No dropping of unroutable accounts.** An account with no owner still
-  appears, flagged `routable: false` and counted in `accounts_unroutable`.
-  Filtering them out is precisely how a workload gets escalated with nobody
-  warned.
+Deliberately not done: grouping by person (one address owning two accounts would blur which finding belongs where), dropping unroutable accounts (flagged `routable: false` and counted in `accounts_unroutable` instead — filtering them is how a workload gets escalated with nobody warned).
 
 ## The reminder schedule
 
-`notify_days` is the set of grace-period days on which a group is due a
-reminder — by default 1, 3, 5, 7, 10 and 13 of a 14-day period, with the
-deadline itself handled by escalation rather than another email.
+`notify_days` = exact grace-period days matched against `age_days` (default 1, 3, 5, 7, 10, 13 of 14), not a "remind every N days" rule — plan is a pure function of age, no state carried between runs.
 
-It is a **set of exact days matched against `age_days`**, not a "remind every N
-days" rule. That keeps the plan a pure function of the finding's age: the same
-input on the same day yields the same output, and no state has to be carried
-between runs.
+A missed scheduled run is a missed notice (no send ledger exists yet) — schedule density (max 3 days between contacts) is the safety margin.
 
-**The cost of that is worth stating plainly: a missed run is a missed notice.**
-If the scheduled run does not fire on day 3, nobody gets a day-3 reminder — the
-next contact is day 5. Catching up would need a record of what was actually
-sent, and `firstSeen` cannot supply it: it says when the finding appeared, not
-when anyone was told. That ledger is deliberately not built yet, so the density
-of the schedule is the safety margin — it never leaves more than three days
-between contacts.
+- `notify_today` is independent of `routable` — an unowned group is still reported due; `due_today` vs `due_today_routable` shows the gap.
+- Clock is GRACE age, not finding age — a 365-day-old finding in a campaign announced 3 days ago is on grace day 3.
 
-Two properties that are easy to get wrong, and are tested:
-
-- **`notify_today` is independent of `routable`.** A group with no owner is
-  still reported as due. Filtering those out would hide exactly the findings
-  that get escalated with nobody warned. `due_today` and `due_today_routable`
-  are both reported, and the difference between them is the number of people
-  who will not hear from you.
-- **The clock is the GRACE age, not the finding age.** A 365-day-old finding in
-  a campaign announced 3 days ago is on grace day 3, so it gets the day-3
-  reminder. Tracking the finding's own age would sail every backlog item past
-  all six reminder days before the campaign began.
-
-Every entry must be strictly less than `grace_days`. `[1,7,14]` with a 14-day
-grace is **rejected**, not quietly accepted: a reminder on the deadline would
-never fire, and silently dropping it would leave someone believing in a final
-warning that does not exist.
+Every `notify_days` entry must be `< grace_days` — `[1,7,14]` with 14-day grace is rejected (a reminder on the deadline would never fire).
 
 ### ⚠️ The date is interpreted in UTC
 
-`campaign_start_date` is converted at **UTC midnight**, and "now" is UTC. West
-of Greenwich, "today" locally is often already tomorrow in UTC, so a date typed
-from a local calendar can land one day off and shift every reminder day with
-it. This cost a confusing test result during development — the schedule looked
-inverted until the dates were recomputed in UTC. Use `date -u +%F`.
+`campaign_start_date` converts at UTC midnight. West of Greenwich, local "today" is often already tomorrow in UTC — shifts every reminder day. Use `date -u +%F`.
 
 ## Severity is a pass-through filter
 
-`severities` restricts the digest to alerts promoted by a policy of a given
-severity. The default is an empty list, meaning **no filter** — the digest
-describes every severity, and the report says "all severities" out loud so a
-reader cannot mistake an unfiltered count for a scoped one.
+Empty list = no filter, reported as "all severities" explicitly. On the reference tenant this changes nothing — `policy.severity` present on 111/111 open runtime alerts, all `high` (only two built-in promoting policies, both hardcode `high`).
 
-**On the reference tenant this input changes nothing, and that is expected.**
-Measured: `policy.severity` is present on 111/111 open runtime alerts and every
-one of them is `high`. Only two built-in policies promote runtime incidents —
-*Container workloads detected with Runtime Incidents* and its Host counterpart —
-and both hardcode `high`. Asking for `high` returns 111; asking for `critical`
-returns 0.
+Implemented for tenants with custom promoting policies, and so a scoped campaign states its filter in the query rather than a comment.
 
-It is implemented anyway for two reasons. A tenant with custom promoting
-policies will carry a real spread, and this module is meant to move between
-tenants. And a campaign scoped to "high and critical only" should say so in the
-query rather than in a comment — an unwritten filter is one nobody can check.
-
-Note the layering: severity belongs to the **promoting policy**, not to the
-runtime incident. The Compute incident object has no severity at all; it
-carries `incidentCategory` (Suspicious Binary, Crypto Miner, Lateral Movement,
-and so on). If you need to discriminate *within* the runtime population on this
-tenant, that field and `auditRuleName` are what actually vary — severity does
-not.
+Severity belongs to the promoting policy, not the runtime incident — the Compute incident itself has no severity, only `incidentCategory` (Suspicious Binary, Crypto Miner, Lateral Movement, etc.) and `auditRuleName`.
 
 ## The built-in `default` model
 
-Some alerts carry `auditRuleName: "default"`. That is not one of the named
-runtime rules; it appears to be the built-in learned model. It cannot be
-escalated by name, so it is excluded from `rules` and counted separately in
-`unnamed_rule_alerts`. Reporting it as an actionable row would send someone
-looking for a rule that does not exist in the console.
+Alerts with `auditRuleName: "default"` are the built-in learned model, not a named rule — can't be escalated by name. Excluded from `rules`, counted in `unnamed_rule_alerts`.
 
 ## Credentials never touch `argv`
 
-Anything on a command line is visible in `ps` to every user on the host. The
-script passes the auth body on **stdin** (`curl --data @-`) and the token via
-`-H @file` from a `0700` temp directory, removed on exit. Verified: 0 of 32
-sampled `argv` snapshots during a live run contained credential material.
+Auth body via stdin (`curl --data @-`); token via `-H @file` from a `0700` temp dir removed on exit. Verified: 0 of 32 sampled `argv` snapshots contained credential material.
 
 ## The grace warning (plan only)
 
-Set `notify_enabled = true` and the module also works out **who would be told**
-that a rule is heading for escalation — how old the oldest open alert is, how
-many days of grace remain, and which mailbox the message would go to.
+`notify_enabled = true` computes who would be told a rule is heading for escalation.
 
-**THIS MODULE cannot send anything.** There is no SMTP client, no webhook, no
-`mail` command anywhere in it. `notify_plan.sh` produces JSON on stdout and
-nothing else, so no `terraform plan` or `apply` can contact a person.
-
-That is a property of the module, not of the campaign. Workflow 8 has a
-separate, gated `send` job that mails this plan — see
-[the workflow README](../../../.github/workflows/runtime-grace-digest/README.md).
-The separation is deliberate: a caller embedding this module gets the planning
-and none of the reach.
+This module cannot send anything — no SMTP client, no webhook, `notify_plan.sh` only writes JSON to stdout. The workflow's separate gated `send` job does the mailing — see [the workflow README](../../../.github/workflows/runtime-grace-digest/README.md).
 
 ### When the clock starts
 
-Day 0 for a group is **`max(firstSeen, campaign_start_date)`**, not the age of
-the finding.
+Day 0 = `max(firstSeen, campaign_start_date)`, not finding age. Counting from `firstSeen` alone was rejected — every one of 52 open findings was already older than 14 days (min 29, median 150, max 371 days); the first run would tell all 25 groups their grace had already expired.
 
-The obvious design — count from each finding's own `firstSeen` — was measured
-against this tenant and rejected. Every one of the 52 open findings is already
-older than a 14-day grace period (min 29 days, median 150, max 371). Counting
-from `firstSeen` alone means the very first run tells all 25 groups their grace
-period expired before they were ever told it had begun. That is not a warning,
-it is an ambush.
+- `finding_age_days` — true age, unaffected by campaign date.
+- `backlog` — true when the announcement (not the finding) set day 0.
 
-`campaign_start_date` fixes the announcement. Anything already open when the
-campaign began starts its countdown then; anything that appears afterwards
-starts from its own `firstSeen`. Two fields make this visible in the plan:
+No stored state — `firstSeen` recomputed from the API every run (present on 100/100 sampled alerts).
 
-- `finding_age_days` — the true age, unaffected by the campaign date.
-- `backlog` — true when the announcement, not the finding, set day 0. On a
-  first run this is normally every group, and it is the count of people
-  hearing about this for the first time.
+A group anchors on its OLDEST open finding (`min`, not `max`) — `rp-lab` fires sporadically across 7 months/8 accounts; anchoring on newest would mean it never becomes overdue.
 
-There is no stored state anywhere in this. `firstSeen` is present on 100/100
-sampled alerts and the API reports it identically on every read, so the
-countdown is recomputed from scratch on each run. No ledger, no artifact, no
-committed file to drift.
-
-**A group is anchored on its OLDEST open finding** (`min`, not `max`). A rule
-that keeps producing new alerts must not have its clock reset by each one —
-`rp-lab` fires sporadically across 7 months and 8 accounts, and anchoring on
-the newest finding would mean it never becomes overdue at all.
-
-A date in the future is rejected by a check: it would make every countdown
-negative, so nothing could ever be escalated and the report would look calm
-indefinitely.
+A future `campaign_start_date` is rejected by a check (would make every countdown negative).
 
 ### Why the override recipient is required, not a "dry run" flag
 
-`warning_recipient_override` has no default, and planning refuses to run
-without it. Every planned message is addressed to that one value, and the
-addresses read from the alerts travel alongside as `would_notify` — visible for
-review, never used as a recipient.
+`warning_recipient_override` has no default; planning refuses without it. Real addresses travel as `would_notify` for review, never as a recipient. A required field that replaces the address means the unreviewed path doesn't exist — removing it is a code change, not config.
 
-A dry-run boolean can be flipped by accident. A required field that *replaces*
-the address means the unreviewed path does not exist yet: removing it is a code
-change, not a configuration change.
-
-This matters more here than anywhere else in the repo. Every other module's
-blast radius stops at the tenant, and the tenant is a sandbox — a wrong write
-is undone by another write. `cloudAccountOwners` holds **live mailboxes of real
-people, including addresses outside the company**, and a sent email cannot be
-recalled.
+`cloudAccountOwners` holds live mailboxes of real people, including external addresses — a sent email can't be recalled, unlike every other module's tenant-scoped (sandbox) blast radius.
 
 ### Recipients come from the alert, and only sometimes
-
-Measured over the open alerts in the reference tenant:
 
 | Signal | Coverage |
 |---|---|
 | `resource.cloudAccountOwners[]` | 32 / 52 |
 | `resource.additionalInfo.clusters[]` | 40 / 52 |
 | `resource.account` | 52 / 52 |
-| **neither owner nor cluster** | **10 / 52** |
+| neither owner nor cluster | 10 / 52 |
 
-⚠️ Do not confuse this with the image API. `/api/v1/images` carries **no owner
-label at all** (0 of 300 sampled). The promoted CSPM alert is a different
-record and does carry one.
+⚠️ Not the same as the image API — `/api/v1/images` has no owner label (0 of 300 sampled); the promoted CSPM alert does.
 
-⚠️ `cloudAccountOwners` is the **cloud account** owner, not the workload owner.
-One shared lab account produced 15 of the 52 open alerts, and a single rule
-group addressed 5 people — so some recipients would get mail about workloads
-that are not theirs. A declared `teams.yaml` mapping would be more precise;
-that decision is open.
+⚠️ `cloudAccountOwners` is the cloud account owner, not the workload owner — one shared lab account produced 15 of 52 open alerts, one rule group addressed 5 people about workloads that may not be theirs.
 
 ### Outputs
 
@@ -501,49 +240,22 @@ that decision is open.
 | `warning_plan` | counts: planned, overdue, unroutable, not_escalatable, sendable, distinct_owners, max_recipients |
 | `warning_messages` | per group: `age_days`, `days_remaining`, `overdue`, `escalatable`, `routable`, `would_notify`, `recipient` |
 
-`sendable` is the only set a send path could honestly mail: **overdue AND
-addressable AND pointing at a rule escalation can act on.**
+`sendable` = overdue AND addressable AND escalatable.
 
-### Two things that must be settled before anything is sent
+### Two things settled before anything is sent
 
-Both are reported as `check` warnings rather than being silently tolerated.
-
-**1. The clock starts at the alert, so a backlog is already expired.** The
-countdown runs from each alert's `alertTime`. On the reference tenant *every*
-candidate was already past a 14-day window — the oldest by 368 days. A first
-run would not warn anyone; it would announce an expiry that happened a year
-ago. **A grace period has to start when it is announced.** A send path needs a
-campaign start date and must measure from first contact.
-
-**2. Some candidates cannot be warned at all.** Groups with no owner on the
-alert are reported, never dropped — silently skipping them is how a workload
-gets blocked with nobody warned. They need a declared fallback recipient.
-
-Separately, groups pointing at the built-in `default` model are flagged
-`escalatable: false`: no escalation can be aimed at them, so warning about them
-would threaten a consequence that cannot be carried out.
+1. Clock starts at the alert (`alertTime`), so a backlog looks already-expired without a campaign start date — every reference-tenant candidate was already past 14 days (oldest by 368). A grace period must start when announced.
+2. Groups with no owner are reported, never dropped — need a declared fallback recipient. Groups pointing at the built-in `default` model are flagged `escalatable: false`.
 
 ### The artifact holds personal data
 
-`warning_messages[].would_notify` contains real addresses. The workflow prints
-only **counts** to the job summary — which is visible to everyone with repo
-read access — and leaves the addresses in the run artifact.
-`terraform/runtime-grace-digest.json` is git-ignored for the same reason.
+`warning_messages[].would_notify` has real addresses. Job summary prints counts only; addresses stay in the run artifact. `terraform/runtime-grace-digest.json` is git-ignored.
 
 ## Verified against the live tenant
 
-- `status=ok`, `disabled`, `missing_credentials` and `partial_grouping` all
-  produce the documented values
-- **0 `resource_changes`** on a targeted plan, and 0 attributable to this
-  module on an untargeted one
+- `status=ok`, `disabled`, `missing_credentials`, `partial_grouping` all produce documented values
+- 0 `resource_changes` on a targeted plan, 0 attributable on an untargeted one
 - Relative windows narrow correctly: 7d→0, 14d→1, 30d→8, 90d→38, all→341
-- Promotion is one-to-one, not aggregation: `auditCount` was 1 on 99 of 100
-  sampled alerts (max 2, sum 101)
+- Promotion is one-to-one: `auditCount` was 1 on 99/100 sampled alerts (max 2, sum 101)
 
-## A note on the reference tenant
-
-Findings above describe **API mechanics** — field names, filter behaviour,
-pagination, failure modes. Those are properties of the product.
-
-Counts and rule names come from a **sandbox** tenant and are illustrative only.
-Nothing here infers customer behaviour from what happens to be sitting in a lab.
+Counts and rule names above come from a sandbox tenant, illustrative only.

@@ -2,33 +2,11 @@
 
 **Workflow file:** [`../drift-detection.yml`](../drift-detection.yml) · **Actions name:** `5. Drift Detection (scheduled)`
 
-Answers "did anything change in the tenant since yesterday?" and opens an issue
-when the answer is yes.
+Detects tenant changes since yesterday and opens an issue when found.
 
-**Can it change the tenant?** No. The only thing it writes is a snapshot file
-committed back to this repo.
+**Can it change the tenant?** No. Only writes a snapshot file committed back to this repo.
 
----
-
-## Why snapshots instead of `terraform plan`
-
-The usual way to detect drift is to run `terraform plan` and see if Terraform
-wants to change anything. That does not work here, for a structural reason:
-
-**This repo has no remote backend.** State is local to each Actions job and
-discarded when the job ends. Terraform therefore has no prior state to compare
-the tenant against, and every run looks like a first run.
-
-Comparing successive **read-only snapshots** answers the same question without a
-backend. It also covers something `terraform plan` never would: objects nobody
-manages in Terraform — which is most of this tenant. A role created by hand in
-the console is invisible to `plan` but shows up here immediately.
-
-If a remote backend is added later, real plan-based drift detection becomes
-possible and this workflow can be revisited. It stays useful either way, because
-of the unmanaged-object coverage.
-
----
+No remote backend, so `terraform plan` has no prior state to compare against — every run looks like a first run. This workflow compares successive read-only snapshots instead, which also catches objects nobody manages in Terraform (e.g. a role created by hand in the console).
 
 ## How it works
 
@@ -37,85 +15,50 @@ terraform plan (read-only)  →  snapshot.sh  →  diff.sh  →  issue + new bas
         data blocks only        fingerprint     compare
 ```
 
-1. **Read** the tenant via the `access-audit` and `tenant-inventory` modules
-   (both `data`-only).
-2. **Fingerprint** the result with [`snapshot.sh`](../../../scripts/drift/snapshot.sh)
-   — a reduced, sorted, privacy-safe JSON document.
-3. **Compare** against the committed baseline with
-   [`diff.sh`](../../../scripts/drift/diff.sh).
-4. **Report** — write a table to the run summary, and open a GitHub issue if
-   anything changed.
-5. **Advance** the baseline so tomorrow reports only what changed since today.
+1. **Read** the tenant via the `access-audit` and `tenant-inventory` modules (both `data`-only).
+2. **Fingerprint** with [`snapshot.sh`](../../../scripts/drift/snapshot.sh) — reduced, sorted, privacy-safe JSON.
+3. **Compare** against the committed baseline with [`diff.sh`](../../../scripts/drift/diff.sh).
+4. **Report** — table to the run summary; open a GitHub issue if anything changed.
+5. **Advance** the baseline.
 
 ### Schedule
 
-Runs daily at **08:00 UTC** (~midnight US Pacific). GitHub's cron is best-effort
-and can be delayed under load; this job is not time-critical.
-
-You can also trigger it manually: **Actions** → **5. Drift Detection
-(scheduled)** → **Run workflow**.
+Daily at **08:00 UTC**. Manual trigger: **Actions** → **5. Drift Detection (scheduled)** → **Run workflow**.
 
 | Input | Default | Notes |
 |---|---|---|
-| `update_baseline` | `true` | Uncheck to inspect drift **without** accepting it — the report is produced but the baseline is left alone, so the same drift is reported again next run. |
+| `update_baseline` | `true` | Uncheck to inspect drift without accepting it — same drift reports again next run. |
 
-On a schedule the baseline always advances. Otherwise a single change would be
-re-reported every day forever.
+Scheduled runs always advance the baseline.
 
----
+## Privacy
 
-## Privacy — why the snapshot is safe to commit
+Baseline is committed to a **public** repo, enforced two ways:
 
-The baseline is committed to a **public** repo, so this is enforced in two
-independent places:
+1. Workflow hard-codes `TF_VAR_access_audit_redact_usernames: "true"` — SHA-256 hashed before reaching the file.
+2. `snapshot.sh` greps its own output for an email address; if found, deletes the file and fails the run.
 
-1. The workflow hard-codes `TF_VAR_access_audit_redact_usernames: "true"`, so
-   usernames are SHA-256 hashed before they ever reach the file.
-2. `snapshot.sh` independently greps its own output for an email address and, if
-   it finds one, **deletes the file** and fails the run.
-
-The second check exists so that flipping the first to `false` breaks the
-workflow rather than leaking. Hashes are stable, so a hashed user is still
-trackable across snapshots — you can tell that *a* user changed without learning
-who.
-
-Note that hashing is one-way on purpose. Encoding (`base64`) would be
-reversible and is not redaction.
-
----
+Hashing is one-way and stable — trackable across snapshots without revealing identity.
 
 ## Reading the report
-
-The summary lists three kinds of change per category:
 
 | Kind | Meaning |
 |---|---|
 | **added** | Present now, absent in the baseline |
 | **removed** | Present in the baseline, gone now |
-| **modified** | Same name, different contents (the report shows was → now) |
+| **modified** | Same name, different contents (was → now) |
 
-Counts are reported separately from the object lists, so a bulk change reads as
-one count delta rather than hundreds of rows.
+Counts reported separately from object lists.
 
 ### Exit codes
-
-`diff.sh` uses exit codes as its interface, and they are deliberately not the
-shell defaults:
 
 | Code | Meaning |
 |---|---|
 | `0` | No drift |
 | `2` | Drift detected |
-| `1` | The script itself failed |
+| `1` | Script failed |
 
-Drift is `2` rather than `1` so that a genuine script failure is never
-misreported as "the tenant changed."
-
-**A missing baseline is not drift.** The first run has nothing to compare
-against, so it exits `0`, says so, and establishes the baseline — rather than
-opening a spurious issue on day one.
-
----
+A missing baseline is not drift — first run exits `0` and establishes the baseline.
 
 ## Setup requirements
 
@@ -125,23 +68,18 @@ opening a spurious issue on day one.
 | `PRISMACLOUD_USERNAME` | Access key UUID |
 | `PRISMACLOUD_PASSWORD` | Secret key |
 
-The workflow needs `contents: write` (to commit the baseline) and `issues: write`
-(to open the drift issue). Both are declared in the workflow file; no repo
-setting is required.
-
-The `drift` label is created automatically the first time an issue is opened —
-you do not need to create it by hand.
+Needs `contents: write` (commit baseline) and `issues: write` (open drift issue) — both declared in the workflow file. The `drift` label auto-creates on first issue.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| Every run reports drift | The baseline isn't advancing. Check whether the **Update baseline** step is being skipped — a manual run with `update_baseline` unchecked does exactly this. |
-| First run reported nothing | Expected. There was no baseline; it was just created. |
-| Run failed with "snapshot contained an email address" | Redaction was disabled. The output was deleted rather than committed. Restore `TF_VAR_access_audit_redact_usernames: "true"`. |
-| Push rejected on the baseline commit | A concurrent commit to `main` won the race. The step retries once with `git pull --rebase`; if it still fails, re-run the workflow. |
-| Issue not created | Check the run has `issues: write` and that the diff step reported `drift=true`. |
-| Huge diff after a provider upgrade | A new provider version can add fields, which reads as "modified" everywhere. Accept the baseline once and subsequent runs return to normal. |
+| Every run reports drift | Baseline isn't advancing — check if `update_baseline` was left unchecked. |
+| First run reported nothing | Expected — baseline was just created. |
+| `snapshot contained an email address` | Redaction disabled. File deleted, not committed. Restore `TF_VAR_access_audit_redact_usernames: "true"`. |
+| Push rejected on baseline commit | Concurrent commit won the race. Retries once with `git pull --rebase`; re-run if still failing. |
+| Issue not created | Check `issues: write` permission and that the diff step reported `drift=true`. |
+| Huge diff after provider upgrade | New fields read as "modified" everywhere. Accept the baseline once. |
 
 ## Files
 

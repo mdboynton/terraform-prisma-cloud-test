@@ -1,41 +1,15 @@
 # Workflow 8 — Runtime Grace Digest
 
-Answers one question: **which runtime rules are still firing?**
+Lists runtime rules that produced **promoted CSPM alerts** in a recent window, grouped by rule, workload scope (container/host), and cloud account, ordered by occurrence count. Optionally plans a grace-period warning campaign and, on day 14, hands overdue rules to [workflow 9](../runtime-rule-effects/README.md) for a read-only look at what could be escalated.
 
-It lists rules that produced **promoted CSPM alerts** inside a recent window,
-grouped by rule, workload scope (container/host) and cloud account, ordered by
-occurrence count. Turned on, it also plans a grace-period warning campaign and,
-on day 14, hands overdue rules to [workflow 9](../runtime-rule-effects/README.md)
-for a read-only look at what could be escalated.
+> "Incident" = raw runtime event in the Compute Console. CSPM promotes it into an "alert". This workflow reads alerts (CSPM alert API), never the Compute Console — this page says "alert".
 
-> **"Incident" vs "alert".** An *incident* is the raw runtime event in the
-> Compute Console. CSPM promotes it into an *alert*. **This workflow reads
-> alerts** — the CSPM alert API, never the Compute Console — so this page says
-> "alert" for the thing being counted.
-
-## Why "cannot" rather than "does not"
-
-The `runtime-grace-digest` module contains only `data` blocks — no
-`resource` blocks. There is nothing for an apply to apply, so **no run of this
-workflow can change the tenant**. That is guaranteed by the module's
-construction, not by a policy someone could forget.
+**Can it change the tenant?** No — `data` blocks only, zero `resource` blocks.
 
 > [!IMPORTANT]
-> **It can still send email**, and it can still trigger a **read-only** run of
-> workflow 9. Neither of those touches the tenant, but sending mail is
-> irreversible — see [Sending](#sending). The `send` job is off by default,
-> impossible on a schedule, and behind an environment approval.
+> Can still send email and trigger a read-only workflow 9 run. Neither touches the tenant, but sending mail is irreversible. `send` job is off by default, impossible on a schedule, behind an environment approval.
 
-## It reports recurrence, not "unresolved for N days"
-
-A **runtime incident is an event**, not a state — it happened, and nothing
-makes it un-happen. There's no "resolved" state to age against, and incidents
-never expire. On the reference tenant, 14,398 of 14,410 incidents are older
-than 14 days, so an age-based report would list almost everything forever.
-
-**"Still firing in the last N days"** is the question the data can answer, and
-it clears itself: fix the workload, the incidents stop, the rule drops off the
-report.
+Reports recurrence ("still firing in the last N days"), not age — incidents never expire (14,398 of 14,410 are older than 14 days on the reference tenant), so an age-based report would list almost everything forever.
 
 ## How to use it
 
@@ -43,117 +17,71 @@ Actions → **8. Runtime Grace Digest** → Run workflow.
 
 | Input | Default | What it does |
 |---|---|---|
-| `window_days` | `14` | Recurrence window. A short window can legitimately return nothing while the tenant is full of alerts — see below. |
+| `window_days` | `14` | Recurrence window. |
 | `alert_status` | `open` | Lifecycle state to report on. |
-| `max_alerts` | `2000` | Cap on alerts read for grouping. Totals are never capped by this. |
-| `severities` | `all severities` | Restrict to alerts promoted by a policy of that severity. On this tenant every runtime alert is `high`. |
-| `plan_warnings` | off | Also compute **who would be warned** that a rule is heading for escalation. Sends nothing. |
-| `grace_days` | `14` | Days an alert may stay open before its rule is a candidate. Only used with `plan_warnings`. |
-| `campaign_start_date` | *(empty)* | **Required with `plan_warnings`.** `YYYY-MM-DD`, the day the campaign was announced. |
-| `send_warnings` | off | **Actually send** the planned warnings. Requires `plan_warnings`, a manual dispatch, and an environment approval. Never on for scheduled runs. |
+| `max_alerts` | `2000` | Cap on alerts read for grouping. Totals never capped. |
+| `severities` | `all severities` | Restrict to alerts promoted by a policy of that severity. Every runtime alert on this tenant is `high`. |
+| `plan_warnings` | off | Compute who would be warned. Sends nothing. |
+| `grace_days` | `14` | Days an alert may stay open before its rule is a candidate. |
+| `campaign_start_date` | *(empty)* | Required with `plan_warnings`. `YYYY-MM-DD`. |
+| `send_warnings` | off | Actually send. Requires `plan_warnings`, manual dispatch, environment approval. Never on for scheduled runs. |
 
-Reminder days (1, 3, 5, 7, 10, 13) are fixed, not a dispatch input — they are a
-property of the campaign, agreed once. Changing them is a code review, not a
-run parameter.
+Reminder days (1, 3, 5, 7, 10, 13) are fixed in code, not a dispatch input.
 
-It also runs **automatically every day at 08:00 UTC**, with `plan_warnings`
-**off** — see below for why.
-
-### Why daily, and why the schedule doesn't plan warnings
-
-The campaign contacts owners on exact days (1, 3, 5, 7, 10, 13) of a 14-day
-grace period. A weekly cron only ever lands on two of those, so the schedule
-has to look every day. Daily does **not** mean daily email — most days a group
-is mid-period and the plan reports nothing.
-
-`plan_warnings` stays off on the schedule because `campaign_start_date` has no
-default: today's date would restart every countdown on every run, and a fixed
-past date would tell owners their grace expired before they were told it
-existed. A scheduled run supplies an empty date, the module reports
-`no_campaign_start`, and plans nothing — deliberately, rather than silently
-running a broken campaign. To put the campaign on the cron, the start date
-needs to become a committed repository variable, which is a decision about the
-campaign, not a workflow tweak.
+Also runs daily at 08:00 UTC with `plan_warnings` off — `campaign_start_date` has no default (today's date would restart every countdown; a fixed past date would tell owners their grace expired before it started), so a scheduled run reports `no_campaign_start` and plans nothing.
 
 ### An empty report is not the same as a clean tenant
 
-`window_days` decides what you can see. Measured on the reference tenant: the
-14-day default returns **0** open alerts; 1825 days returns **111**. An empty
-result renders exactly like a healthy tenant, so the run reports
-`status: empty_window` with an explicit warning whenever this happens.
-
-**This matters most for the day-14 handoff to workflow 9** (below): if this
-window is narrower than the population workflow 9 escalates against, the
-digest warns fewer people than get affected — or nobody at all.
+`window_days` decides visibility. Measured: 14-day default returns 0 open alerts; 1825 days returns 111. Empty result renders like a healthy tenant, so the run reports `status: empty_window` with an explicit warning.
 
 ### The severity dropdown is not a text box
 
-`policy.severity` **fails open**: an unrecognised value (a typo, wrong case, or
-the comma-joined `"high,critical"`) is silently ignored and the API returns
-**every** severity at HTTP 200. A free-text box here would let one typo widen
-a blocking campaign to the whole tenant with nothing in the report saying so.
-The dropdown, a Terraform validation, and a post-fetch assertion on every
-returned alert's severity all back this up.
+`policy.severity` fails open — an unrecognized value (typo, wrong case, comma-joined `"high,critical"`) is silently ignored and the API returns every severity at HTTP 200. Enforced via dropdown + Terraform validation + post-fetch assertion.
 
 ## Where the results appear
 
-- **Summary page** — the report. Counts only; no owner address is ever printed
-  here, since the summary is visible to anyone with repo read access.
-- **Artifact** `runtime-grace-digest` (90-day retention) — full JSON, including
-  every group when the summary table is truncated to the top 40.
+- **Summary page** — counts only, no owner addresses.
+- **Artifact** `runtime-grace-digest` (90-day retention) — full JSON, every group.
 
 ### What the artifact contains
 
 | Key | Contents |
 |---|---|
 | `summary`, `scope`, `rules` | The recurrence report. |
-| `notify_status`, `notify_status_detail` | Why the warning plan looks the way it does. `null` when `plan_warnings` is off. |
+| `notify_status`, `notify_status_detail` | Why the warning plan looks the way it does. `null` when `plan_warnings` off. |
 | `warning_plan` | Counts, including `due_today` and `emails_today`. |
-| `warning_messages` | One row per **rule group**, with ages and `would_notify`. |
-| `warning_accounts` | One row per **account** — the unit an email is sent in. |
-| `escalation_handoff` / `escalation_blocked` / `escalation_ambiguous` | Day-14 groups: escalatable, blocked (built-in model), and ambiguous-policy — see [Day 14](#day-14--handoff-to-workflow-9) below. |
+| `warning_messages` | One row per rule group, ages and `would_notify`. |
+| `warning_accounts` | One row per account — the unit an email is sent in. |
+| `escalation_handoff` / `escalation_blocked` / `escalation_ambiguous` | Day-14 groups: escalatable, blocked (built-in model), ambiguous-policy. |
 
 > [!CAUTION]
-> **The artifact contains live personal email addresses**, including external
-> ones, read from the alerts' `cloudAccountOwners`. It is gitignored and must
-> never be committed or pasted into a ticket.
+> Artifact contains live personal email addresses, including external ones. Gitignored — never commit or paste into a ticket.
 
-Every `recipient` in the artifact is checked against the override address
-before the file is written; the run **fails** if any row disagrees, and fails
-if the expected address is missing entirely rather than silently passing.
+Every `recipient` in the artifact is checked against the override address before writing; the run fails if any row disagrees or the expected address is missing.
 
-## The grace warning — planned, and sent only when you ask
+## The grace warning — planned, sent only when asked
 
-Turn on `plan_warnings` and the report gains a section: who *would* be warned,
-how old the oldest open alert is, and how many messages could honestly be
-sent. Planning needs **two** required values — `campaign_start_date` and the
-override recipient — and sends nothing; the module has no SMTP client at all.
+`plan_warnings` adds a section: who would be warned, oldest open alert age, honest send count. Needs `campaign_start_date` and the override recipient. No SMTP client — plan-only.
 
 ### Sending
 
-Mail leaves the runner only from the separate **`send`** job, gated on every
-one of:
+Mail leaves the runner only from the separate `send` job, gated on all of:
 
-| # | Gate | Why |
-|---|---|---|
-| 1 | `plan_warnings` on | There has to be a plan. |
-| 2 | `send_warnings` on | Asked for explicitly, this run. |
-| 3 | `workflow_dispatch` | A scheduled run can **never** send. |
-| 4 | `emails_today > 0` | Nobody approves a mailing of zero. |
-| 5 | `grace-warning-send` environment approval | A second human. |
-| 6 | Addressing re-verified after approval | Approving an environment does not re-run the plan-time checks; the send job re-reads the artifact and re-asserts the override address before composing anything. |
+| # | Gate |
+|---|---|
+| 1 | `plan_warnings` on |
+| 2 | `send_warnings` on |
+| 3 | `workflow_dispatch` (scheduled run can never send) |
+| 4 | `emails_today > 0` |
+| 5 | `grace-warning-send` environment approval |
+| 6 | Addressing re-verified after approval — send job re-reads the artifact and re-asserts the override address |
 
 > [!IMPORTANT]
-> **Every message goes to the override recipient**, currently
-> `tule@paloaltonetworks.com`. Real owner addresses appear *in the body*,
-> labelled `TEST MODE`, for review only — never as a `To:`, `Cc:` or `Bcc:`.
+> Every message goes to the override recipient (`tule@paloaltonetworks.com`). Real owner addresses appear in the body labelled `TEST MODE`, never as To/Cc/Bcc.
 
-**One email per ACCOUNT, not per rule** — owners are a property of the cloud
-account, so rule-level sends would repeat the same people (measured: 26 sends
-collapse to 5 emails on the reference tenant).
+One email per ACCOUNT, not per rule — owners are a property of the account (26 sends collapse to 5 emails on the reference tenant).
 
-Required secrets: `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
-`SMTP_FROM`. Without them the send job fails; the digest still runs.
+Required secrets: `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`, `SMTP_FROM`. Without them the send job fails; the digest still runs.
 
 ### Reading the warning plan
 
@@ -161,105 +89,58 @@ Required secrets: `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`,
 |---|---|
 | Rule groups with an open alert | Candidates. |
 | Past the grace window | Over threshold, counted from day 0. |
-| No owner on the alert (unroutable) | Cannot be addressed to anyone. |
+| No owner on the alert | Unroutable. |
 | Not escalatable (built-in model) | The `default` learned model. |
-| **Could honestly be warned today** | Overdue **and** addressable **and** escalatable. |
+| **Could honestly be warned today** | Overdue AND addressable AND escalatable. |
 
 ### When the clock starts
 
-Day 0 is **the later of** the finding's `firstSeen` and `campaign_start_date`
-— not simply how old the finding is. Every open finding on the reference
-tenant is already older than a 14-day grace period, so counting from
-`firstSeen` alone would tell everyone their grace expired before they were
-ever told it started. The announcement date sets day 0 for the backlog;
-anything appearing later starts from its own first sighting. Nothing is
-stored between runs — the countdown is recomputed from the API every time.
+Day 0 = later of the finding's `firstSeen` and `campaign_start_date`. Every open finding on the reference tenant is already older than 14 days, so counting from `firstSeen` alone would tell everyone their grace expired before they knew it started. Not stored between runs — recomputed each time.
 
-### Two things worth knowing
-
-- **"N groups cannot be addressed to anyone"** on a first run is expected —
-  those alerts carry no owner and need a declared fallback recipient.
-- **`cloudAccountOwners` is the owner of the cloud account, not the
-  workload.** One shared account can address several people about workloads
-  that aren't theirs.
+- "N groups cannot be addressed to anyone" on a first run is expected.
+- `cloudAccountOwners` is the account owner, not the workload owner — one shared account can address people about workloads that aren't theirs.
 
 ## Reading the output
 
 | Row | Meaning |
 |---|---|
-| **Rules still firing** | Distinct named rules with an incident in the window. |
-| Rule/account groups | Rows in the table; higher than the above when one rule fires in several accounts. |
+| Rules still firing | Distinct named rules with an incident in the window. |
+| Rule/account groups | Rows in the table; higher when one rule fires in several accounts. |
 | Total occurrences | Sum across those groups. |
 | Incidents in window (tenant total) | Server-side count, never capped by `max_alerts`. |
-| Tenant-wide, all time | For proportion — is the window a slice or nearly everything? |
+| Tenant-wide, all time | For proportion. |
 
-**Container and host are separate rows on purpose** — the same rule name can
-exist in both policies, and merging them would point a later escalation at the
-wrong one. **Incidents from `default`** (the built-in learned model) are
-reported separately: there's no rule name to escalate, so they're excluded
-from the table and explain any gap between the totals.
+Container and host are separate rows — same rule name can exist in both policies. Incidents from `default` (built-in model) reported separately — no rule name to escalate.
 
 ## Day 14 — handoff to workflow 9
 
-When a rule group has used its full grace period, this workflow can
-**automatically call workflow 9 in its read-only mode** so the candidate
-effect sites are enumerated and waiting for a human, instead of relying on
-someone noticing the digest and running workflow 9 by hand.
+When a rule group exhausts its grace period, this workflow can auto-call workflow 9 in read-only mode so candidate effect sites are enumerated for a human.
 
-Two jobs run after `digest`, only when `plan_warnings` found day-14 groups
-(`esc_ready > 0`):
+Two jobs run after `digest`, only when day-14 groups exist (`esc_ready > 0`):
 
-- **`escalation_gate`** — checks whether a workflow 9 run is already sitting
-  on an approval (`status=waiting`). If one is, a human has already been asked
-  this exact question and hasn't answered yet, so this run does **not** queue
-  a duplicate plan behind it — it reports "skipped" and stops. This check
-  fails **open**: if the GitHub API query itself fails, the run proceeds
-  rather than silently skipping.
-- **`escalation_plan`** — a `workflow_call` into `runtime-rule-effects.yml`,
-  passing this run's `window_days` and `alert_status: "open"` (fixed,
-  regardless of what this digest run was reporting on, since escalation is
-  always about currently-open alerts).
+- **`escalation_gate`** — skips if a workflow 9 run is already waiting on approval (fails open if the GitHub API query itself fails).
+- **`escalation_plan`** — `workflow_call` into `runtime-rule-effects.yml`, passing `window_days` and `alert_status: "open"` (fixed regardless of this run's status).
 
 > [!IMPORTANT]
-> **This never escalates anything.** Workflow 9's `workflow_call` trigger
-> declares no `escalate_*` or `confirm` inputs — a caller has no way to name a
-> target or confirm a write — and its `apply` job additionally refuses to run
-> for a `workflow_call` event. Flipping a rule to prevent/block still needs a
-> manual dispatch of workflow 9, a site chosen by hand, `APPLY` typed in, and
-> an environment approval. Keeping the flip human-gated is a recorded decision
-> — see `plans/policy-escalation-findings.md`, "Workflow 9 must stay
-> human-gated". For runtime rules the enforcement runs on the workload itself,
-> so an unattended flip can start blocking production traffic unwatched.
-
-The digest's own summary page separately reports three groups once a day-14
-candidate exists:
+> Never escalates anything. Workflow 9's `workflow_call` trigger declares no `escalate_*`/`confirm` inputs, and its `apply` job refuses `workflow_call` events. A flip still needs manual dispatch, a hand-picked site, `APPLY` typed in, and environment approval — decision recorded in `plans/policy-escalation-findings.md`.
 
 | Group | Meaning |
 |---|---|
-| Ready for workflow 9 | Named rule, owning policy known — an actionable candidate. |
-| Overdue but not escalatable | Came from the built-in `default` model, which has no rule name to target. On the reference tenant this is the *majority* of the overdue backlog (51 of 111 incidents) — reported rather than dropped, so the actionable list isn't mistaken for the whole picture. |
-| Overdue, policy undetermined | The owning policy couldn't be determined from the alert. **Never guessed** — three rule names exist in both the container and host policies, and escalating the wrong one changes an unrelated control. |
+| Ready for workflow 9 | Named rule, owning policy known. |
+| Overdue but not escalatable | Built-in `default` model — no rule name to target. Majority of overdue backlog (51 of 111) on the reference tenant. |
+| Overdue, policy undetermined | Owning policy ambiguous — never guessed (some rule names exist in both container and host policies). |
 
 ## When the run fails on purpose
 
 | Status | Meaning |
 |---|---|
-| `disabled` | The module was switched off. |
-| `missing_credentials` | The `PRISMACLOUD_*` secrets were absent or empty. |
+| `disabled` | Module switched off. |
+| `missing_credentials` | `PRISMACLOUD_*` secrets absent or empty. |
 
-Both render **"Do not read this as 'nothing is firing'. Nothing was
-checked."** — a quiet "0 rules firing" on an unauthenticated run would be a
-false all-clear on a security report.
+Both render "Do not read this as 'nothing is firing'. Nothing was checked."
 
-Two more warnings you may see:
-
-- **"Partial result — sampled"** — the window held more alerts than
-  `max_alerts` allowed. Affected figures are tagged `(sampled)`; a rule absent
-  from a partial table may still be firing.
-- **"The window may not have applied"** — the window returned the same count
-  as an all-time query, which is what a silently-dropped filter looks like
-  (the alerts API returns HTTP 200 and the whole tenant for a filter name it
-  doesn't recognise). Can also be legitimate on a quiet tenant.
+- **"Partial result — sampled"** — window held more alerts than `max_alerts`; affected figures tagged `(sampled)`.
+- **"The window may not have applied"** — window count equals all-time count, which is what a silently-dropped filter looks like.
 
 ## Setup requirements
 
@@ -269,107 +150,56 @@ Two more warnings you may see:
 | `PRISMACLOUD_USERNAME` | Access key UUID |
 | `PRISMACLOUD_PASSWORD` | Secret key |
 
-**No Compute Console secret is needed for the digest itself** — it reads
-runtime incidents after they're promoted into the CSPM alert stream, on the
-same API and auth as workflow 6. These three secrets are all the **digest**
-needs.
+No Compute Console secret needed for the digest itself — reads promoted CSPM alerts, same API/auth as workflow 6.
 
-**The day-14 handoff is different**: it calls workflow 9 (`secrets:
-inherit`), which additionally needs `PRISMA_COMPUTE_CONSOLE_URL` to read
-effect state from the Compute Console — see workflow 9's own setup section.
-Without it, `escalation_plan` runs but reports `missing_credentials` rather
-than enumerating sites.
+Day-14 handoff calls workflow 9 (`secrets: inherit`), which additionally needs `PRISMA_COMPUTE_CONSOLE_URL`. Without it, `escalation_plan` reports `missing_credentials` instead of enumerating sites.
 
-Everything else below is required only by the `send` job; without it the
-digest and the handoff still run exactly as described.
+Everything below is required only by the `send` job — without it the digest and handoff still run as described.
 
 ## Setting up sending
 
-1. **Create the `grace-warning-send` environment** — Settings → Environments →
-   New environment, named exactly `grace-warning-send`. Add at least one
-   **required reviewer** (an environment with none doesn't pause — this is the
-   whole point of the gate), and restrict **deployment branches** to your
-   default branch. This is deliberately a *different* environment from
-   `test-tenant` (used by workflows 1, 2 and 9): one gates writes to the
-   tenant, the other gates contacting humans, and they shouldn't share reviewers.
+1. Create the `grace-warning-send` environment (Settings → Environments), named exactly `grace-warning-send`, with at least one required reviewer and deployment branches restricted to default. Separate from `test-tenant` (workflows 1, 2, 9) — one gates tenant writes, the other gates contacting humans.
 
-2. **Add the five SMTP secrets** (repository, or on the environment for
-   stricter scoping):
+2. Add the five SMTP secrets (repository or environment scope):
 
    | Secret | Example | Notes |
    |---|---|---|
    | `SMTP_SERVER` | `smtp.gmail.com` | Hostname only |
-   | `SMTP_PORT` | `587` | `587` (STARTTLS) or `465` (implicit TLS), both supported. **Port 25 is blocked on GitHub-hosted runners.** |
+   | `SMTP_PORT` | `587` | `587` (STARTTLS) or `465` (implicit TLS). Port 25 blocked on GitHub-hosted runners. |
    | `SMTP_USERNAME` | `you@gmail.com` | Provider-specific |
-   | `SMTP_PASSWORD` | *(token)* | An API key or app password, **not** a login password |
-   | `SMTP_FROM` | same as `SMTP_USERNAME` | Must be an address the relay is authorised to send as |
+   | `SMTP_PASSWORD` | *(token)* | API key or app password, not a login password |
+   | `SMTP_FROM` | same as `SMTP_USERNAME` | Must be authorised by the relay |
 
 <details>
-<summary>Which relay to use, and why a corporate IP-allowlisted relay won't work</summary>
+<summary>Which relay to use</summary>
 
-A GitHub-hosted runner has an arbitrary, ever-changing IP, so a relay that
-authorises by source IP has nothing to allowlist. The relay must authenticate
-with credentials instead. Options, least friction first for this domain:
+GitHub-hosted runners have arbitrary IPs, so IP-allowlisted relays don't work — needs credential auth.
 
-1. **A personal Gmail account with an App Password** (recommended starting
-   point, see below). App Passwords are **disabled by admin policy** on
-   `paloaltonetworks.com` — confirmed, not something to work around.
-2. **A transactional provider** (SendGrid, Mailgun, SES, Postmark) — the right
-   long-term answer. `SMTP_FROM` still can't be `@paloaltonetworks.com`: its
-   SPF is a per-IP allowlist under DMARC `p=reject`, so anything not on that
-   list is **rejected**, not junked.
-3. **An internal relay that accepts authenticated submission from the
-   internet** — the only route that can legitimately send *as* the work
-   domain.
-4. **A self-hosted runner inside the network**, if an IP-authorised relay is
-   the only option.
+1. Personal Gmail + App Password (see below). App Passwords are disabled by policy on `paloaltonetworks.com`.
+2. Transactional provider (SendGrid, Mailgun, SES, Postmark) — long-term answer. `SMTP_FROM` still can't be `@paloaltonetworks.com` (SPF per-IP allowlist under DMARC `p=reject` rejects it).
+3. Internal relay accepting authenticated submission from the internet — only route that can send as the work domain.
+4. Self-hosted runner inside the network, if IP-authorised relay is the only option.
 
-**Not the Prisma Cloud tenant** — `/settings/smtp` returns 404; there's no
-relay to borrow.
+Not the Prisma Cloud tenant — `/settings/smtp` returns 404.
 
 ### Sending via Gmail
 
-Use a **personal** Gmail account (App Passwords are policy-disabled on the
-corporate Workspace domain). `SMTP_FROM` must be the Gmail address itself —
-Gmail only lets you send as a verified address. The recipient still stays the
-pinned override address; mail simply arrives from the personal account, which
-for a test campaign is honest labelling, not a defect.
+Personal Gmail account required (App Passwords policy-disabled on corporate Workspace). `SMTP_FROM` must be the Gmail address itself. Recipient stays the pinned override address.
 
-To get the App Password: enable 2-Step Verification
-(myaccount.google.com → Security), then
-myaccount.google.com/apppasswords → name it → copy the 16 characters (paste
-without the spaces Google displays). Your normal password will not work.
+App Password: enable 2-Step Verification, then myaccount.google.com/apppasswords → copy the 16 characters without spaces.
 
-Verified against this domain's actual SPF/DKIM/DMARC records (2026-08-21):
-Google's own submission path passes `paloaltonetworks.com`'s per-IP SPF
-allowlist with nothing to arrange, while a GitHub-runner or arbitrary IP
-sending directly fails it — confirmed with real Google source IPs (pass) and
-bogus control IPs (fail), so the runner must always hand off through
-`smtp.gmail.com` rather than attempt to send to the world directly.
+Verified against this domain's SPF/DKIM/DMARC (2026-08-21): Google's submission path passes `paloaltonetworks.com`'s per-IP SPF allowlist; a GitHub-runner sending directly fails it — must relay through `smtp.gmail.com`.
 
-Free-tier limits (~500 recipients/day) are far above this campaign's volume.
-Mail may land in Spam — check before concluding a send failed. Revoke the App
-Password when the test phase ends; it's a real credential to a personal
-mailbox and not how a production campaign should send mail (move to a service
-mailbox or transactional provider first).
+Free-tier limit ~500 recipients/day, far above campaign volume. Check Spam before concluding a send failed. Revoke the App Password after the test phase.
 
 </details>
 
 ### Prove it with the smallest possible send
 
-1. Dispatch with `plan_warnings` on, `send_warnings` **off**. Read
-   `emails_today` on the summary — if that number surprises you, stop.
-2. Download the artifact, confirm every `warning_accounts[].recipient` is the
-   override address (the run already fails otherwise — this is you checking
-   the check).
-3. Re-dispatch with `send_warnings` on and approve the environment. Every
-   message goes to the override recipient, so the worst case is a small pile
-   of mail in one inbox.
-4. Read one — the body carries the real owners under `TEST MODE:`, which is
-   the addressing you'd be using for real.
-
-Only after that is it worth discussing sending to real owners, which is a
-change to the pinned recipient and a separate conversation.
+1. Dispatch with `plan_warnings` on, `send_warnings` off. Read `emails_today`.
+2. Download the artifact, confirm every `warning_accounts[].recipient` is the override address.
+3. Re-dispatch with `send_warnings` on, approve the environment.
+4. Read one message — body carries real owners under `TEST MODE:`.
 
 ## Troubleshooting
 
@@ -378,14 +208,11 @@ change to the pinned recipient and a separate conversation.
 | `authentication returned no token` | Secrets missing or expired. |
 | `Invalid value for variable` | `window_days` is 1–3650, `max_alerts` is 1–10000. |
 | Table is empty but incidents exist | Every incident in the window came from the built-in `default` model. |
-| Numbers don't match workflow 7 | Different systems — workflow 7 counts raw Compute incidents, this counts promoted CSPM alerts. Don't add them. |
-| Timed out | Lower `max_alerts`, or re-run if the tenant is rate limiting. |
+| Numbers don't match workflow 7 | Different systems — workflow 7 counts raw Compute incidents, this counts promoted CSPM alerts. |
+| Timed out | Lower `max_alerts`, or re-run if rate limited. |
 
 ## More detail
 
-- Module internals, guards and API traps:
-  [`terraform/modules/runtime-grace-digest/README.md`](../../../terraform/modules/runtime-grace-digest/README.md)
-- Workflow 9 (the escalation this hands off to):
-  [`.github/workflows/runtime-rule-effects/README.md`](../runtime-rule-effects/README.md)
-- Research and decisions:
-  [`plans/policy-escalation-findings.md`](../../../plans/policy-escalation-findings.md)
+- Module internals, guards, API traps: [`terraform/modules/runtime-grace-digest/README.md`](../../../terraform/modules/runtime-grace-digest/README.md)
+- Workflow 9: [`.github/workflows/runtime-rule-effects/README.md`](../runtime-rule-effects/README.md)
+- Research and decisions: [`plans/policy-escalation-findings.md`](../../../plans/policy-escalation-findings.md)

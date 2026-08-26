@@ -2,34 +2,15 @@
 
 **Workflow file:** [`../rbac.yml`](../rbac.yml) · **Actions name:** `1. RBAC (teams)`
 
-Creates and maintains per-team Prisma Cloud RBAC artifacts — Account Groups,
-Resource Lists, Roles, optional Service Accounts and Alert Rules — all bound to
-one shared Permission Group. Driven by
-[`terraform/config/teams.yaml`](../../../terraform/config/teams.yaml).
+Creates and maintains per-team Prisma Cloud RBAC artifacts — Account Groups, Resource Lists, Roles, optional Service Accounts and Alert Rules — bound to one shared Permission Group. Driven by [`terraform/config/teams.yaml`](../../../terraform/config/teams.yaml).
 
 **Can it change the tenant?** Yes — behind an approval gate.
-
----
-
-## First, the 30-second mental model
-
-Terraform reads config files in this repo, compares them to what actually
-exists in the tenant, and makes the tenant match the files. Two verbs:
-
-- **Plan** — "show me what *would* change." Read-only. Always safe.
-- **Apply** — "actually make the change." Gated behind approval here.
-
-**Pushing never applies anything.** Pushes and PRs run plan only.
-
----
 
 ## Step 1 — Run a plan (safe, do this first)
 
 1. **Actions** tab → **1. RBAC (teams)** in the sidebar
 2. **Run workflow** → leave `apply` **unchecked** → **Run workflow**
 3. Open the run → click the **Plan** job → read **"Show plan (human-readable)"**
-
-Terraform's symbols:
 
 | Symbol | Meaning |
 |---|---|
@@ -38,23 +19,21 @@ Terraform's symbols:
 | `- destroy` | Something will be **deleted** — stop and ask if unexpected |
 | `No changes` | Tenant already matches the config |
 
-Do this once before changing anything so you know what "normal" looks like.
+Pushes and PRs run plan only, never apply.
 
 ## Step 2 — Change what a team gets
 
-Team definitions live in `terraform/config/teams.yaml`. Edit it, commit on a
-branch, and open a pull request. The plan is posted **as a comment on the PR**.
+Edit `terraform/config/teams.yaml`, commit on a branch, open a PR. The plan posts as a PR comment.
 
-> **`teams.yaml` is git-ignored.** It won't exist on the runner unless it was
-> force-added (`git add -f`). If your plan shows zero team resources, that's why.
+> `teams.yaml` is git-ignored. Zero team resources in the plan means it's missing on the runner.
 
 ## Step 3 — Review the plan on the PR
 
 - Does it touch only what you intended?
 - Any unexpected `- destroy`?
-- Renaming a team is a destroy + create, not a rename — check carefully.
+- Renaming a team is destroy + create, not a rename.
 
-Merge when it looks right. **Merging does not apply.**
+Merging does not apply.
 
 ## Step 4 — Apply (gated)
 
@@ -64,21 +43,15 @@ Merge when it looks right. **Merging does not apply.**
 4. An approver opens the run → **Review deployments** → **Approve**
 5. Verify in the Prisma Cloud console
 
----
-
 ## Scope
 
-This workflow is restricted with `-target` to:
-
+Restricted with `-target` to:
 - `prismacloud_permission_group.app_owner_readonly_singleton`
 - `module.prisma_cloud_rbac`
 
-Compute runtime policies and tenant inventory belong to workflows 2 and 3 and
-cannot be changed from here.
+Compute runtime policies and tenant inventory belong to workflows 2 and 3.
 
 ## Setup requirements
-
-**Secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Example |
 |---|---|
@@ -86,62 +59,36 @@ cannot be changed from here.
 | `PRISMACLOUD_USERNAME` | access key UUID |
 | `PRISMACLOUD_PASSWORD` | secret key |
 
-**Environment:** create one named **`test-tenant`** (Settings → Environments)
-with a **required reviewer**. That is what pauses the apply. Without it the job
-still runs — but with no gate.
+**Environment:** `test-tenant` (Settings → Environments) with a required reviewer — that's what gates the apply.
 
-## State: there is no backend (read this before your second apply)
+## State: no backend
 
-This repo has **no `backend` block**, so Terraform state is local to whichever
-CI runner performed the apply and is destroyed with it. Nothing persists between
-runs. It is also why the apply job re-plans rather than applying the plan file
-from the plan job — that artifact would reference state this job doesn't have.
+No `backend` block — state is local to the CI runner and destroyed with it. The apply job re-plans rather than reusing the plan job's plan file.
 
-**The consequence:** every run starts believing the tenant is empty. On a second
-apply Terraform tries to *create* artifacts that already exist, and the API
-rejects the duplicate with `object already exists`.
+Every run starts believing the tenant is empty, so a second apply tries to *create* existing artifacts and the API rejects with `object already exists`.
 
-**The current mitigation** is [`terraform/import.tf`](../../../terraform/import.tf):
-`import` blocks that tell Terraform "this already exists, adopt it". A plan
-against an already-provisioned team should read:
+**Mitigation:** [`terraform/import.tf`](../../../terraform/import.tf) — `import` blocks that adopt existing artifacts. A healthy plan against an already-provisioned team reads:
 
 ```
 Plan: 5 to import, 2 to add, 0 to change, 0 to destroy.
 ```
 
-`to import` is the healthy signal. If you instead see those same artifacts under
-`to add`, an import block is missing or its address is wrong — **stop**, because
-the apply will fail on the duplicate.
+If those same artifacts show under `to add` instead, an import block is missing or wrong — stop, the apply will fail.
 
-**When you create a new team,** its artifacts won't be in `import.tf` yet. The
-first apply creates them; add their IDs to `import.tf` afterwards or the *next*
-run will collide. The file header has the exact API calls to look the IDs up.
+**New team:** its artifacts aren't in `import.tf` yet. First apply creates them; add their IDs afterward or the next run collides. File header has the lookup API calls.
 
-**Never commit a state file to this repo.** Terraform writes sensitive
-attributes to state in **plaintext**, including
-`prismacloud_user_profile.service_account`'s secret key — which the API returns
-only once. `sensitive = true` redacts CLI output, not the state file. Git
-history is permanent, so a committed key means rotating the service account.
-
-**The real fix** is a remote backend (S3 + DynamoDB, or Terraform Cloud): state
-persists, it's encrypted, and it's locked against two applies running at once.
-Import blocks are a stopgap that only covers IDs someone remembered to write
-down.
+**Never commit a state file.** `prismacloud_user_profile.service_account`'s secret key is written to state in plaintext (`sensitive = true` only redacts CLI output). A committed key means rotating the service account.
 
 ## Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| `object already exists` on apply | The artifact exists in the tenant but has no `import` block. Add it to [`terraform/import.tf`](../../../terraform/import.tf) — see the state section above. |
-| Plan says `to add` for a team you already provisioned | Same cause. Do not apply; the create will be rejected. |
-| `Cannot import non-existent remote object` | An ID in `import.tf` is stale or from a different tenant. Re-read it from the API using the commands in that file's header. |
-
-| Symptom | Cause / fix |
-|---|---|
+| `object already exists` on apply | Artifact exists in the tenant, no `import` block. Add it to [`terraform/import.tf`](../../../terraform/import.tf). |
+| Plan says `to add` for a provisioned team | Same cause. Do not apply. |
+| `Cannot import non-existent remote object` | ID in `import.tf` is stale or from a different tenant. Re-read via the API commands in that file's header. |
 | Plan shows no team resources | `teams.yaml` is git-ignored and absent on the runner. |
-| `object already exists` | An artifact of that name exists in the tenant. Adopt it (see `existing_permission_group_id`) or remove it in the UI. |
-| Apply never starts | `apply` was left unchecked, or nobody approved the `test-tenant` deployment. |
-| `expired_access_key` | Credentials expired — refresh `PRISMACLOUD_USERNAME` / `PRISMACLOUD_PASSWORD`. |
+| Apply never starts | `apply` left unchecked, or nobody approved the `test-tenant` deployment. |
+| `expired_access_key` | Refresh `PRISMACLOUD_USERNAME` / `PRISMACLOUD_PASSWORD`. |
 
 ## More detail
 
