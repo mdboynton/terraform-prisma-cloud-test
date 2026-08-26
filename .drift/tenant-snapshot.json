@@ -1,9 +1,9 @@
 {
   "counts": {
     "roles": 173,
-    "roles_unassigned": 74,
-    "users": 858,
-    "users_enabled": 858,
+    "roles_unassigned": 75,
+    "users": 859,
+    "users_enabled": 859,
     "users_disabled": 0,
     "service_accounts": 214,
     "permission_groups": 62,
@@ -359,7 +359,7 @@
       "name": "NYC-OTI-ruben-test SVC",
       "role_type": "Ruben-PG",
       "account_group_count": 0,
-      "assigned_user_count": 3
+      "assigned_user_count": 2
     },
     {
       "name": "PC Training Testing",
@@ -377,13 +377,13 @@
       "name": "PCS Demo - JIT Admin",
       "role_type": "JIT Admin",
       "account_group_count": 0,
-      "assigned_user_count": 494
+      "assigned_user_count": 495
     },
     {
       "name": "PCS Demo - JIT Requester",
       "role_type": "JIT Requester",
       "account_group_count": 0,
-      "assigned_user_count": 494
+      "assigned_user_count": 495
     },
     {
       "name": "PCS-Demo-Developer-Role",
@@ -503,7 +503,7 @@
       "name": "System Admin",
       "role_type": "System Admin",
       "account_group_count": 0,
-      "assigned_user_count": 716
+      "assigned_user_count": 717
     },
     {
       "name": "Temp-Prisma-Cloud-RO",
@@ -965,7 +965,7 @@
       "name": "ruben-test-Role",
       "role_type": "Appsec Admin",
       "account_group_count": 0,
-      "assigned_user_count": 1
+      "assigned_user_count": 0
     },
     {
       "name": "rubena-asdfd-adfas",
@@ -4025,7 +4025,7 @@
       "id": "7ead5600447c",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
-      "role_count": 5
+      "role_count": 3
     },
     {
       "id": "7eff49a83594",
@@ -5775,6 +5775,12 @@
     },
     {
       "id": "d4fd44399bcb",
+      "account_type": "USER_ACCOUNT",
+      "enabled": true,
+      "role_count": 3
+    },
+    {
+      "id": "d50a8e8116a7",
       "account_type": "USER_ACCOUNT",
       "enabled": true,
       "role_count": 3
