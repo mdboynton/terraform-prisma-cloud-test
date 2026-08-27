@@ -84,7 +84,7 @@ jobs:
           [ "$MAX_IMAGES" -gt 0 ] || fail "max_images must be greater than zero"
 
           #CURL_OPTS=(--silent --show-error --fail-with-body)
-          CURL_OPTS=(-vL --show-error --fail-with-body)
+          CURL_OPTS=(-vL --trace-ascii --show-error --fail-with-body)
 
           TMP="$(mktemp -d)"
           chmod 700 "$TMP"
