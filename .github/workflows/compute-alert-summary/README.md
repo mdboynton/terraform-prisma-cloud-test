@@ -110,5 +110,5 @@ Stripping the path segment authenticates "successfully" but returns an empty tok
 
 ## More detail
 
-- Module reference: [`terraform/modules/compute-alert-summary/README.md`](../../../terraform/modules/compute-alert-summary/README.md)
-- Why this is a separate module: [`plans/compute-collection-scoping-findings.md`](../../../plans/compute-collection-scoping-findings.md)
+- Underlying script: [`terraform/modules/compute-alert-summary/scripts/summary.sh`](../../../terraform/modules/compute-alert-summary/scripts/summary.sh) — invoked directly by this workflow.
+- Why Compute collections are a separate system from CSPM Collections: [`plans/compute-collection-scoping-findings.md`](../../../plans/compute-collection-scoping-findings.md)

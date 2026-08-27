@@ -3,7 +3,8 @@ name: 7. Compute Alert Summary (read-only)
 # Runtime incidents + image vulnerabilities for a COMPUTE collection.
 # Sibling of workflow 6 (CSPM collections) - different objects, don't add counts.
 #
-# Read-only: module has data blocks only. No apply job, no environment gate.
+# Pure bash: fetches and summarizes via terraform/modules/compute-alert-summary/scripts/summary.sh
+# directly (no terraform plan/state involved).
 #
 # Docs: .github/workflows/compute-alert-summary/README.md
 #
@@ -35,30 +36,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  TF_VERSION: "1.13.3"
-  TF_IN_AUTOMATION: "true"
-  TF_INPUT: "false"
-
-  # Must include any path segment the tenant requires - stripped, auth "succeeds" with an empty token.
-  TF_VAR_prisma_compute_console_url: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
-  TF_VAR_prisma_cloud_access_key: ${{ secrets.PRISMACLOUD_USERNAME }}
-  TF_VAR_prisma_cloud_secret_key: ${{ secrets.PRISMACLOUD_PASSWORD }}
-  TF_VAR_prisma_cloud_api_url: ${{ secrets.PRISMACLOUD_API_URL }}
-
-  TF_VAR_compute_alert_summary_enabled: "true"
-  TF_VAR_compute_alert_summary_collection_name: ${{ inputs.collection_name }}
-  TF_VAR_compute_alert_summary_max_images: ${{ inputs.max_images }}
-
-  TF_VAR_alert_summary_enabled: "false"
-  TF_VAR_access_audit_enabled: "false"
-  TF_VAR_tenant_inventory_enabled: "false"
-  TF_VAR_compute_runtime_list_enabled: "false"
-
-defaults:
-  run:
-    working-directory: terraform
-
 jobs:
   summary:
     name: Count Compute findings for a collection
@@ -69,42 +46,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Terraform init
-        run: terraform init -input=false
-
-      - name: Read Compute finding counts
-        id: plan
-        run: |
-          set -o pipefail
-          terraform plan -input=false -no-color \
-            -target=module.compute_alert_summary -out=tfplan 2>&1 | tee plan-output.txt
-
-      - name: Render report
+      - name: Fetch and render report
         # env:, never ${{ }} interpolation - a collection named `$(...)` would execute.
         env:
           COLLECTION_NAME: ${{ inputs.collection_name }}
+          MAX_IMAGES: ${{ inputs.max_images }}
+          CONSOLE_URL: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
+          ACCESS_KEY: ${{ secrets.PRISMACLOUD_USERNAME }}
+          SECRET_KEY: ${{ secrets.PRISMACLOUD_PASSWORD }}
         run: |
-          plan_json="$(terraform show -json tfplan)"
+          set -o pipefail
 
-          get() { printf '%s' "$plan_json" | jq -c --arg k "$1" '.output_changes[$k].after'; }
+          input_json="$(jq -nc \
+            --arg console_url "$CONSOLE_URL" \
+            --arg access_key "$ACCESS_KEY" \
+            --arg secret_key "$SECRET_KEY" \
+            --arg collection_name "$COLLECTION_NAME" \
+            --arg max_images "$MAX_IMAGES" \
+            '{console_url:$console_url, access_key:$access_key, secret_key:$secret_key, collection_name:$collection_name, max_images:$max_images}')"
 
-          status="$(get compute_alert_summary_status | jq -r .)"
-          detail="$(get compute_alert_summary_status_detail | jq -r '. // ""')"
-          summary="$(get compute_alert_summary)"
-
-          # Branch on status, not exit code - check-block warnings don't fail the plan.
-          if [ "$status" = "disabled" ] || [ "$status" = "missing_credentials" ]; then
+          if ! summary="$(printf '%s' "$input_json" | bash terraform/modules/compute-alert-summary/scripts/summary.sh 2>script-error.log)"; then
+            detail="$(tail -n1 script-error.log | sed 's/^ERROR: //')"
             {
               echo "## Compute alert summary - no counts produced"
               echo
               echo "**Collection:** \`$COLLECTION_NAME\`"
-              echo
-              echo "**Status:** \`$status\`"
               echo
               echo "> $detail"
               echo
@@ -112,8 +78,7 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
 
             touch handled-failure.marker
-
-            echo "::error title=Compute alert summary failed::$status - $detail"
+            echo "::error title=Compute alert summary failed::$detail"
             exit 1
           fi
 
@@ -125,6 +90,7 @@ jobs:
           scanned=$(printf   '%s' "$summary" | jq -r '.images_scanned')
           complete=$(printf  '%s' "$summary" | jq -r '.images_complete')
           stop=$(printf      '%s' "$summary" | jq -r '.images_stop_reason')
+          suspect=$(printf   '%s' "$summary" | jq -r '.suspect_unfiltered')
 
           crit=$(printf '%s' "$summary" | jq -r '.vuln_critical')
           high=$(printf '%s' "$summary" | jq -r '.vuln_high')
@@ -174,12 +140,12 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          if [ "$status" = "tenant_wide_scope" ]; then
+          if [ "$suspect" = "true" ]; then
             {
               echo
               echo "> [!WARNING]"
               echo "> **This collection's counts equal the tenant-wide totals.**"
-              echo "> $detail"
+              echo "> Expected for a collection that selects everything (e.g. \"All\"), but also what a silently-dropped filter looks like."
               echo "> Confirm the collection's scope before reading these as team-specific."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -206,33 +172,8 @@ jobs:
             echo "No counts were produced. **Do not read any number in this run as"
             echo "this collection's finding count.**"
             echo
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ -f plan-output.txt ] && grep -q "Error:" plan-output.txt; then
-            {
-              echo "### What went wrong"
-              echo
-
-              script_msg="$(grep -m1 '^Error Message:' plan-output.txt || true)"
-              if [ -n "$script_msg" ]; then
-                echo "**${script_msg#Error Message: }**"
-                echo
-              fi
-
-              echo '```'
-              grep -m1 -A8 "Error:" plan-output.txt
-              echo '```'
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            {
-              echo "The failure happened before or outside the Terraform plan."
-              echo "See the job log for details."
-              echo
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-          {
+            echo "See the job log for details."
+            echo
             echo "### Common causes"
             echo
             echo "| Symptom | Fix |"
@@ -250,6 +191,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: compute-alert-summary
-          path: terraform/compute-alert-summary.json
+          path: compute-alert-summary.json
           if-no-files-found: error
           retention-days: 30
