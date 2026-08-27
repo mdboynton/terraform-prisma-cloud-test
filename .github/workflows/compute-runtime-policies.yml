@@ -9,17 +9,17 @@ name: 2. Compute Runtime Policies
 #                   PRISMACLOUD_PASSWORD, PRISMA_COMPUTE_CONSOLE_URL
 
 on:
-  pull_request:
-    branches: [main, tuan_test, tuan_test_compute_policies]
-    paths: &compute_paths
-      - "terraform/*.tf"
-      - "terraform/.terraform.lock.hcl"
-      - "terraform/config/**"
-      - "terraform/modules/compute-runtime-policies/**"
-      - ".github/workflows/compute-runtime-policies.yml"
-  push:
-    branches: [main, tuan_test, tuan_test_compute_policies]
-    paths: *compute_paths
+  #pull_request:
+  #  branches: [main, tuan_test, tuan_test_compute_policies]
+  #  paths: &compute_paths
+  #    - "terraform/*.tf"
+  #    - "terraform/.terraform.lock.hcl"
+  #    - "terraform/config/**"
+  #    - "terraform/modules/compute-runtime-policies/**"
+  #    - ".github/workflows/compute-runtime-policies.yml"
+  #push:
+  #  branches: [main, tuan_test, tuan_test_compute_policies]
+  #  paths: *compute_paths
   workflow_dispatch:
     inputs:
       list_compute_runtime:

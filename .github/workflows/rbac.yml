@@ -9,17 +9,17 @@ name: 1. RBAC (teams)
 # Required secrets: PRISMACLOUD_API_URL, PRISMACLOUD_USERNAME, PRISMACLOUD_PASSWORD
 
 on:
-  pull_request:
-    branches: [main, tuan_test, tuan_test_compute_policies]
-    paths: &rbac_paths
-      - "terraform/*.tf"
-      - "terraform/.terraform.lock.hcl"
-      - "terraform/config/**"
-      - "terraform/modules/rbac/**"
-      - ".github/workflows/rbac.yml"
-  push:
-    branches: [main, tuan_test, tuan_test_compute_policies]
-    paths: *rbac_paths
+  #pull_request:
+  #  branches: [main, tuan_test, tuan_test_compute_policies]
+  #  paths: &rbac_paths
+  #    - "terraform/*.tf"
+  #    - "terraform/.terraform.lock.hcl"
+  #    - "terraform/config/**"
+  #    - "terraform/modules/rbac/**"
+  #    - ".github/workflows/rbac.yml"
+  #push:
+  #  branches: [main, tuan_test, tuan_test_compute_policies]
+  #  paths: *rbac_paths
   workflow_dispatch:
     inputs:
       apply:

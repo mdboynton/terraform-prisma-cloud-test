@@ -96,8 +96,8 @@ on:
   # Daily, not weekly: reminder days (1,3,5,7,10,13) are exact and a weekly
   # cron only ever lands on two of them. Daily != mailing daily - most days the
   # plan is a no-op (age-based). 08:00 UTC.
-  schedule:
-    - cron: "0 8 * * *"
+  #schedule:
+  #  - cron: "0 8 * * *"
 
 concurrency:
   group: runtime-grace-digest-${{ github.ref }}

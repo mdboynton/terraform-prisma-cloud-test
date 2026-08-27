@@ -6,8 +6,8 @@ name: 5. Drift Detection (scheduled)
 # Docs: .github/workflows/drift-detection/README.md
 
 on:
-  schedule:
-    - cron: "0 8 * * *" # 08:00 UTC daily
+  #schedule:
+  #  - cron: "0 8 * * *" # 08:00 UTC daily
   workflow_dispatch:
     inputs:
       update_baseline:
