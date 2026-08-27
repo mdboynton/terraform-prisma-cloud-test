@@ -3,8 +3,9 @@ name: 7. Compute Alert Summary (read-only)
 # Runtime incidents + image vulnerabilities for a COMPUTE collection.
 # Sibling of workflow 6 (CSPM collections) - different objects, don't add counts.
 #
-# Pure bash: fetches and summarizes via terraform/modules/compute-alert-summary/scripts/summary.sh
-# directly (no terraform plan/state involved).
+# Self-contained bash: no Terraform, no checkout. Talks to the Compute Console
+# API directly. terraform/modules/compute-alert-summary/scripts/summary.sh still
+# exists (used by the Terraform module) but this workflow no longer calls it.
 #
 # Docs: .github/workflows/compute-alert-summary/README.md
 #
@@ -43,82 +44,186 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Fetch and render report
         # env:, never ${{ }} interpolation - a collection named `$(...)` would execute.
         env:
-          COLLECTION_NAME: ${{ inputs.collection_name }}
+          COLLECTION: ${{ inputs.collection_name }}
           MAX_IMAGES: ${{ inputs.max_images }}
           CONSOLE_URL: ${{ secrets.PRISMA_COMPUTE_CONSOLE_URL }}
           ACCESS_KEY: ${{ secrets.PRISMACLOUD_USERNAME }}
           SECRET_KEY: ${{ secrets.PRISMACLOUD_PASSWORD }}
         run: |
-          set -o pipefail
+          set -euo pipefail
 
-          input_json="$(jq -nc \
-            --arg console_url "$CONSOLE_URL" \
-            --arg access_key "$ACCESS_KEY" \
-            --arg secret_key "$SECRET_KEY" \
-            --arg collection_name "$COLLECTION_NAME" \
-            --arg max_images "$MAX_IMAGES" \
-            '{console_url:$console_url, access_key:$access_key, secret_key:$secret_key, collection_name:$collection_name, max_images:$max_images}')"
-
-          if ! summary="$(printf '%s' "$input_json" | bash terraform/modules/compute-alert-summary/scripts/summary.sh 2>script-error.log)"; then
-            detail="$(tail -n1 script-error.log | sed 's/^ERROR: //')"
+          # Writes the failure summary once, marks it handled, and stops the job.
+          fail() {
             {
               echo "## Compute alert summary - no counts produced"
               echo
-              echo "**Collection:** \`$COLLECTION_NAME\`"
+              echo "**Collection:** \`$COLLECTION\`"
               echo
-              echo "> $detail"
+              echo "> $1"
               echo
               echo "No counts were produced. **Do not read this as \"no findings\".**"
             } >> "$GITHUB_STEP_SUMMARY"
-
             touch handled-failure.marker
-            echo "::error title=Compute alert summary failed::$detail"
+            echo "::error title=Compute alert summary failed::$1"
             exit 1
+          }
+
+          BASE="${CONSOLE_URL%/}"
+          [ -n "$BASE" ]       || fail "console_url is required"
+          [ -n "$ACCESS_KEY" ] || fail "access_key is required"
+          [ -n "$SECRET_KEY" ] || fail "secret_key is required"
+          # An absent collection filter returns the WHOLE TENANT, not nothing - refuse rather than risk reporting tenant-wide counts as one team's.
+          [ -n "$COLLECTION" ] || fail "collection_name is required"
+
+          case "$MAX_IMAGES" in
+            ''|*[!0-9]*) fail "max_images must be a positive integer, got '$MAX_IMAGES'" ;;
+          esac
+          [ "$MAX_IMAGES" -gt 0 ] || fail "max_images must be greater than zero"
+
+          CURL_OPTS=(--silent --show-error --fail-with-body)
+
+          TMP="$(mktemp -d)"
+          chmod 700 "$TMP"
+          trap 'rm -rf "$TMP"' EXIT
+
+          # Credentials never touch argv (process command lines are world-readable via `ps`) - body over stdin, token via -H @file from a 0700 dir.
+          TOKEN="$(jq -nc --arg u "$ACCESS_KEY" --arg p "$SECRET_KEY" '{username:$u,password:$p}' \
+            | curl "${CURL_OPTS[@]}" -H 'Content-Type: application/json' \
+                -X POST "$BASE/api/v1/authenticate" --data @- \
+            | jq -r '.token // ""')" || fail "authentication failed against $BASE"
+          [ -n "$TOKEN" ] || fail "authentication returned no token - check credentials and that console_url includes any required path segment"
+
+          printf 'Authorization: Bearer %s\n' "$TOKEN" > "$TMP/auth.hdr"
+          chmod 600 "$TMP/auth.hdr"
+          AUTH=(-H "@$TMP/auth.hdr")
+
+          # Resolve the collection name before using it as a filter: the match is exact and case-sensitive, and a name that matches nothing returns 0 rather than an error - a typo would otherwise read as "all clear".
+          curl "${CURL_OPTS[@]}" "${AUTH[@]}" -X GET "$BASE/api/v1/collections" > "$TMP/collections.json" \
+            || fail "could not list Compute collections"
+
+          COLLECTION_EXISTS="$(jq -r --arg n "$COLLECTION" '[.[] | select(.name == $n)] | length' "$TMP/collections.json")"
+          if [ "$COLLECTION_EXISTS" -eq 0 ]; then
+            SUGGESTION="$(jq -r --arg n "$COLLECTION" '[.[].name | select(ascii_downcase == ($n | ascii_downcase))] | first // ""' "$TMP/collections.json")"
+            if [ -n "$SUGGESTION" ]; then
+              fail "no Compute collection named '$COLLECTION' - the filter is case-sensitive; did you mean '$SUGGESTION'?"
+            fi
+            fail "no Compute collection named '$COLLECTION' exists in this tenant"
           fi
 
-          incidents=$(printf '%s' "$summary" | jq -r '.incidents')
-          unacked=$(printf   '%s' "$summary" | jq -r '.incidents_unacked')
-          images=$(printf    '%s' "$summary" | jq -r '.images')
-          inc_tenant=$(printf '%s' "$summary" | jq -r '.incidents_tenant')
-          img_tenant=$(printf '%s' "$summary" | jq -r '.images_tenant')
-          scanned=$(printf   '%s' "$summary" | jq -r '.images_scanned')
-          complete=$(printf  '%s' "$summary" | jq -r '.images_complete')
-          stop=$(printf      '%s' "$summary" | jq -r '.images_stop_reason')
-          suspect=$(printf   '%s' "$summary" | jq -r '.suspect_unfiltered')
+          # Reads Total-Count without pulling any bodies.
+          count_for() {
+            local ep="$1"; shift
+            curl "${CURL_OPTS[@]}" "${AUTH[@]}" -D "$TMP/h.txt" -o /dev/null -G "$BASE/api/v1/$ep" \
+              "$@" --data-urlencode 'limit=1' >/dev/null || fail "request to $ep failed"
+            awk -F': ' 'tolower($1) ~ /^total-count$/ {gsub(/\r/,"",$2); print $2}' "$TMP/h.txt"
+          }
 
-          crit=$(printf '%s' "$summary" | jq -r '.vuln_critical')
-          high=$(printf '%s' "$summary" | jq -r '.vuln_high')
-          med=$(printf  '%s' "$summary" | jq -r '.vuln_medium')
-          low=$(printf  '%s' "$summary" | jq -r '.vuln_low')
+          # Filter param is PLURAL (`collections`) - the singular is silently ignored and returns the full tenant, so the baseline is fetched to compare against rather than assumed.
+          INCIDENTS_TENANT="$(count_for audits/incidents)"
+          INCIDENTS="$(count_for audits/incidents --data-urlencode "collections=$COLLECTION")"
+          IMAGES_TENANT="$(count_for images)"
+          IMAGES="$(count_for images --data-urlencode "collections=$COLLECTION")"
+          INCIDENTS_TENANT="${INCIDENTS_TENANT:-0}"; INCIDENTS="${INCIDENTS:-0}"
+          IMAGES_TENANT="${IMAGES_TENANT:-0}";       IMAGES="${IMAGES:-0}"
 
-          inc_pct=$(awk -v t="$incidents" -v n="$inc_tenant" 'BEGIN { if (n > 0) printf "%.1f", (t / n) * 100; else print "0.0" }')
+          # A scoped count equal to the tenant-wide count is the signature of a dropped filter. Can legitimately happen (an all-selecting collection), so this is flagged, not failed.
+          SUSPECT_UNFILTERED=false
+          if { [ "$INCIDENTS" -eq "$INCIDENTS_TENANT" ] && [ "$INCIDENTS_TENANT" -gt 0 ]; } \
+          || { [ "$IMAGES" -eq "$IMAGES_TENANT" ] && [ "$IMAGES_TENANT" -gt 0 ]; }; then
+            SUSPECT_UNFILTERED=true
+          fi
+
+          INCIDENTS_UNACKED="$(count_for audits/incidents \
+            --data-urlencode "collections=$COLLECTION" \
+            --data-urlencode 'acknowledged=false')"
+          INCIDENTS_UNACKED="${INCIDENTS_UNACKED:-0}"
+
+          # Severity totals are summed from /images, not /stats/vulnerabilities: that endpoint was measured stale and returned all-zero for a scoped collection with real criticals.
+          PAGE_SIZE=100
+          [ "$MAX_IMAGES" -lt "$PAGE_SIZE" ] && PAGE_SIZE="$MAX_IMAGES"
+
+          : > "$TMP/dist.ndjson"
+          OFFSET=0
+          FETCHED=0
+          IMAGES_STOP_REASON="complete"
+
+          while [ "$FETCHED" -lt "$IMAGES" ] && [ "$FETCHED" -lt "$MAX_IMAGES" ]; do
+            REMAINING=$((MAX_IMAGES - FETCHED))
+            THIS_PAGE="$PAGE_SIZE"
+            [ "$REMAINING" -lt "$THIS_PAGE" ] && THIS_PAGE="$REMAINING"
+
+            curl "${CURL_OPTS[@]}" "${AUTH[@]}" -G "$BASE/api/v1/images" \
+              --data-urlencode "collections=$COLLECTION" \
+              --data-urlencode "limit=$THIS_PAGE" \
+              --data-urlencode "offset=$OFFSET" > "$TMP/page.json" \
+              || fail "image query failed at offset $OFFSET"
+
+            GOT="$(jq 'length' "$TMP/page.json")"
+            if [ "$GOT" -eq 0 ]; then
+              [ "$FETCHED" -lt "$IMAGES" ] && IMAGES_STOP_REASON="empty_page"
+              break
+            fi
+
+            # Reduced per page here - a full page is ~48 MB and is discarded immediately.
+            jq -c '.[] | (.vulnerabilityDistribution // {}) | {
+                critical: (.critical // 0),
+                high:     (.high     // 0),
+                medium:   (.medium   // 0),
+                low:      (.low      // 0)
+              }' "$TMP/page.json" >> "$TMP/dist.ndjson"
+
+            FETCHED=$((FETCHED + GOT))
+            OFFSET=$((OFFSET + GOT))
+          done
+
+          if [ "$FETCHED" -lt "$IMAGES" ] && [ "$IMAGES_STOP_REASON" = "complete" ]; then
+            IMAGES_STOP_REASON="cap"
+          fi
+
+          if [ -s "$TMP/dist.ndjson" ]; then
+            VULNS="$(jq -s '{
+                critical: (map(.critical) | add // 0),
+                high:     (map(.high)     | add // 0),
+                medium:   (map(.medium)   | add // 0),
+                low:      (map(.low)      | add // 0)
+              }' "$TMP/dist.ndjson")" || fail "failed to aggregate image vulnerability counts"
+          else
+            VULNS='{"critical":0,"high":0,"medium":0,"low":0}'
+          fi
+
+          crit=$(jq -r '.critical' <<<"$VULNS")
+          high=$(jq -r '.high'     <<<"$VULNS")
+          med=$(jq -r '.medium'    <<<"$VULNS")
+          low=$(jq -r '.low'       <<<"$VULNS")
+
+          images_complete=true
+          [ "$IMAGES_STOP_REASON" = "complete" ] || images_complete=false
+
+          inc_pct=$(awk -v t="$INCIDENTS" -v n="$INCIDENTS_TENANT" 'BEGIN { if (n > 0) printf "%.1f", (t / n) * 100; else print "0.0" }')
 
           {
             echo "## Compute alert summary"
             echo
-            echo "**Collection:** \`$COLLECTION_NAME\`"
+            echo "**Collection:** \`$COLLECTION\`"
             echo
             echo "### Runtime incidents"
             echo
             echo "| Metric | Value |"
             echo "|---|---|"
-            echo "| **Incidents in this collection** | **$incidents** |"
-            echo "| Unacknowledged | $unacked |"
-            echo "| Tenant-wide | $inc_tenant |"
+            echo "| **Incidents in this collection** | **$INCIDENTS** |"
+            echo "| Unacknowledged | $INCIDENTS_UNACKED |"
+            echo "| Tenant-wide | $INCIDENTS_TENANT |"
             echo "| Share of tenant | ${inc_pct}% |"
             echo
             echo "### Image vulnerabilities"
             echo
             echo "| Metric | Value |"
             echo "|---|---|"
-            echo "| **Images in this collection** | **$images** |"
-            echo "| Tenant-wide | $img_tenant |"
+            echo "| **Images in this collection** | **$IMAGES** |"
+            echo "| Tenant-wide | $IMAGES_TENANT |"
             echo
             echo "| Severity | CVE instances |"
             echo "|---|---|"
@@ -130,17 +235,17 @@ jobs:
             echo "> CVE instances, not affected images: one image with three critical CVEs counts as three."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$complete" != "true" ]; then
+          if [ "$images_complete" != "true" ]; then
             {
               echo
               echo "> [!WARNING]"
-              echo "> **Vulnerability totals are incomplete.** Summed from **$scanned of $images** images (stopped: \`$stop\`)."
+              echo "> **Vulnerability totals are incomplete.** Summed from **$FETCHED of $IMAGES** images (stopped: \`$IMAGES_STOP_REASON\`)."
               echo "> The severity counts above are a sample. Re-run with a higher \`max_images\` for complete figures."
               echo "> Incident and image counts are unaffected - those are server-side totals."
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          if [ "$suspect" = "true" ]; then
+          if [ "$SUSPECT_UNFILTERED" = "true" ]; then
             {
               echo
               echo "> [!WARNING]"
@@ -150,7 +255,35 @@ jobs:
             } >> "$GITHUB_STEP_SUMMARY"
           fi
 
-          printf '%s' "$summary" | jq '.' > compute-alert-summary.json
+          jq -n \
+            --arg collection          "$COLLECTION" \
+            --argjson incidents       "$INCIDENTS" \
+            --argjson incidents_unacked "$INCIDENTS_UNACKED" \
+            --argjson incidents_tenant "$INCIDENTS_TENANT" \
+            --argjson images          "$IMAGES" \
+            --argjson images_tenant   "$IMAGES_TENANT" \
+            --argjson images_scanned  "$FETCHED" \
+            --argjson images_complete "$images_complete" \
+            --arg images_stop_reason  "$IMAGES_STOP_REASON" \
+            --argjson suspect_unfiltered "$SUSPECT_UNFILTERED" \
+            --argjson vulns           "$VULNS" \
+            '{
+               collection:          $collection,
+               incidents:           $incidents,
+               incidents_unacked:   $incidents_unacked,
+               incidents_tenant:    $incidents_tenant,
+               images:              $images,
+               images_tenant:       $images_tenant,
+               images_scanned:      $images_scanned,
+               images_complete:     $images_complete,
+               images_stop_reason:  $images_stop_reason,
+               vuln_critical:       $vulns.critical,
+               vuln_high:           $vulns.high,
+               vuln_medium:         $vulns.medium,
+               vuln_low:            $vulns.low,
+               suspect_unfiltered:  $suspect_unfiltered
+             }' > compute-alert-summary.json
+
           echo "===== artifact ====="
           echo "bytes=$(wc -c < compute-alert-summary.json | tr -d ' ')"
 

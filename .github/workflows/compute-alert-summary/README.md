@@ -92,7 +92,6 @@ Summary page says "No counts were produced" rather than showing a number.
 | `PRISMA_COMPUTE_CONSOLE_URL` | Compute Console, including the path segment |
 | `PRISMACLOUD_USERNAME` | Access key id |
 | `PRISMACLOUD_PASSWORD` | Secret key |
-| `PRISMACLOUD_API_URL` | CSPM provider is configured at the root; needs a URL even though unused here |
 
 Stripping the path segment authenticates "successfully" but returns an empty token — looks like a credentials problem.
 
@@ -110,5 +109,5 @@ Stripping the path segment authenticates "successfully" but returns an empty tok
 
 ## More detail
 
-- Underlying script: [`terraform/modules/compute-alert-summary/scripts/summary.sh`](../../../terraform/modules/compute-alert-summary/scripts/summary.sh) — invoked directly by this workflow.
+- This workflow's bash is self-contained in [`../compute-alert-summary.yml`](../compute-alert-summary.yml) — no Terraform, no checkout. `terraform/modules/compute-alert-summary/scripts/summary.sh` implements the same logic for the Terraform module and is not called by this workflow.
 - Why Compute collections are a separate system from CSPM Collections: [`plans/compute-collection-scoping-findings.md`](../../../plans/compute-collection-scoping-findings.md)
