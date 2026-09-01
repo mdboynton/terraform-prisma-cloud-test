@@ -1,4 +1,4 @@
-name: 7. Compute Alert Summary (read-only)
+name: 7. Compute Alert Summary New (read-only)
 
 # Runtime incidents + image vulnerabilities for a COMPUTE collection.
 # Sibling of workflow 6 (CSPM collections) - different objects, don't add counts.
@@ -83,16 +83,13 @@ jobs:
           esac
           [ "$MAX_IMAGES" -gt 0 ] || fail "max_images must be greater than zero"
 
-          #CURL_OPTS=(--silent --show-error --fail-with-body)
-          CURL_OPTS=(-vL --trace-ascii --show-error --fail-with-body)
-
           TMP="$(mktemp -d)"
           chmod 700 "$TMP"
           trap 'rm -rf "$TMP"' EXIT
 
           # Credentials never touch argv (process command lines are world-readable via `ps`) - body over stdin, token via -H @file from a 0700 dir.
           TOKEN="$(jq -nc --arg u "$ACCESS_KEY" --arg p "$SECRET_KEY" '{username:$u,password:$p}' \
-            | curl "${CURL_OPTS[@]}" -H 'Content-Type: application/json' \
+            | curl -vL --trace-ascii --show-error --fail-with-body -H 'Content-Type: application/json' \
                 -X POST "$BASE/api/v1/authenticate" --data @- \
             | jq -r '.token // ""')" || fail "authentication failed against $BASE"
           [ -n "$TOKEN" ] || fail "authentication returned no token - check credentials and that console_url includes any required path segment"
@@ -122,7 +119,6 @@ jobs:
             awk -F': ' 'tolower($1) ~ /^total-count$/ {gsub(/\r/,"",$2); print $2}' "$TMP/h.txt"
           }
 
-          # Filter param is PLURAL (`collections`) - the singular is silently ignored and returns the full tenant, so the baseline is fetched to compare against rather than assumed.
           INCIDENTS_TENANT="$(count_for audits/incidents)"
           INCIDENTS="$(count_for audits/incidents --data-urlencode "collections=$COLLECTION")"
           IMAGES_TENANT="$(count_for images)"

@@ -6,6 +6,7 @@ AGENTS.md
 
 # Miscellaneous files
 .etc/
+specs/
 
 # Backups
 *.bak

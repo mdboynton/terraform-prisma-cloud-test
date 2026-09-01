@@ -1,0 +1,347 @@
+name: Alert Summary - Runtime
+
+# Finds all runtime alerts within the specified time range associated with a 
+# given role. Prints summarized alert data and outputs detailed data to CSV.
+#
+# Required repository secrets: 
+#   - PRISMACLOUD_API_URL 
+#   - PRISMACLOUD_USERNAME
+#   - PRISMACLOUD_PASSWORD
+
+on:
+  workflow_dispatch:
+    inputs:
+      role_name:
+        description: "Role name (must match the name of an existing role in Prisma Cloud)"
+        type: string
+        required: true
+      days:
+        description: "How far back to search (in days)"
+        type: string
+        default: "7"
+      output_filename:
+        description: "Detailed alert data output filename (Default:  \"alerts-runtime_<role>_<YYYYMMDD>.csv\")"
+        type: string
+        required: false
+        default: ""
+      resolve_team_name:
+        description: "Derive team name from target role name and use in final output."
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: alert-summary-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  summary:
+    name: Fetch & Summarize Runtime Alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Fetch data, parse alerts & print summary
+        id: attribute
+        env:
+          ROLE_NAME: ${{ inputs.role_name }}
+          DAYS: ${{ inputs.days }}
+          OUTPUT_FILENAME: ${{ inputs.output_filename }}
+          RESOLVE_TEAM_NAME: ${{ inputs.resolve_team_name }}
+          PRISMA_API_URL: ${{ secrets.PRISMACLOUD_API_URL }}
+          PRISMA_ACCESS_KEY: ${{ secrets.PRISMACLOUD_USERNAME }}
+          PRISMA_SECRET_KEY: ${{ secrets.PRISMACLOUD_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          fail() {
+            {
+              echo "## Failed to summarize runtime alerts for \`$ROLE_NAME\`"
+              echo
+              echo "> $1"
+            } >> "$GITHUB_STEP_SUMMARY"
+            touch handled-failure.marker
+            echo "::error title=alert-summary-runtime-failed::$1"
+            exit 1
+          }
+
+          DEBUG="${DEBUG:-false}"
+          debug() {
+            if [ "$DEBUG" = "true" ] || [ "$DEBUG" = "1" ]; then
+              echo "DEBUG: $1" >&2
+            fi
+          }
+
+          [ -n "$ROLE_NAME" ] || fail "role_name is required"
+          case "$DAYS" in
+            ''|*[!0-9]*) fail "days must be a positive integer, got '$DAYS'" ;;
+          esac
+          [ "$DAYS" -gt 0 ] || fail "days must be greater than zero"
+
+          if [ "$RESOLVE_TEAM_NAME" = "true" ]; then
+            TEAM_NAME="$(printf '%s' "${ROLE_NAME%%-*}" | tr '[:lower:]' '[:upper:]')"
+          else
+            TEAM_NAME="$ROLE_NAME"
+          fi
+
+          BASE="${PRISMA_API_URL}"
+          [ -n "$BASE" ]              || fail "PRISMACLOUD_API_URL secret is required"
+          [ -n "$PRISMA_ACCESS_KEY" ] || fail "PRISMACLOUD_USERNAME secret is required"
+          [ -n "$PRISMA_SECRET_KEY" ] || fail "PRISMACLOUD_PASSWORD secret is required"
+
+          # create temp workspace and defer teardown
+          TMP="$(mktemp -d)"
+          chmod 700 "$TMP"
+          trap 'rm -rf "$TMP"' EXIT
+
+          TOKEN="$(jq -nc --arg u "$PRISMA_ACCESS_KEY" --arg p "$PRISMA_SECRET_KEY" '{username:$u,password:$p}' \
+            | curl -sSL -H 'Content-Type: application/json' \
+                -X POST "$BASE/login" --data @- \
+            | jq -r '.token // ""')" || fail "authentication failed against $BASE"
+          [ -n "$TOKEN" ] || fail "authentication returned no token - please check your credentials"
+
+          printf 'x-redlock-auth: %s\n' "$TOKEN" > "$TMP/auth.hdr"
+          chmod 600 "$TMP/auth.hdr"
+          AUTH=(-H "@$TMP/auth.hdr")
+
+          WINDOW_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          WINDOW_START="$(date -u -d "-$DAYS days" +%Y-%m-%dT%H:%M:%SZ)"
+          echo "==> Fetching alerts from the last $DAYS day(s)..."
+          echo "    Start:  $WINDOW_START"
+          echo "    End:    $WINDOW_END"
+
+          : > "$TMP/alert_ids.txt"
+          PAGE_TOKEN=""
+          while :; do
+            PAGE_ARGS=(-G "$BASE/v2/alert"
+              --data-urlencode "timeType=relative"
+              --data-urlencode "timeAmount=$DAYS"
+              --data-urlencode "timeUnit=day"
+              --data-urlencode "detailed=false"
+              --data-urlencode "fields=alert.id"
+              --data-urlencode "limit=10000")
+            [ -n "$PAGE_TOKEN" ] && PAGE_ARGS+=(--data-urlencode "pageToken=$PAGE_TOKEN")
+
+            curl -sSL "${AUTH[@]}" "${PAGE_ARGS[@]}" > "$TMP/page.json" \
+              || fail "alert list query failed"
+
+            jq -r '(.items // [])[].id // empty' "$TMP/page.json" >> "$TMP/alert_ids.txt"
+
+            PAGE_TOKEN="$(jq -r '.nextPageToken // empty' "$TMP/page.json")"
+            [ -n "$PAGE_TOKEN" ] || break
+          done
+
+          TOTAL_ALERTS="$(wc -l < "$TMP/alert_ids.txt" | tr -d ' ')"
+
+          if [ "$TOTAL_ALERTS" -eq 0 ]; then
+            {
+              echo "## Failed to summarize runtime alerts for \`$ROLE_NAME\`"
+              echo
+              echo "No alerts found"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "has_alerts=false" >> "$GITHUB_OUTPUT"
+            echo "No Alerts found. Exiting..."
+            exit 0
+          fi
+
+          echo "Received $TOTAL_ALERTS alert(s)"
+
+          echo "Fetching alert rules..."
+          curl -sSL "${AUTH[@]}" -X GET "$BASE/v2/alert/rule" > "$TMP/alert_rules.json" \
+            || fail "could not list alert rules"
+
+          echo "Fetching user roles..."
+          curl -sSL "${AUTH[@]}" -X GET "$BASE/user/role" > "$TMP/user_roles.json" \
+            || fail "could not list user roles"
+
+          echo "Verifying target role..."
+          ROLE_EXISTS="$(jq -r --arg n "$ROLE_NAME" '[.[] | select(.name == $n)] | length' "$TMP/user_roles.json")"
+          if [ "$ROLE_EXISTS" -eq 0 ]; then
+            SUGGESTION="$(jq -r --arg n "$ROLE_NAME" '[.[].name | select(ascii_downcase == ($n | ascii_downcase))] | first // ""' "$TMP/user_roles.json")"
+            if [ -n "$SUGGESTION" ]; then
+              fail "role name `$ROLE_NAME` not found - did you mean '$SUGGESTION'?"
+            fi
+            fail "role name `$ROLE_NAME` not found"
+          fi
+
+          echo "Parsing alerts for \"$TEAM_NAME\"..."
+
+          : > "$TMP/matched_alert_ids.txt"
+          : > "$TMP/matched_categories.ndjson"
+          : > "$TMP/matched_rows.ndjson"
+          CHECKED=0
+
+          while IFS= read -r ALERT_ID; do
+            [ -n "$ALERT_ID" ] || continue
+
+            debug "[$ALERT_ID] fetching alert details"
+            
+            # Alert Info allows 5 req/sec sustained, 10/sec burst.
+            sleep 0.21
+
+            curl -sSL "${AUTH[@]}" "$BASE/alert/$ALERT_ID?detailed=true" > "$TMP/alert.json" \
+              || fail "Alert Info request failed for $ALERT_ID"
+            
+            RULE_IDS="$(jq -c '[(.alertRules // [])[] | .policyScanConfigId // empty] | unique' "$TMP/alert.json")"
+            if [ "$(jq 'length' <<<"$RULE_IDS")" -eq 0 ]; then
+              CHECKED=$((CHECKED + 1))
+              continue
+            fi
+
+            GROUP_IDS="$(jq -c --argjson ids "$RULE_IDS" '
+                [ .[] | select(.policyScanConfigId as $rid | ($ids | index($rid)) != null)
+                  | ((.target.includedResourceLists.computeAccessGroupIds // [])[]) ]
+                | unique
+              ' "$TMP/alert_rules.json")"
+            if [ "$(jq 'length' <<<"$GROUP_IDS")" -eq 0 ]; then
+              CHECKED=$((CHECKED + 1))
+              continue
+            fi
+
+            MATCHED="$(jq -r --argjson ids "$GROUP_IDS" --arg role "$ROLE_NAME" '
+                any(.[]; .name == $role and ((.resourceListIds // []) | any(. as $rl | ($ids | index($rl)) != null)))
+              ' "$TMP/user_roles.json")"
+
+            if [ "$MATCHED" = "true" ]; then
+              echo "$ALERT_ID" >> "$TMP/matched_alert_ids.txt"
+
+              jq -c '{
+                  incidentCategory:      (.metadata.incidentCategory // null),
+                  auditType:             (.metadata.auditType // null),
+                  auditAttackTechniques: ((.metadata.auditAttackTechniques // []) | if . == [] then "None" else . end),
+                  policyType:            (.policy.policyType | if . == "workload_incident" then "Workload Incident" elif . == "workload_vulnerability" then "Workload Vulnerability" else . end // null)
+                }' "$TMP/alert.json" >> "$TMP/matched_categories.ndjson"
+
+              jq -c '{
+                  id:                         (.id // ""),
+                  status:                     (.status // ""),
+                  firstSeen:                  (.firstSeen // ""),
+                  lastSeen:                   (.lastSeen // ""),
+                  alertTime:                  (.alertTime // ""),
+                  lastUpdated:                (.lastUpdated // ""),
+                  policyId:                   (.policy.policyId // ""),
+                  policyType:                 (.policy.policyType // ""),
+                  resourceId:                 (.resource.id // ""),
+                  resourceName:               (.resource.name // ""),
+                  resourceAccountId:          (.resource.accountId // ""),
+                  resourceRegionId:           (.resource.regionId // ""),
+                  resourceType:               (.resource.resourceType // ""),
+                  resourceApiName:            (.resource.resourceApiName // ""),
+                  resourceCloudServiceName:   (.resource.cloudServiceName // ""),
+                  resourceUrl:                (.resource.url // ""),
+                  resourceCloudType:          (.resource.cloudType // ""),
+                  resourceInternalResourceId: (.resource.internalResourceId // "")
+                }' "$TMP/alert.json" >> "$TMP/matched_rows.ndjson"
+            fi
+
+            CHECKED=$((CHECKED + 1))
+          done < "$TMP/alert_ids.txt"
+
+          TEAM_COUNT="$(wc -l < "$TMP/matched_alert_ids.txt" | tr -d ' ')"
+
+          count_by() {
+            jq -s --arg key "$1" '
+                group_by(.[$key]) | map({ value: .[0][$key], count: length }) | sort_by(-.count)
+              ' "$TMP/matched_categories.ndjson"
+          }
+
+          INCIDENT_CATEGORY_COUNTS='[]'
+          AUDIT_TYPE_COUNTS='[]'
+          POLICY_TYPE_COUNTS='[]'
+          AUDIT_TECHNIQUES_COUNTS='[]'
+
+          if [ -s "$TMP/matched_categories.ndjson" ]; then
+            INCIDENT_CATEGORY_COUNTS="$(count_by incidentCategory)"
+            AUDIT_TYPE_COUNTS="$(count_by auditType)"
+            POLICY_TYPE_COUNTS="$(count_by policyType)"
+            AUDIT_TECHNIQUES_COUNTS="$(jq -s '
+                group_by(.auditAttackTechniques) | map({ value: .[0].auditAttackTechniques, count: length }) | sort_by(-.count)
+              ' "$TMP/matched_categories.ndjson")"
+          fi
+
+          PCT=$(awk -v t="$TEAM_COUNT" -v n="$TOTAL_ALERTS" 'BEGIN { if (n > 0) printf "%.1f", (t / n) * 100; else print "0.0" }')
+
+          {
+            echo "## Runtime Alert Summary - $ROLE_NAME - Past $DAYS Days"
+            echo
+            echo "### Total Alerts: **$TEAM_COUNT**"
+            echo
+            echo "| Search From | Search To |"
+            echo "|---|---|"
+            echo "| $WINDOW_START | $WINDOW_END |"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          render_breakdown() {
+            local title="$1" counts="$2"
+            {
+              echo "### $title"
+              echo
+              echo "| Value | Count |"
+              echo "|---|---:|"
+              jq -r '.[] | "| \((.value // "null") | if type == "array" then join(", ") else tostring end) | \(.count) |"' <<<"$counts"
+              echo
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          render_breakdown "Incident category" "$INCIDENT_CATEGORY_COUNTS"
+          render_breakdown "Audit event type"  "$AUDIT_TYPE_COUNTS"
+          render_breakdown "Attack techniques" "$AUDIT_TECHNIQUES_COUNTS"
+          render_breakdown "Policy type"       "$POLICY_TYPE_COUNTS"
+            
+          if [ -n "$OUTPUT_FILENAME" ]; then
+            CSV_FILE="$OUTPUT_FILENAME"
+          else
+            SAFE_TEAM_NAME="$(printf '%s' "$TEAM_NAME" | tr -c 'A-Za-z0-9_-' '_')"
+            OUTPUT_FILENAME="alerts-runtime_${SAFE_TEAM_NAME}_$(date -u +%Y%m%d)"
+            CSV_FILE="${OUTPUT_FILENAME}.csv"
+          fi
+          
+          {
+            echo "Alert ID,Status,First Seen,Last Seen,Alert Time,Last Updated,Policy ID,Policy Type,Resource ID,Resource Name,Account ID,Region ID,Resource Type,API Name,Cloud Service Name,Prisma Cloud URL,Resource Cloud Type,Internal Resource ID"
+            jq -r '[.id,.status,.firstSeen,.lastSeen,.alertTime,.lastUpdated,.policyId,.policyType,.resourceId,.resourceName,.resourceAccountId,.resourceRegionId,.resourceType,.resourceApiName,.resourceCloudServiceName,.resourceUrl,.resourceCloudType,.resourceInternalResourceId] | @csv' "$TMP/matched_rows.ndjson"
+          } > "$CSV_FILE"
+
+          echo "has_alerts=true" >> "$GITHUB_OUTPUT"
+          echo "output_filename=$OUTPUT_FILENAME" >> "$GITHUB_OUTPUT"
+          echo "csv_filename=$CSV_FILE" >> "$GITHUB_OUTPUT"
+          echo
+          echo "Outputting alert data to $CSV_FILE"
+
+      - name: Report failure
+        if: failure()
+        env:
+          ROLE_NAME: ${{ inputs.role_name }}
+        run: |
+          if [ -f handled-failure.marker ]; then
+            echo "Failure already reported on the summary page."
+            exit 0
+          fi
+
+          {
+            echo "## No alerts were found for role \`$ROLE_NAME\`."
+            echo
+            echo "See the job log for details."
+            echo
+            echo "### Troubleshooting"
+            echo
+            echo "| Issue | Fix |"
+            echo "|---|---|"
+            echo "| \`no user role named ...\` | Role name must match an existing Prisma Cloud role. |"
+            echo "| \`did you mean ...\` | Case mismatch. |"
+            echo "| \`authentication returned no token\` | Check repository secrets. |"
+            echo "| Timed out | Lower number of days and/or re-run. |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+      - name: Upload report
+        if: success() && steps.attribute.outputs.has_alerts == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.attribute.outputs.output_filename }}
+          path: ${{ steps.attribute.outputs.csv_filename }}
+          if-no-files-found: error
+          retention-days: 30
